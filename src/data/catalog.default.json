@@ -1,0 +1,14 @@
+{
+  "factions": [
+    { "id": "CASTILE", "name": "The Castile", "abbr": "CAS" },
+    { "id": "RED_FANG", "name": "Red Fang Pirates", "abbr": "RFP" },
+    { "id": "KEEPERS", "name": "The Keepers", "abbr": "KPR" },
+    { "id": "UNALIGNED", "name": "Unaligned", "abbr": "UNA" }
+  ],
+  "unitTypes": [
+    "BEAST", "UNDEAD", "HUMAN", "JAWA", "GHOST", "SPECTRAL", "ELEMENTAL",
+    "CONSTRUCT", "MACHINE", "DRAGON", "PIRATE", "SOLDIER", "MAGE", "SPIRIT",
+    "PLANT", "AQUATIC", "INSECTOID", "REPTILIAN", "AVIAN", "GIANT"
+  ],
+  "attributes": ["EARTH", "FIRE", "AIR", "WATER", "WOOD", "STEEL", "LIGHT", "DARK", "ICE", "LIGHTNING", "POISON", "ARCANE"]
+}
