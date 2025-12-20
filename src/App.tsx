@@ -1,10 +1,18 @@
+// src/App.tsx
 import React, { useEffect, useMemo, useState } from "react";
 import ReactFlow, { Background, Controls, MiniMap, Handle, Position } from "reactflow";
 import "reactflow/dist/style.css";
-import HexTargetPicker from "./components/HexTargetPicker";
+
 import type { CardEntity, Step, AbilityComponent } from "./lib/types";
 import { makeDefaultCard, canonicalToGraph, abilitySummary } from "./lib/graph";
-import { saveCardJson, clearSaved, loadMigratedCardOrDefault, loadCatalog, saveCatalog, resetCatalog } from "./lib/storage";
+import {
+  saveCardJson,
+  clearSaved,
+  loadMigratedCardOrDefault,
+  loadCatalog,
+  saveCatalog,
+  resetCatalog
+} from "./lib/storage";
 import { migrateCard } from "./lib/migrations";
 import { validateCard, type ValidationIssue } from "./lib/schemas";
 import { blockRegistry, isStepTypeAllowed } from "./lib/registry";
@@ -16,6 +24,7 @@ import { ExpressionEditor } from "./components/ExpressionEditor";
 import { ConditionEditor } from "./components/ConditionEditor";
 import { CardPreview } from "./components/CardPreview";
 import StepListEditor from "./components/NestedStepsEditor";
+import HexTargetPicker from "./components/HexTargetPicker";
 
 function download(filename: string, text: string) {
   const blob = new Blob([text], { type: "application/json" });
@@ -170,7 +179,6 @@ export default function App() {
   const history = useHistoryState<CardEntity>(loadMigratedCardOrDefault(makeDefaultCard));
   const card = history.present;
   const setCard = history.set;
-const [hexPickerByAbility, setHexPickerByAbility] = useState<Record<number, any>>({});
 
   const [issues, setIssues] = useState<ValidationIssue[]>([]);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
@@ -186,6 +194,9 @@ const [hexPickerByAbility, setHexPickerByAbility] = useState<Record<number, any>
   const [catalogOpen, setCatalogOpen] = useState(false);
   const [catalogText, setCatalogText] = useState(JSON.stringify(catalog, null, 2));
   const [catalogErr, setCatalogErr] = useState<string | null>(null);
+
+  // Hex picker UI state (per active ability)
+  const [hexPickerByAbility, setHexPickerByAbility] = useState<Record<number, any>>({});
 
   useEffect(() => {
     try {
@@ -236,7 +247,6 @@ const [hexPickerByAbility, setHexPickerByAbility] = useState<Record<number, any>
     return { nodes: patchedNodes, edges: g.edges };
   }, [card, activeAbilityIdx]);
 
-  // Keep selection highlight stable even if ReactFlow emits empty selection while nodes update
   const displayedNodes = useMemo(
     () => nodes.map((n: any) => ({ ...n, selected: selectedNodeId ? n.id === selectedNodeId : false })),
     [nodes, selectedNodeId]
@@ -401,7 +411,7 @@ const [hexPickerByAbility, setHexPickerByAbility] = useState<Record<number, any>
       name: "New Ability",
       description: "",
       trigger: "ACTIVE_ACTION",
-      cost: { ap: 1, tokens: {} },
+      cost: { ap: 1, tokens: {} } as any,
       targeting: { type: "SINGLE_TARGET", origin: "SOURCE", range: { min: 0, max: 4, base: 4 }, lineOfSight: true } as any,
       execution: { steps: [{ type: "SHOW_TEXT", text: "Do something!" }] }
     };
@@ -423,34 +433,54 @@ const [hexPickerByAbility, setHexPickerByAbility] = useState<Record<number, any>
     setSelectedNodeId(null);
   }
 
-  // Derive the currently selected node (by id) from the current nodes list
+  // Derive selected node by id
   const selectedNode = useMemo(() => {
     if (!selectedNodeId) return null;
     return displayedNodes.find((n: any) => n.id === selectedNodeId) ?? null;
   }, [displayedNodes, selectedNodeId]);
 
-  const selectedKindRaw = selectedNode?.data?.kind ?? null;
-  const selectedKind = typeof selectedKindRaw === "string" ? selectedKindRaw : null;
+  const kindUpper = String(selectedNode?.data?.kind ?? "").toUpperCase();
 
-  const isCost = selectedKind === "COST" || selectedKind === "META_COST";
-  const isTargeting = selectedKind === "TARGETING" || selectedKind === "META_TARGETING";
-  const isAbilityRoot = selectedKind === "ABILITY_ROOT" || selectedKind === "ABILITY";
-  const isStep = selectedKind === "STEP";
+  // Robust matching to avoid “tool not appearing” due to different kind strings
+  const isCost = kindUpper.includes("COST");
+  const isTargeting = kindUpper.includes("TARGET");
+  const isAbilityRoot = kindUpper.includes("ABILITY");
+  const isStep = kindUpper.includes("STEP");
 
-  const selectedStepIdx = isStep ? selectedNode?.data?.stepIdx ?? null : null;
+  const selectedStepIdx = isStep ? (selectedNode?.data?.stepIdx ?? null) : null;
   const selectedStep =
     selectedStepIdx != null && ability?.execution?.steps ? (ability.execution.steps[selectedStepIdx] as Step) : null;
 
-  // Helpers for COST editor (token costs)
+  // COST helper: token costs
   const COST_KEYS = ["UMB", "AET", "CRD", "CHR", "STR", "RES", "WIS", "INT", "SPD", "AWR"] as const;
   function setTokenCost(k: string, v: number) {
     if (!ability) return;
-    const tokens = { ...((ability.cost?.tokens as any) ?? {}) };
+    const tokens = { ...((ability.cost as any)?.tokens ?? {}) };
     const n = Math.max(0, Math.floor(v || 0));
     if (n <= 0) delete tokens[k];
     else tokens[k] = n;
     setAbility({ cost: { ...(ability.cost ?? {}), tokens } } as any);
   }
+
+  // Targeting defaults for showing picker even if targeting missing
+  const targeting: any =
+    ability?.targeting ??
+    ({
+      type: "SINGLE_TARGET",
+      origin: "SOURCE",
+      range: { min: 0, max: 4, base: 4 },
+      lineOfSight: true
+    } as any);
+
+  const origin = String(targeting.origin ?? "SOURCE");
+  const targetingType = String(targeting.type ?? "SINGLE_TARGET");
+  const minRange = Number(targeting?.range?.min ?? 0);
+  const maxRange = Number(targeting?.range?.max ?? targeting?.range?.base ?? 0);
+  const aoeRadius = targetingType === "AREA_RADIUS" ? Number(targeting?.area?.radius ?? 0) : 0;
+  const includeCenter = targetingType === "AREA_RADIUS" ? Boolean(targeting?.area?.includeCenter ?? true) : true;
+  const los = Boolean(targeting?.lineOfSight);
+
+  const shouldShowHexPicker = origin !== "ANYWHERE" && targetingType !== "SELF";
 
   return (
     <div className="app">
@@ -469,7 +499,13 @@ const [hexPickerByAbility, setHexPickerByAbility] = useState<Record<number, any>
             Redo
           </button>
 
-          <button className="btn" onClick={() => setCatalogOpen(true)}>
+          <button
+            className="btn"
+            onClick={() => {
+              setCatalogText(JSON.stringify(catalog, null, 2));
+              setCatalogOpen(true);
+            }}
+          >
             Catalog
           </button>
 
@@ -577,7 +613,7 @@ const [hexPickerByAbility, setHexPickerByAbility] = useState<Record<number, any>
           <div className="ph">
             <div>
               <div className="h2">Logic Canvas</div>
-              <div className="small">Select nodes to edit on the right.</div>
+              <div className="small">Click nodes to edit on the right.</div>
             </div>
             <span className="badge">React Flow</span>
           </div>
@@ -589,7 +625,6 @@ const [hexPickerByAbility, setHexPickerByAbility] = useState<Record<number, any>
               fitView
               onNodeClick={(_, node) => setSelectedNodeId(node.id)}
               onSelectionChange={(sel) => {
-                // IMPORTANT: don't clear selection on empty events; keep node stable while editing
                 const n = sel?.nodes?.[0];
                 if (n?.id) setSelectedNodeId(n.id);
               }}
@@ -609,13 +644,12 @@ const [hexPickerByAbility, setHexPickerByAbility] = useState<Record<number, any>
             <div className="ph">
               <div>
                 <div className="h2">Inspector</div>
-                <div className="small">{selectedKind ?? "No selection"}</div>
+                <div className="small">{selectedNode?.data?.kind ?? "No selection"}</div>
               </div>
               <span className="badge">{(card as any).schemaVersion ?? "CJ"}</span>
             </div>
 
             <div className="pb">
-              {/* Card header */}
               <div className="small">Card Name</div>
               <input className="input" value={card.name} onChange={(e) => setCard({ ...card, name: e.target.value })} />
 
@@ -723,8 +757,8 @@ const [hexPickerByAbility, setHexPickerByAbility] = useState<Record<number, any>
                 </div>
               ) : (
                 <>
-                  {/* Ability Root editor (default if nothing selected OR ability root selected) */}
-                  {(!selectedKind || isAbilityRoot) && (
+                  {/* Ability root editor */}
+                  {(!selectedNodeId || isAbilityRoot) && (
                     <>
                       <div className="small">Ability Name</div>
                       <input className="input" value={ability.name} onChange={(e) => setAbility({ name: e.target.value })} />
@@ -752,7 +786,9 @@ const [hexPickerByAbility, setHexPickerByAbility] = useState<Record<number, any>
                             type="number"
                             value={ability.cost?.ap ?? 0}
                             onChange={(e) =>
-                              setAbility({ cost: { ...(ability.cost ?? {}), ap: Math.max(0, Math.floor(Number(e.target.value) || 0)) } })
+                              setAbility({
+                                cost: { ...(ability.cost ?? {}), ap: Math.max(0, Math.floor(Number(e.target.value) || 0)) }
+                              })
                             }
                           />
                         </div>
@@ -760,7 +796,7 @@ const [hexPickerByAbility, setHexPickerByAbility] = useState<Record<number, any>
                     </>
                   )}
 
-                  {/* COST node editor */}
+                  {/* COST editor */}
                   {isCost && (
                     <>
                       <div className="h2" style={{ marginTop: 4 }}>
@@ -802,7 +838,7 @@ const [hexPickerByAbility, setHexPickerByAbility] = useState<Record<number, any>
                       />
 
                       <div className="small" style={{ marginTop: 10 }}>
-                        Token Costs (appear on preview)
+                        Token Costs
                       </div>
                       <div style={{ display: "grid", gridTemplateColumns: "repeat(5, minmax(0, 1fr))", gap: 8, marginTop: 6 }}>
                         {COST_KEYS.map((k) => (
@@ -811,7 +847,7 @@ const [hexPickerByAbility, setHexPickerByAbility] = useState<Record<number, any>
                             <input
                               className="input"
                               type="number"
-                              value={Number((ability.cost?.tokens as any)?.[k] ?? 0)}
+                              value={Number((ability.cost as any)?.tokens?.[k] ?? 0)}
                               onChange={(e) => setTokenCost(k, Number(e.target.value))}
                             />
                           </div>
@@ -820,7 +856,7 @@ const [hexPickerByAbility, setHexPickerByAbility] = useState<Record<number, any>
                     </>
                   )}
 
-                  {/* TARGETING node editor */}
+                  {/* TARGETING editor */}
                   {isTargeting && (
                     <>
                       <div className="h2" style={{ marginTop: 4 }}>
@@ -832,19 +868,19 @@ const [hexPickerByAbility, setHexPickerByAbility] = useState<Record<number, any>
                       </div>
                       <select
                         className="select"
-                        value={ability.targeting?.type ?? "SINGLE_TARGET"}
+                        value={targetingType}
                         onChange={(e) => {
-                          const type = e.target.value as any;
+                          const type = e.target.value;
                           const next: any = { ...(ability.targeting ?? {}), type };
 
-                          // Ensure range object exists for non-SELF types
+                          // Ensure origin
+                          if (!next.origin) next.origin = "SOURCE";
+
+                          // Ensure range for non-SELF
                           if (type !== "SELF") {
                             const r = next.range ?? {};
                             const max = typeof r.max === "number" ? r.max : typeof r.base === "number" ? r.base : 4;
                             next.range = { ...r, min: typeof r.min === "number" ? r.min : 0, max, base: max };
-                          } else {
-                            // SELF doesn't need range/area
-                            // keep origin as SOURCE though
                           }
 
                           // AREA_RADIUS requires area
@@ -853,7 +889,6 @@ const [hexPickerByAbility, setHexPickerByAbility] = useState<Record<number, any>
 
                           setAbility({ targeting: next });
                         }}
-                        
                       >
                         {(blockRegistry.targeting.types as string[]).map((t) => (
                           <option key={t} value={t}>
@@ -867,8 +902,12 @@ const [hexPickerByAbility, setHexPickerByAbility] = useState<Record<number, any>
                           <div className="small">Origin</div>
                           <select
                             className="select"
-                            value={(ability.targeting as any)?.origin ?? "SOURCE"}
-                            onChange={(e) => setAbility({ targeting: { ...(ability.targeting ?? {}), origin: e.target.value } as any })}
+                            value={origin}
+                            onChange={(e) =>
+                              setAbility({
+                                targeting: { ...(ability.targeting ?? targeting), origin: e.target.value } as any
+                              })
+                            }
                           >
                             <option value="SOURCE">SOURCE</option>
                             <option value="ANYWHERE">ANYWHERE</option>
@@ -879,88 +918,122 @@ const [hexPickerByAbility, setHexPickerByAbility] = useState<Record<number, any>
                           <div className="small">Line of Sight</div>
                           <select
                             className="select"
-                            value={String(ability.targeting?.lineOfSight ?? false)}
-                            onChange={(e) => setAbility({ targeting: { ...(ability.targeting ?? {}), lineOfSight: e.target.value === "true" } as any })}
+                            value={String(los)}
+                            onChange={(e) =>
+                              setAbility({
+                                targeting: { ...(ability.targeting ?? targeting), lineOfSight: e.target.value === "true" } as any
+                              })
+                            }
                           >
                             <option value="false">false</option>
                             <option value="true">true</option>
-                            {(ability.targeting as any)?.origin !== "ANYWHERE" && (ability.targeting?.type ?? "") !== "SELF" ? (
-  <HexTargetPicker
-    minRange={(ability.targeting as any)?.range?.min ?? 0}
-    maxRange={(ability.targeting as any)?.range?.max ?? (ability.targeting as any)?.range?.base ?? 0}
-    aoeRadius={ability.targeting?.type === "AREA_RADIUS" ? ((ability.targeting as any)?.area?.radius ?? 0) : 0}
-    includeCenter={
-      ability.targeting?.type === "AREA_RADIUS" ? Boolean((ability.targeting as any)?.area?.includeCenter ?? true) : true
-    }
-    lineOfSight={Boolean(ability.targeting?.lineOfSight)}
-    value={hexPickerByAbility[activeAbilityIdx]}
-    onChange={(next) => setHexPickerByAbility((p) => ({ ...p, [activeAbilityIdx]: next }))}
-  />
-) : (
-  <div className="small" style={{ marginTop: 8 }}>
-    Hex preview hidden for origin=ANYWHERE or SELF targeting.
-  </div>
-)}
-
                           </select>
                         </div>
                       </div>
 
-                      {ability.targeting?.type !== "SELF" ? (
+                      {targetingType !== "SELF" ? (
                         <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
                           <div style={{ flex: 1 }}>
                             <div className="small">Min Range</div>
                             <input
                               className="input"
                               type="number"
-                              value={(ability.targeting as any)?.range?.min ?? 0}
+                              value={minRange}
                               onChange={(e) => {
                                 const min = Math.max(0, Math.floor(Number(e.target.value) || 0));
-                                const max = Math.max(min, Math.floor(Number((ability.targeting as any)?.range?.max ?? 4)));
-                                setAbility({ targeting: { ...(ability.targeting ?? {}), range: { ...(ability.targeting as any)?.range, min, max, base: max } } as any });
+                                const max = Math.max(min, Math.floor(Number(maxRange || 0)));
+                                setAbility({
+                                  targeting: {
+                                    ...(ability.targeting ?? targeting),
+                                    range: { ...(targeting.range ?? {}), min, max, base: max }
+                                  } as any
+                                });
                               }}
                             />
                           </div>
+
                           <div style={{ flex: 1 }}>
                             <div className="small">Max Range</div>
                             <input
                               className="input"
                               type="number"
-                              value={(ability.targeting as any)?.range?.max ?? (ability.targeting as any)?.range?.base ?? 4}
+                              value={maxRange}
                               onChange={(e) => {
                                 const max = Math.max(0, Math.floor(Number(e.target.value) || 0));
-                                const min = Math.min(Math.floor(Number((ability.targeting as any)?.range?.min ?? 0)), max);
-                                setAbility({ targeting: { ...(ability.targeting ?? {}), range: { ...(ability.targeting as any)?.range, min, max, base: max } } as any });
+                                const min = Math.min(Math.floor(Number(minRange || 0)), max);
+                                setAbility({
+                                  targeting: {
+                                    ...(ability.targeting ?? targeting),
+                                    range: { ...(targeting.range ?? {}), min, max, base: max }
+                                  } as any
+                                });
                               }}
                             />
                           </div>
                         </div>
                       ) : null}
 
-                      {ability.targeting?.type === "AREA_RADIUS" ? (
+                      {targetingType === "AREA_RADIUS" ? (
                         <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
                           <div style={{ flex: 1 }}>
-                            <div className="small">Area Radius</div>
+                            <div className="small">AoE Radius</div>
                             <input
                               className="input"
                               type="number"
-                              value={(ability.targeting as any)?.area?.radius ?? 1}
+                              value={aoeRadius}
                               onChange={(e) => {
                                 const radius = Math.max(0, Math.floor(Number(e.target.value) || 0));
-                                setAbility({ targeting: { ...(ability.targeting ?? {}), area: { ...((ability.targeting as any)?.area ?? {}), radius } } as any });
+                                setAbility({
+                                  targeting: {
+                                    ...(ability.targeting ?? targeting),
+                                    area: { ...(targeting.area ?? {}), radius }
+                                  } as any
+                                });
                               }}
                             />
+                          </div>
+
+                          <div style={{ flex: 1 }}>
+                            <div className="small">Include Center</div>
+                            <select
+                              className="select"
+                              value={String(includeCenter)}
+                              onChange={(e) =>
+                                setAbility({
+                                  targeting: {
+                                    ...(ability.targeting ?? targeting),
+                                    area: { ...(targeting.area ?? {}), includeCenter: e.target.value === "true" }
+                                  } as any
+                                })
+                              }
+                            >
+                              <option value="true">true</option>
+                              <option value="false">false</option>
+                            </select>
                           </div>
                         </div>
                       ) : null}
 
-                      <div className="small" style={{ marginTop: 8 }}>
-                        (Grid selection tool comes next; this panel configures its rules.)
-                      </div>
+                      {/* Hex grid tool */}
+                      {shouldShowHexPicker ? (
+                        <HexTargetPicker
+                          minRange={minRange}
+                          maxRange={maxRange}
+                          aoeRadius={aoeRadius}
+                          includeCenter={includeCenter}
+                          lineOfSight={los}
+                          value={hexPickerByAbility[activeAbilityIdx]}
+                          onChange={(next) => setHexPickerByAbility((p) => ({ ...p, [activeAbilityIdx]: next }))}
+                        />
+                      ) : (
+                        <div className="small" style={{ marginTop: 10 }}>
+                          Hex preview hidden for origin=ANYWHERE or SELF targeting.
+                        </div>
+                      )}
                     </>
                   )}
 
-                  {/* STEP node editor */}
+                  {/* STEP editor */}
                   {isStep && selectedStep ? (
                     <>
                       <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 6 }}>
@@ -994,32 +1067,51 @@ const [hexPickerByAbility, setHexPickerByAbility] = useState<Record<number, any>
                           {selectedStep.type === "SHOW_TEXT" ? (
                             <>
                               <div className="small">Text</div>
-                              <textarea className="textarea" value={(selectedStep as any).text ?? ""} onChange={(e) => patchStep(selectedStepIdx, { text: e.target.value })} />
+                              <textarea
+                                className="textarea"
+                                value={(selectedStep as any).text ?? ""}
+                                onChange={(e) => patchStep(selectedStepIdx, { text: e.target.value })}
+                              />
                             </>
                           ) : null}
 
                           {(selectedStep.type === "ROLL_D6" || selectedStep.type === "ROLL_D20") ? (
                             <>
                               <div className="small">saveAs</div>
-                              <input className="input" value={(selectedStep as any).saveAs ?? ""} onChange={(e) => patchStep(selectedStepIdx, { saveAs: e.target.value || undefined })} />
+                              <input
+                                className="input"
+                                value={(selectedStep as any).saveAs ?? ""}
+                                onChange={(e) => patchStep(selectedStepIdx, { saveAs: e.target.value || undefined })}
+                              />
                             </>
                           ) : null}
 
                           {selectedStep.type === "SET_VARIABLE" ? (
                             <>
                               <div className="small">saveAs</div>
-                              <input className="input" value={(selectedStep as any).saveAs ?? ""} onChange={(e) => patchStep(selectedStepIdx, { saveAs: e.target.value })} />
+                              <input
+                                className="input"
+                                value={(selectedStep as any).saveAs ?? ""}
+                                onChange={(e) => patchStep(selectedStepIdx, { saveAs: e.target.value })}
+                              />
                               <div className="small" style={{ marginTop: 8 }}>
                                 valueExpr
                               </div>
-                              <ExpressionEditor value={(selectedStep as any).valueExpr} onChange={(valueExpr) => patchStep(selectedStepIdx, { valueExpr })} />
+                              <ExpressionEditor
+                                value={(selectedStep as any).valueExpr}
+                                onChange={(valueExpr) => patchStep(selectedStepIdx, { valueExpr })}
+                              />
                             </>
                           ) : null}
 
                           {selectedStep.type === "DEAL_DAMAGE" ? (
                             <>
                               <div className="small">Damage Type</div>
-                              <select className="select" value={(selectedStep as any).damageType} onChange={(e) => patchStep(selectedStepIdx, { damageType: e.target.value })}>
+                              <select
+                                className="select"
+                                value={(selectedStep as any).damageType}
+                                onChange={(e) => patchStep(selectedStepIdx, { damageType: e.target.value })}
+                              >
                                 {(blockRegistry.keys.DamageType as string[]).map((d) => (
                                   <option key={d} value={d}>
                                     {d}
@@ -1029,21 +1121,31 @@ const [hexPickerByAbility, setHexPickerByAbility] = useState<Record<number, any>
                               <div className="small" style={{ marginTop: 8 }}>
                                 Amount Expression
                               </div>
-                              <ExpressionEditor value={(selectedStep as any).amountExpr} onChange={(amountExpr) => patchStep(selectedStepIdx, { amountExpr })} />
+                              <ExpressionEditor
+                                value={(selectedStep as any).amountExpr}
+                                onChange={(amountExpr) => patchStep(selectedStepIdx, { amountExpr })}
+                              />
                             </>
                           ) : null}
 
                           {selectedStep.type === "HEAL" ? (
                             <>
                               <div className="small">Amount Expression</div>
-                              <ExpressionEditor value={(selectedStep as any).amountExpr} onChange={(amountExpr) => patchStep(selectedStepIdx, { amountExpr })} />
+                              <ExpressionEditor
+                                value={(selectedStep as any).amountExpr}
+                                onChange={(amountExpr) => patchStep(selectedStepIdx, { amountExpr })}
+                              />
                             </>
                           ) : null}
 
                           {selectedStep.type === "APPLY_STATUS" ? (
                             <>
                               <div className="small">Status</div>
-                              <select className="select" value={(selectedStep as any).status} onChange={(e) => patchStep(selectedStepIdx, { status: e.target.value })}>
+                              <select
+                                className="select"
+                                value={(selectedStep as any).status}
+                                onChange={(e) => patchStep(selectedStepIdx, { status: e.target.value })}
+                              >
                                 {(blockRegistry.keys.StatusKey as string[]).map((s) => (
                                   <option key={s} value={s}>
                                     {s}
@@ -1057,7 +1159,9 @@ const [hexPickerByAbility, setHexPickerByAbility] = useState<Record<number, any>
                                 className="input"
                                 type="number"
                                 value={(selectedStep as any).duration?.turns ?? 1}
-                                onChange={(e) => patchStep(selectedStepIdx, { duration: { turns: Math.max(1, Math.floor(Number(e.target.value) || 1)) } })}
+                                onChange={(e) =>
+                                  patchStep(selectedStepIdx, { duration: { turns: Math.max(1, Math.floor(Number(e.target.value) || 1)) } })
+                                }
                               />
                             </>
                           ) : null}
@@ -1065,7 +1169,11 @@ const [hexPickerByAbility, setHexPickerByAbility] = useState<Record<number, any>
                           {selectedStep.type === "REMOVE_STATUS" ? (
                             <>
                               <div className="small">Status</div>
-                              <select className="select" value={(selectedStep as any).status} onChange={(e) => patchStep(selectedStepIdx, { status: e.target.value })}>
+                              <select
+                                className="select"
+                                value={(selectedStep as any).status}
+                                onChange={(e) => patchStep(selectedStepIdx, { status: e.target.value })}
+                              >
                                 {(blockRegistry.keys.StatusKey as string[]).map((s) => (
                                   <option key={s} value={s}>
                                     {s}
@@ -1090,7 +1198,10 @@ const [hexPickerByAbility, setHexPickerByAbility] = useState<Record<number, any>
                           {selectedStep.type === "IF_ELSE" ? (
                             <>
                               <div className="small">Condition</div>
-                              <ConditionEditor value={(selectedStep as any).condition} onChange={(condition) => patchStep(selectedStepIdx, { condition })} />
+                              <ConditionEditor
+                                value={(selectedStep as any).condition}
+                                onChange={(condition) => patchStep(selectedStepIdx, { condition })}
+                              />
                             </>
                           ) : null}
                         </div>
