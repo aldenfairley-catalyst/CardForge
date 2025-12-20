@@ -1,0 +1,50 @@
+import type { CardEntity } from "./types";
+
+export const LATEST_SCHEMA_VERSION = "CJ-1.1" as const;
+
+function isObject(x: any) {
+  return x && typeof x === "object" && !Array.isArray(x);
+}
+
+function ensurePresentation(card: any) {
+  if (!isObject(card.presentation)) card.presentation = {};
+  if (!card.presentation.imagePosition) card.presentation.imagePosition = "center center";
+  return card;
+}
+
+function migrate_1_0_to_1_1(card: any): CardEntity {
+  // CJ-1.1 adds: presentation.imagePosition, targeting.range min/max conventions, expanded resources okay
+  card.schemaVersion = "CJ-1.1";
+
+  ensurePresentation(card);
+
+  // Normalize targeting.range: base -> max
+  for (const comp of card.components ?? []) {
+    if (comp?.componentType !== "ABILITY") continue;
+    const t = comp.targeting;
+    if (!t || !isObject(t)) continue;
+
+    if (t.range && isObject(t.range)) {
+      const r = t.range;
+      // If only base exists, treat as max
+      if (typeof r.base === "number" && typeof r.max !== "number") r.max = r.base;
+      if (typeof r.min !== "number") r.min = 0;
+    }
+  }
+
+  return card as CardEntity;
+}
+
+export function migrateCard(raw: any): CardEntity {
+  if (!raw || typeof raw !== "object") throw new Error("Invalid card JSON (not an object).");
+
+  // Accept Forge project wrapper
+  const incoming = raw?.projectVersion === "FORGE-1.0" ? raw.card : raw;
+  if (!incoming) throw new Error("Invalid import format.");
+
+  const v = String(incoming.schemaVersion ?? "");
+  if (v === "CJ-1.1") return ensurePresentation({ ...incoming }) as CardEntity;
+  if (v === "CJ-1.0") return migrate_1_0_to_1_1({ ...incoming });
+
+  throw new Error(`Unsupported schemaVersion: ${v}`);
+}
