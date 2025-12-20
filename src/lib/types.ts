@@ -1,21 +1,19 @@
 // src/lib/types.ts
 // Captain Jawa Digital – Core Types (CJ-1.1+)
-// Option A implementation: Target Profiles + Target Sets
-// Backwards compatible with legacy ability.targeting (single profile).
-
-// ---------------------------
-// Core Card / Entity Types
-// ---------------------------
+// Option A: Target Profiles + Target Sets
+// Adds: custom per-card state schema + state conditions + state mutation steps
 
 export type SchemaVersion = "CJ-1.0" | "CJ-1.1" | string;
 
 export type CardType = "UNIT" | "ITEM" | "ENVIRONMENT" | "SPELL" | "TOKEN";
-
-export type EntityType = CardType; // alias (some files may use EntityType)
+export type EntityType = CardType;
 
 export type IdString = string;
 
-// Long names + abbreviations support (for gradual migration)
+// ---------------------------
+// Token / Resource Keys
+// ---------------------------
+
 export type TokenKey =
   | "UMB" // Umbra
   | "AET" // Aether
@@ -41,7 +39,7 @@ export type Resources = {
   SPD?: number;
   AWR?: number;
 
-  // Legacy aliases (if any older cards / tools use these)
+  // Legacy aliases (optional)
   umbra?: number;
   aether?: number;
   coordination?: number;
@@ -54,27 +52,46 @@ export type Resources = {
   awareness?: number;
 };
 
-export type Gauge = {
-  current: number;
-  max: number;
-};
+// ---------------------------
+// Unit Stats
+// ---------------------------
+
+export type Gauge = { current: number; max: number };
 
 export type UnitStats = {
   hp?: Gauge;
-  ap?: Gauge; // Action Points per round
-  movement?: number; // MOVE per round
+  ap?: Gauge; // per round
+  movement?: number; // MOVE
   resilience?: number;
-  size?: number; // footprint abstraction (or later: "1x1", etc.)
+  size?: number;
 };
+
+// ---------------------------
+// Custom State (per card instance)
+// ---------------------------
+
+export type StateValue = boolean | number | string;
+export type StateValueType = "boolean" | "number" | "string";
+
+export type StateDef = {
+  type: StateValueType;
+  default: StateValue;
+  description?: string;
+};
+
+export type StateSchema = Record<string, StateDef>;
+
+// ---------------------------
+// Presentation / Visuals
+// ---------------------------
 
 export type CardVisuals = {
   cardImage?: string; // URL or data URL (MVP)
   tokenImage?: string;
   model3d?: string;
 
-  // Preview-only / presentation hints (safe to ignore by server)
   imageAlign?: "CENTER" | "TOP" | "BOTTOM" | "LEFT" | "RIGHT";
-  imageFit?: "COVER" | "CONTAIN"; // how to scale in preview frame
+  imageFit?: "COVER" | "CONTAIN";
 };
 
 export type CardPresentation = {
@@ -82,28 +99,31 @@ export type CardPresentation = {
   theme?: "BLUE" | "GREEN" | "PURPLE" | "ORANGE" | "RED";
 };
 
+// ---------------------------
+// Card Entity
+// ---------------------------
+
 export type CardEntity = {
   schemaVersion: SchemaVersion;
   id: IdString;
   name: string;
   type: CardType;
 
-  // Identity / classification
-  faction?: string; // from Catalog
-  subType?: string[]; // unit types etc (from Catalog)
-  attributes?: string[]; // elemental/material etc (from Catalog)
+  faction?: string;
+  subType?: string[];
+  attributes?: string[];
   tags?: string[];
 
   visuals?: CardVisuals;
   presentation?: CardPresentation;
 
-  // Unit-centric stats (still allowed on non-units; validator can enforce later)
   stats?: UnitStats;
-
-  // Unit token pool or card token value (depending on design)
   resources?: Resources;
 
-  // Component-Entity-System payload
+  // NEW: defines custom state keys available on instances of this card
+  // e.g. { "loaded": { "type":"boolean", "default": false } }
+  stateSchema?: StateSchema;
+
   components: Component[];
 };
 
@@ -111,11 +131,7 @@ export type CardEntity = {
 // Components
 // ---------------------------
 
-export type Component =
-  | AbilityComponent
-  | ItemComponent
-  | StatsComponent
-  | UnknownComponent;
+export type Component = AbilityComponent | ItemComponent | StatsComponent | UnknownComponent;
 
 export type UnknownComponent = {
   componentType: string;
@@ -129,7 +145,6 @@ export type StatsComponent = {
 
 export type ItemComponent = {
   componentType: "ITEM";
-  // placeholder for future equip rules, slots, etc.
   slots?: string[];
   hands?: number;
   restrictions?: {
@@ -137,6 +152,10 @@ export type ItemComponent = {
     allowedTypes?: string[];
   };
 };
+
+// ---------------------------
+// Abilities
+// ---------------------------
 
 export type AbilityTrigger =
   | "ACTIVE_ACTION"
@@ -154,33 +173,20 @@ export type AbilityCost = {
   cooldown?: { turns: number };
 };
 
-export type AbilityExecution = {
-  steps: Step[];
-};
+export type AbilityExecution = { steps: Step[] };
 
 // ---------------------------
-// Option A: Target Profiles + Target Sets
+// Target Profiles + Target Sets (Option A)
 // ---------------------------
 
-export type TargetingType =
-  | "SELF"
-  | "SINGLE_TARGET"
-  | "MULTI_TARGET"
-  | "AREA_RADIUS"
-  | "LINE" // future
-  | "CONE"; // future
+export type TargetingType = "SELF" | "SINGLE_TARGET" | "MULTI_TARGET" | "AREA_RADIUS" | "LINE" | "CONE";
 
-export type TargetingOrigin =
-  | "SOURCE"
-  | "ANYWHERE"
-  | "RELATIVE_TO_TARGET_SET";
+export type TargetingOrigin = "SOURCE" | "ANYWHERE" | "RELATIVE_TO_TARGET_SET";
 
 export type RangeSpec = {
   min?: number;
   max?: number;
-
-  // legacy field (older cards): treat as max/base
-  base?: number;
+  base?: number; // legacy
 };
 
 export type AreaSpec = {
@@ -190,29 +196,21 @@ export type AreaSpec = {
 
 export type TargetingConstraints = {
   excludeSelf?: boolean;
-
-  // Exclude all targets that are already in another named target set
   excludeTargetSet?: string;
-
-  // Require target to be adjacent (range 1) to every/any target in that set
   mustBeAdjacentTo?: string;
 
-  // Future-friendly extension points
   requiredTags?: string[];
   forbiddenTags?: string[];
 };
 
 export type TargetingProfile = {
-  id: string; // e.g. "primary", "secondary"
-  label?: string; // display name
+  id: string;
+  label?: string;
 
   type: TargetingType;
   origin: TargetingOrigin;
 
-  // Used when origin is RELATIVE_TO_TARGET_SET
-  relativeTo?: {
-    targetSetId: string; // references another profile id OR a prior saveAs target set (validator decides)
-  };
+  relativeTo?: { targetSetId: string }; // when origin=RELATIVE_TO_TARGET_SET
 
   range?: RangeSpec;
   lineOfSight?: boolean;
@@ -227,47 +225,18 @@ export type TargetingProfile = {
   constraints?: TargetingConstraints;
 };
 
-// Legacy targeting (single profile) – still supported for older cards
+// Legacy single targeting
 export type LegacyTargeting = {
   type: TargetingType;
-  origin?: Exclude<TargetingOrigin, "RELATIVE_TO_TARGET_SET">; // legacy didn’t support relative profiles
+  origin?: Exclude<TargetingOrigin, "RELATIVE_TO_TARGET_SET">;
   range?: RangeSpec;
   lineOfSight?: boolean;
   area?: AreaSpec;
 };
 
-export type AbilityComponent = {
-  componentType: "ABILITY";
-  name: string;
-  description?: string;
-  trigger: AbilityTrigger;
-
-  cost?: AbilityCost;
-
-  // Option A: multiple selectable profiles
-  targetingProfiles?: TargetingProfile[];
-
-  // Legacy single targeting (kept for compatibility + easy authoring early)
-  targeting?: LegacyTargeting;
-
-  execution: AbilityExecution;
-};
-
 // ---------------------------
-// Expressions (for amounts, formulas, etc.)
+// Conditions / Expressions (with state + board queries)
 // ---------------------------
-
-export type Expression =
-  | { type: "CONST_NUMBER"; value: number }
-  | { type: "VAR"; name: string } // variables saved by ROLL / SET_VARIABLE etc.
-  | { type: "GET_STAT"; stat: StatKey; from?: TargetRef }
-  | { type: "ADD"; left: Expression; right: Expression }
-  | { type: "SUB"; left: Expression; right: Expression }
-  | { type: "MUL"; left: Expression; right: Expression }
-  | { type: "DIV"; left: Expression; right: Expression }
-  | { type: "MIN"; values: Expression[] }
-  | { type: "MAX"; values: Expression[] }
-  | { type: "CLAMP"; value: Expression; min: Expression; max: Expression };
 
 export type StatKey =
   | "HP"
@@ -283,9 +252,45 @@ export type StatKey =
   | "WISDOM"
   | "STRENGTH";
 
-// ---------------------------
-// Conditions
-// ---------------------------
+export type CompareOp = "EQ" | "NEQ" | "GT" | "GTE" | "LT" | "LTE";
+
+// NEW: relationship filters for board queries
+export type RelationFilter = "ALLY" | "ENEMY" | "ANY" | "NON_ALLIED";
+
+// Target references used by steps/conditions
+export type TargetRef =
+  | { type: "SELF" }
+  | { type: "TARGET" } // legacy “chosen target”
+  | { type: "TARGET_SET"; ref: string } // saveAs from SELECT_TARGETS
+  | { type: "ITERATION_TARGET" } // only inside FOR_EACH_TARGET.do
+  // NEW: reference an equipped item instance
+  | { type: "EQUIPPED_ITEM"; itemId: string; of?: TargetRef }
+  // escape hatch
+  | { type: string; [k: string]: any };
+
+export type Expression =
+  | { type: "CONST_NUMBER"; value: number }
+  | { type: "VAR"; name: string }
+  | { type: "GET_STAT"; stat: StatKey; from?: TargetRef }
+  // NEW: query count of entities in range
+  | {
+      type: "COUNT_ENTITIES_IN_RANGE";
+      center?: TargetRef; // default SELF
+      range: number;
+      relation?: RelationFilter; // default ANY
+      requiredTags?: string[];
+      forbiddenTags?: string[];
+      mustHaveEquippedItemId?: string;
+    }
+  | { type: "ADD"; left: Expression; right: Expression }
+  | { type: "SUB"; left: Expression; right: Expression }
+  | { type: "MUL"; left: Expression; right: Expression }
+  | { type: "DIV"; left: Expression; right: Expression }
+  | { type: "MIN"; values: Expression[] }
+  | { type: "MAX"; values: Expression[] }
+  | { type: "CLAMP"; value: Expression; min: Expression; max: Expression }
+  // escape hatch
+  | { type: string; [k: string]: any };
 
 export type Condition =
   | { type: "ALWAYS" }
@@ -294,32 +299,39 @@ export type Condition =
   | { type: "OR"; values: Condition[] }
   | { type: "COMPARE"; op: CompareOp; left: Expression; right: Expression }
   | { type: "HAS_STATUS"; target?: TargetRef; status: StatusKey }
-  | { type: "HAS_TAG"; target?: TargetRef; tag: string };
-
-export type CompareOp = "EQ" | "NEQ" | "GT" | "GTE" | "LT" | "LTE";
+  | { type: "HAS_TAG"; target?: TargetRef; tag: string }
+  // NEW: equipment + state checks
+  | { type: "HAS_EQUIPPED_ITEM"; target?: TargetRef; itemId: string }
+  | { type: "STATE_EQUALS"; target?: TargetRef; key: string; value: StateValue }
+  // escape hatch
+  | { type: string; [k: string]: any };
 
 // ---------------------------
-// Target references used by steps
+// Ability Component
 // ---------------------------
 
-export type TargetRef =
-  | { type: "SELF" }
-  | { type: "TARGET" } // legacy “the chosen target” (older cards)
-  | { type: "TARGET_SET"; ref: string } // ref is saveAs from SELECT_TARGETS
-  | { type: "ITERATION_TARGET" }; // only valid inside FOR_EACH_TARGET.do
+export type AbilityComponent = {
+  componentType: "ABILITY";
+  name: string;
+  description?: string;
+  trigger: AbilityTrigger;
+
+  cost?: AbilityCost;
+
+  // NEW: gating condition checked before cost is paid / action is allowed
+  requirements?: Condition;
+
+  targetingProfiles?: TargetingProfile[];
+  targeting?: LegacyTargeting;
+
+  execution: AbilityExecution;
+};
 
 // ---------------------------
 // Steps
 // ---------------------------
 
-export type DamageType =
-  | "PHYSICAL"
-  | "FIRE"
-  | "ICE"
-  | "POISON"
-  | "LIGHTNING"
-  | "ARCANE"
-  | "NECROTIC";
+export type DamageType = "PHYSICAL" | "FIRE" | "ICE" | "POISON" | "LIGHTNING" | "ARCANE" | "NECROTIC";
 
 export type StatusKey =
   | "STUNNED"
@@ -345,48 +357,26 @@ export type Step =
   | IfElseStep
   | SelectTargetsStep
   | ForEachTargetStep
+  // NEW: state mutation
+  | SetStateStep
+  | ToggleStateStep
   | UnknownStep;
 
-export type ShowTextStep = {
-  type: "SHOW_TEXT";
-  text: string;
-};
+export type ShowTextStep = { type: "SHOW_TEXT"; text: string };
 
 export type RollStep =
   | { type: "ROLL_D6"; saveAs?: string }
   | { type: "ROLL_D20"; saveAs?: string };
 
-export type SetVariableStep = {
-  type: "SET_VARIABLE";
-  saveAs: string;
-  valueExpr: Expression;
-};
+export type SetVariableStep = { type: "SET_VARIABLE"; saveAs: string; valueExpr: Expression };
 
-export type DealDamageStep = {
-  type: "DEAL_DAMAGE";
-  target: TargetRef;
-  amountExpr: Expression;
-  damageType: DamageType;
-};
+export type DealDamageStep = { type: "DEAL_DAMAGE"; target: TargetRef; amountExpr: Expression; damageType: DamageType };
 
-export type HealStep = {
-  type: "HEAL";
-  target: TargetRef;
-  amountExpr: Expression;
-};
+export type HealStep = { type: "HEAL"; target: TargetRef; amountExpr: Expression };
 
-export type ApplyStatusStep = {
-  type: "APPLY_STATUS";
-  target: TargetRef;
-  status: StatusKey;
-  duration?: { turns: number };
-};
+export type ApplyStatusStep = { type: "APPLY_STATUS"; target: TargetRef; status: StatusKey; duration?: { turns: number } };
 
-export type RemoveStatusStep = {
-  type: "REMOVE_STATUS";
-  target: TargetRef;
-  status: StatusKey;
-};
+export type RemoveStatusStep = { type: "REMOVE_STATUS"; target: TargetRef; status: StatusKey };
 
 export type MoveEntityStep = {
   type: "MOVE_ENTITY";
@@ -409,42 +399,35 @@ export type OpponentSaveStep = {
   onSuccess: Step[];
 };
 
-// IF / ELSE with optional elseIf ladder
 export type IfElseStep = {
   type: "IF_ELSE";
   condition: Condition;
   then: Step[];
-  elseIf?: Array<{
-    condition: Condition;
-    then: Step[];
-  }>;
+  elseIf?: Array<{ condition: Condition; then: Step[] }>;
   else?: Step[];
 };
 
-// Option A: Explicit targeting selection step
-export type SelectTargetsStep = {
-  type: "SELECT_TARGETS";
-  profileId: string; // references AbilityComponent.targetingProfiles[].id
-  saveAs: string; // the target set name for later steps
+export type SelectTargetsStep = { type: "SELECT_TARGETS"; profileId: string; saveAs: string };
+
+export type ForEachTargetStep = { type: "FOR_EACH_TARGET"; targetSet: { ref: string }; do: Step[] };
+
+// NEW: state mutation steps
+export type SetStateStep = {
+  type: "SET_STATE";
+  target: TargetRef;
+  key: string;
+  // set a constant (boolean/number/string) OR a numeric expression
+  value?: StateValue;
+  valueExpr?: Expression;
 };
 
-// Option A: Iterate a target set
-export type ForEachTargetStep = {
-  type: "FOR_EACH_TARGET";
-  targetSet: { ref: string }; // references saveAs from SELECT_TARGETS
-  do: Step[];
+export type ToggleStateStep = {
+  type: "TOGGLE_STATE";
+  target: TargetRef;
+  key: string;
 };
 
-export type UnknownStep = {
-  type: "UNKNOWN_STEP";
-  raw: any;
-};
-
-// ---------------------------
-// Utility helpers (optional)
-// ---------------------------
-
-export type AbilityLike = AbilityComponent;
+export type UnknownStep = { type: "UNKNOWN_STEP"; raw: any };
 
 export type CardProject = {
   projectVersion: "FORGE-1.0" | string;
