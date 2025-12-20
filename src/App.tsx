@@ -1,7 +1,9 @@
 import React, { useEffect, useMemo, useState } from "react";
 import ReactFlow, { Background, Controls, MiniMap, Handle, Position } from "reactflow";
 import "reactflow/dist/style.css";
-
+import { CardLibraryManager } from "./features/library/CardLibraryManager";
+import { DeckBuilder } from "./features/decks/DeckBuilder";
+import { ScenarioBuilder } from "./features/scenarios/ScenarioBuilder";
 import type { CardEntity, Step, AbilityComponent, ZoneKey, DistanceMetric } from "./lib/types";
 import { makeDefaultCard, canonicalToGraph, abilitySummary } from "./lib/graph";
 import { loadCardJson, saveCardJson, clearSaved } from "./lib/storage";
