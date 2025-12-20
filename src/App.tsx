@@ -191,7 +191,14 @@ export default function App() {
 
   useEffect(() => {
     setIssues(validateCard(card));
-    saveCardJson(JSON.stringify(card));
+    // If you embed large images as Data URLs, localStorage may overflow.
+    // This try/catch prevents the whole UI from breaking.
+    try {
+      saveCardJson(JSON.stringify(card));
+    } catch (e) {
+      // eslint-disable-next-line no-console
+      console.warn("Could not save card to local storage (possibly too large).", e);
+    }
   }, [card]);
 
   const { nodes, edges } = useMemo(() => {
@@ -538,8 +545,9 @@ export default function App() {
         </div>
 
         {/* Inspector + Preview JSON + Compile */}
-        <div style={{ display: "flex", flexDirection: "column", gap: 12, minHeight: 0 }}>
-          <div className="panel">
+        <div style={{ display: "flex", flexDirection: "column", gap: 12, minHeight: 0, height: "100%" }}>
+          {/* INSPECTOR */}
+          <div className="panel" style={{ flex: "1 1 55%", minHeight: 0 }}>
             <div className="ph">
               <div>
                 <div className="h2">Inspector</div>
@@ -574,28 +582,31 @@ export default function App() {
                 <summary className="small" style={{ cursor: "pointer" }}>
                   Card Art + Identity
                 </summary>
-<div className="small" style={{ marginTop: 8 }}>Upload Image (stored as Data URL)</div>
-<input
-  className="input"
-  type="file"
-  accept="image/*"
-  onChange={(e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      const dataUrl = String(reader.result);
-      setCard({
-        ...card,
-        visuals: { ...(card.visuals ?? {}), cardImage: dataUrl }
-      });
-    };
-    reader.readAsDataURL(file);
-  }}
-/>
-<div className="small" style={{ marginTop: 6 }}>
-  Tip: Big images make JSON large. If you hit localStorage limits, use a smaller image.
-</div>
+
+                <div className="small" style={{ marginTop: 8 }}>
+                  Upload Image (stored as Data URL)
+                </div>
+                <input
+                  className="input"
+                  type="file"
+                  accept="image/*"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (!file) return;
+                    const reader = new FileReader();
+                    reader.onload = () => {
+                      const dataUrl = String(reader.result);
+                      setCard({
+                        ...card,
+                        visuals: { ...(card.visuals ?? {}), cardImage: dataUrl }
+                      });
+                    };
+                    reader.readAsDataURL(file);
+                  }}
+                />
+                <div className="small" style={{ marginTop: 6 }}>
+                  Tip: Big images make JSON large. If you hit localStorage limits, use a smaller image.
+                </div>
 
                 <div className="small" style={{ marginTop: 8 }}>
                   Card Image URL
@@ -609,13 +620,17 @@ export default function App() {
                       visuals: { ...(card.visuals ?? {}), cardImage: e.target.value || undefined }
                     })
                   }
-                  placeholder="https://..."
+                  placeholder="https://... or cards/my_image.png"
                 />
 
                 <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
                   <div style={{ flex: 1 }}>
                     <div className="small">Faction (Units)</div>
-                    <input className="input" value={card.faction ?? ""} onChange={(e) => setCard({ ...card, faction: e.target.value || undefined })} />
+                    <input
+                      className="input"
+                      value={card.faction ?? ""}
+                      onChange={(e) => setCard({ ...card, faction: e.target.value || undefined })}
+                    />
                   </div>
                   <div style={{ flex: 1 }}>
                     <div className="small">Types (comma)</div>
@@ -870,10 +885,10 @@ export default function App() {
                             <input
                               className="input"
                               type="number"
-                              value={ability.targeting.area?.radius ?? 1}
+                              value={(ability.targeting as any).area?.radius ?? 1}
                               onChange={(e) => {
                                 const radius = Math.max(1, Math.floor(Number(e.target.value)));
-                                setAbility({ targeting: { ...(ability.targeting as any), area: { ...(ability.targeting?.area ?? {}), radius } } as any });
+                                setAbility({ targeting: { ...(ability.targeting as any), area: { ...((ability.targeting as any).area ?? {}), radius } } as any });
                               }}
                             />
                           </div>
@@ -1093,7 +1108,8 @@ export default function App() {
             </div>
           </div>
 
-          <div className="panel">
+          {/* PREVIEW JSON */}
+          <div className="panel" style={{ flex: "1 1 30%", minHeight: 0 }}>
             <div className="ph">
               <div>
                 <div className="h2">Preview</div>
@@ -1106,7 +1122,8 @@ export default function App() {
             </div>
           </div>
 
-          <div className="panel">
+          {/* COMPILE */}
+          <div className="panel" style={{ flex: "0 0 190px", minHeight: 0 }}>
             <div className="ph">
               <div>
                 <div className="h2">Compile</div>
