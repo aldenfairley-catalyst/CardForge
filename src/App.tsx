@@ -4,28 +4,18 @@ import "reactflow/dist/style.css";
 
 import type { CardEntity, Step, AbilityComponent } from "./lib/types";
 import { makeDefaultCard, canonicalToGraph, abilitySummary } from "./lib/graph";
-import { loadCardJson, saveCardJson, clearSaved } from "./lib/storage";
+import { saveCardJson, clearSaved, loadMigratedCardOrDefault, loadCatalog, saveCatalog, resetCatalog } from "./lib/storage";
+import { migrateCard } from "./lib/migrations";
 import { validateCard, type ValidationIssue } from "./lib/schemas";
 import { blockRegistry, isStepTypeAllowed } from "./lib/registry";
+
+import { useHistoryState } from "./lib/history";
+import { normalizeCatalog, type Catalog } from "./lib/catalog";
 
 import { ExpressionEditor } from "./components/ExpressionEditor";
 import { ConditionEditor } from "./components/ConditionEditor";
 import { CardPreview } from "./components/CardPreview";
-
-type ResourceKey = "UMB" | "AET" | "CRD" | "CHR" | "STR" | "RES" | "WIS" | "INT" | "SPD" | "AWR";
-
-const RESOURCE_DEFS: Array<{ key: ResourceKey; label: string }> = [
-  { key: "UMB", label: "Umbra" },
-  { key: "AET", label: "Aether" },
-  { key: "CRD", label: "Coordination" },
-  { key: "CHR", label: "Charisma" },
-  { key: "STR", label: "Strength" },
-  { key: "RES", label: "Resilience" },
-  { key: "WIS", label: "Wisdom" },
-  { key: "INT", label: "Intelligence" },
-  { key: "SPD", label: "Speed" },
-  { key: "AWR", label: "Awareness" }
-];
+import StepListEditor from "./components/NestedStepsEditor";
 
 function download(filename: string, text: string) {
   const blob = new Blob([text], { type: "application/json" });
@@ -50,13 +40,7 @@ function coerceUnknownSteps(card: any) {
   return card;
 }
 
-function Modal(props: {
-  open: boolean;
-  title: string;
-  onClose: () => void;
-  children: React.ReactNode;
-  footer?: React.ReactNode;
-}) {
+function Modal(props: { open: boolean; title: string; onClose: () => void; children: React.ReactNode; footer?: React.ReactNode }) {
   if (!props.open) return null;
   return (
     <div className="modalBack">
@@ -69,150 +53,14 @@ function Modal(props: {
         </div>
         <div className="pb">
           {props.children}
-          {props.footer ? (
-            <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 10 }}>{props.footer}</div>
-          ) : null}
+          {props.footer ? <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 10 }}>{props.footer}</div> : null}
         </div>
       </div>
     </div>
   );
 }
 
-/**
- * Targeting grid picker: 48x48, caster in center.
- * - Green = targetable squares between minRange/maxRange (Manhattan distance)
- * - Red = AoE based on radius around selected target (Chebyshev square radius)
- */
-function TargetGridPicker(props: {
-  minRange: number;
-  maxRange: number;
-  aoeRadius: number;
-  includeCenter: boolean;
-  selected: { x: number; y: number } | null;
-  onSelect: (pos: { x: number; y: number }) => void;
-}) {
-  const size = 48;
-  const src = { x: 24, y: 24 };
-
-  const cell = 8;
-  const gap = 1;
-  const width = size * cell + (size - 1) * gap;
-
-  const minR = Math.max(0, Math.floor(props.minRange));
-  const maxR = Math.max(0, Math.floor(props.maxRange));
-  const r = Math.max(0, Math.floor(props.aoeRadius));
-
-  function manhattan(a: { x: number; y: number }, b: { x: number; y: number }) {
-    return Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
-  }
-  function chebyshev(a: { x: number; y: number }, b: { x: number; y: number }) {
-    return Math.max(Math.abs(a.x - b.x), Math.abs(a.y - b.y));
-  }
-
-  const gridStyle: React.CSSProperties = {
-    display: "grid",
-    gridTemplateColumns: `repeat(${size}, ${cell}px)`,
-    gap,
-    width,
-    userSelect: "none",
-    border: "1px solid rgba(255,255,255,.12)",
-    borderRadius: 12,
-    padding: 8,
-    background: "rgba(0,0,0,.18)"
-  };
-
-  const legendStyle: React.CSSProperties = {
-    display: "flex",
-    gap: 10,
-    flexWrap: "wrap",
-    alignItems: "center",
-    marginTop: 8
-  };
-
-  const swatch: React.CSSProperties = {
-    width: 12,
-    height: 12,
-    borderRadius: 4,
-    border: "1px solid rgba(255,255,255,.14)"
-  };
-
-  return (
-    <div style={{ marginTop: 10 }}>
-      <div className="small" style={{ marginBottom: 6 }}>
-        48×48 targeting grid (caster in center). Green = targetable squares, Red = affected AoE.
-      </div>
-
-      <div style={gridStyle}>
-        {Array.from({ length: size * size }).map((_, idx) => {
-          const x = idx % size;
-          const y = Math.floor(idx / size);
-          const p = { x, y };
-
-          const dist = manhattan(p, src);
-          const isTargetable = dist >= minR && dist <= maxR;
-
-          const isSource = x === src.x && y === src.y;
-          const isSelected = props.selected && props.selected.x === x && props.selected.y === y;
-
-          const aoeHit =
-            props.selected &&
-            ((props.includeCenter && chebyshev(p, props.selected) <= r) ||
-              (!props.includeCenter && chebyshev(p, props.selected) <= r && !(x === props.selected.x && y === props.selected.y)));
-
-          const bg = isSource
-            ? "rgba(99,179,255,.9)"
-            : aoeHit
-            ? "rgba(255,107,107,.65)"
-            : isTargetable
-            ? "rgba(96,243,166,.38)"
-            : "rgba(255,255,255,.06)";
-
-          const border = isSelected ? "1px solid rgba(255,255,255,.9)" : "1px solid rgba(255,255,255,.06)";
-
-          return (
-            <div
-              key={idx}
-              title={`(${x - src.x},${y - src.y})  range=${dist}`}
-              onClick={() => {
-                if (!isTargetable) return;
-                props.onSelect(p);
-              }}
-              style={{
-                width: cell,
-                height: cell,
-                background: bg,
-                border,
-                borderRadius: 2,
-                cursor: isTargetable ? "pointer" : "default"
-              }}
-            />
-          );
-        })}
-      </div>
-
-      <div style={legendStyle}>
-        <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-          <span style={{ ...swatch, background: "rgba(99,179,255,.9)" }} />
-          <span className="small">Caster</span>
-        </div>
-        <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-          <span style={{ ...swatch, background: "rgba(96,243,166,.38)" }} />
-          <span className="small">Targetable</span>
-        </div>
-        <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-          <span style={{ ...swatch, background: "rgba(255,107,107,.65)" }} />
-          <span className="small">AoE affected</span>
-        </div>
-        <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-          <span style={{ ...swatch, background: "rgba(255,255,255,.2)" }} />
-          <span className="small">Other</span>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ---- React Flow node renderers (minimal) ----
+// ---- React Flow node renderers ----
 function AbilityRootNode({ data, selected, card }: any) {
   const ability = card.components[data.abilityIdx] as AbilityComponent | undefined;
   return (
@@ -310,17 +158,10 @@ function findAbilityIndexes(card: CardEntity): number[] {
 }
 
 export default function App() {
-  const [card, setCard] = useState<CardEntity>(() => {
-    const saved = loadCardJson();
-    if (saved) {
-      try {
-        return coerceUnknownSteps(JSON.parse(saved)) as CardEntity;
-      } catch {
-        // ignore
-      }
-    }
-    return makeDefaultCard();
-  });
+  // History-backed card state (undo/redo)
+  const history = useHistoryState<CardEntity>(loadMigratedCardOrDefault(makeDefaultCard));
+  const card = history.present;
+  const setCard = history.set;
 
   const [issues, setIssues] = useState<ValidationIssue[]>([]);
   const [selected, setSelected] = useState<any>(null);
@@ -331,17 +172,27 @@ export default function App() {
 
   const [previewOpen, setPreviewOpen] = useState(false);
 
-  // Target grid picker state (UX only)
-  const [gridTarget, setGridTarget] = useState<{ x: number; y: number } | null>(null);
+  // Catalog
+  const [catalog, setCatalog] = useState<Catalog>(() => loadCatalog());
+  const [catalogOpen, setCatalogOpen] = useState(false);
+  const [catalogText, setCatalogText] = useState(JSON.stringify(catalog, null, 2));
+  const [catalogErr, setCatalogErr] = useState<string | null>(null);
 
-  // Multi-ability: choose which ability we are editing in the canvas/palette/inspector
+  useEffect(() => {
+    try {
+      saveCatalog(catalog);
+    } catch {
+      // ignore
+    }
+  }, [catalog]);
+
+  // Multi-ability selection
   const abilityIndexes = useMemo(() => findAbilityIndexes(card), [card]);
   const [activeAbilityIdx, setActiveAbilityIdx] = useState<number>(() => {
-    const idxs = findAbilityIndexes(makeDefaultCard());
+    const idxs = findAbilityIndexes(loadMigratedCardOrDefault(makeDefaultCard));
     return idxs[0] ?? 0;
   });
 
-  // Keep activeAbilityIdx valid if card changes
   useEffect(() => {
     if (!abilityIndexes.length) return;
     if (!abilityIndexes.includes(activeAbilityIdx)) setActiveAbilityIdx(abilityIndexes[0]);
@@ -351,17 +202,12 @@ export default function App() {
     setIssues(validateCard(card));
     try {
       saveCardJson(JSON.stringify(card));
-    } catch (e) {
-      // If Data URL images make JSON too large, localStorage can overflow.
-      // Keep UI alive even if persistence fails.
-      // eslint-disable-next-line no-console
-      console.warn("Could not save card to local storage (possibly too large).", e);
+    } catch {
+      // ignore
     }
   }, [card]);
 
   const { nodes, edges } = useMemo(() => {
-    // Render only the active ability graph. canonicalToGraph renders "first ability";
-    // so we temporarily swap active ability into the first-ability slot for view.
     const comps = card.components.slice();
     const firstAbilityIdx = comps.findIndex((c: any) => c?.componentType === "ABILITY");
     if (firstAbilityIdx < 0 || activeAbilityIdx === firstAbilityIdx) return canonicalToGraph(card);
@@ -394,11 +240,10 @@ export default function App() {
   );
 
   function getAbilityByIndex(idx: number) {
-    const ability = card.components[idx] as any;
-    if (!ability || ability.componentType !== "ABILITY") return null;
-    return ability as AbilityComponent;
+    const a = card.components[idx] as any;
+    if (!a || a.componentType !== "ABILITY") return null;
+    return a as AbilityComponent;
   }
-
   const ability = getAbilityByIndex(activeAbilityIdx);
 
   function setAbility(patch: Partial<AbilityComponent>) {
@@ -409,7 +254,14 @@ export default function App() {
     });
   }
 
-  function setStep(stepIdx: number, patch: any) {
+  function setStep(stepIdx: number, next: any) {
+    if (!ability) return;
+    const steps = (ability.execution?.steps ?? []).slice();
+    steps[stepIdx] = next;
+    setAbility({ execution: { steps } } as any);
+  }
+
+  function patchStep(stepIdx: number, patch: any) {
     if (!ability) return;
     const steps = (ability.execution?.steps ?? []).slice();
     steps[stepIdx] = { ...(steps[stepIdx] as any), ...patch };
@@ -448,43 +300,23 @@ export default function App() {
         case "ROLL_D20":
           return { type: "ROLL_D20", saveAs: "roll" };
         case "OPEN_REACTION_WINDOW":
-          return { type: "OPEN_REACTION_WINDOW", timing: "BEFORE_DAMAGE", windowId: "pre_damage" };
+          return { type: "OPEN_REACTION_WINDOW", timing: "BEFORE_DAMAGE", windowId: "pre_damage" } as any;
         case "DEAL_DAMAGE":
-          return {
-            type: "DEAL_DAMAGE",
-            target: { type: "TARGET" },
-            amountExpr: { type: "CONST_NUMBER", value: 10 },
-            damageType: "PHYSICAL"
-          } as any;
+          return { type: "DEAL_DAMAGE", target: { type: "TARGET" } as any, amountExpr: { type: "CONST_NUMBER", value: 10 } as any, damageType: "PHYSICAL" as any } as any;
         case "HEAL":
-          return {
-            type: "HEAL",
-            target: { type: "SELF" },
-            amountExpr: { type: "CONST_NUMBER", value: 10 }
-          } as any;
+          return { type: "HEAL", target: { type: "SELF" } as any, amountExpr: { type: "CONST_NUMBER", value: 10 } as any } as any;
         case "SET_VARIABLE":
-          return { type: "SET_VARIABLE", saveAs: "var", valueExpr: { type: "CONST_NUMBER", value: 1 } } as any;
+          return { type: "SET_VARIABLE", saveAs: "var", valueExpr: { type: "CONST_NUMBER", value: 1 } as any } as any;
         case "APPLY_STATUS":
-          return { type: "APPLY_STATUS", target: { type: "TARGET" }, status: "SLOWED", duration: { turns: 1 } } as any;
+          return { type: "APPLY_STATUS", target: { type: "TARGET" } as any, status: "SLOWED" as any, duration: { turns: 1 } } as any;
         case "REMOVE_STATUS":
-          return { type: "REMOVE_STATUS", target: { type: "SELF" }, status: "STUNNED" } as any;
+          return { type: "REMOVE_STATUS", target: { type: "SELF" } as any, status: "STUNNED" as any } as any;
         case "MOVE_ENTITY":
-          return { type: "MOVE_ENTITY", target: { type: "SELF" }, to: { mode: "TARGET_POSITION" }, maxTiles: 5 } as any;
+          return { type: "MOVE_ENTITY", target: { type: "SELF" } as any, to: { mode: "TARGET_POSITION" }, maxTiles: 5 } as any;
         case "OPPONENT_SAVE":
-          return {
-            type: "OPPONENT_SAVE",
-            stat: "SPEED",
-            difficulty: 13,
-            onFail: [{ type: "SHOW_TEXT", text: "Fail" }],
-            onSuccess: [{ type: "SHOW_TEXT", text: "Success" }]
-          } as any;
+          return { type: "OPPONENT_SAVE", stat: "SPEED", difficulty: 13, onFail: [{ type: "SHOW_TEXT", text: "Fail" }], onSuccess: [{ type: "SHOW_TEXT", text: "Success" }] } as any;
         case "IF_ELSE":
-          return {
-            type: "IF_ELSE",
-            condition: { type: "ALWAYS" },
-            then: [{ type: "SHOW_TEXT", text: "Then" }],
-            else: [{ type: "SHOW_TEXT", text: "Else" }]
-          } as any;
+          return { type: "IF_ELSE", condition: { type: "ALWAYS" } as any, then: [{ type: "SHOW_TEXT", text: "Then" }], else: [{ type: "SHOW_TEXT", text: "Else" }] } as any;
         default:
           return { type: "UNKNOWN_STEP", raw: { type: stepType } } as any;
       }
@@ -495,7 +327,7 @@ export default function App() {
   }
 
   function exportCardJson() {
-    download(cardFileName(card, "CJ-1.0"), JSON.stringify(card, null, 2));
+    download(cardFileName(card, "CJ"), JSON.stringify(card, null, 2));
   }
 
   function exportForgeProject() {
@@ -514,11 +346,9 @@ export default function App() {
     setImportError(null);
     try {
       const parsed = coerceUnknownSteps(JSON.parse(importText));
-      const incoming: CardEntity = parsed?.projectVersion === "FORGE-1.0" ? parsed.card : parsed;
-      if (!incoming || (incoming as any).schemaVersion !== "CJ-1.0")
-        throw new Error("Expected CJ-1.0 card JSON (or FORGE-1.0 project).");
-
+      const incoming = migrateCard(parsed);
       setCard(incoming);
+
       const idxs = findAbilityIndexes(incoming);
       setActiveAbilityIdx(idxs[0] ?? 0);
 
@@ -537,7 +367,7 @@ export default function App() {
       description: "",
       trigger: "ACTIVE_ACTION",
       cost: { ap: 1 },
-      targeting: { type: "SINGLE_TARGET", range: { base: 4 }, lineOfSight: true } as any,
+      targeting: { type: "SINGLE_TARGET", range: { min: 0, max: 4, base: 4 }, lineOfSight: true } as any,
       execution: { steps: [{ type: "SHOW_TEXT", text: "Do something!" }] }
     };
     setCard({ ...card, components: [...card.components, newAbility as any] });
@@ -548,7 +378,7 @@ export default function App() {
   function removeActiveAbility() {
     if (!ability) return;
     const idxs = findAbilityIndexes(card);
-    if (idxs.length <= 1) return; // keep at least one
+    if (idxs.length <= 1) return;
     const nextComponents = card.components.slice();
     nextComponents.splice(activeAbilityIdx, 1);
     const nextCard = { ...card, components: nextComponents } as CardEntity;
@@ -560,81 +390,31 @@ export default function App() {
 
   const selectedInfo = selected?.nodes?.[0]?.data ?? null;
   const selectedKind = selectedInfo?.kind ?? null;
-
   const selectedStepIdx = selectedKind === "STEP" ? selectedInfo.stepIdx : null;
   const selectedStep =
     selectedStepIdx != null && ability?.execution?.steps ? (ability.execution.steps[selectedStepIdx] as Step) : null;
-
-  // Reset grid target when ability/targeting changes
-  useEffect(() => {
-    setGridTarget(null);
-  }, [activeAbilityIdx, selectedKind]);
-
-  function setCardResource(key: ResourceKey, value: number) {
-    const n = Math.max(0, Math.floor(Number(value) || 0));
-    const res = { ...((card as any).resources ?? {}) };
-    if (n <= 0) delete res[key];
-    else res[key] = n;
-    setCard({ ...card, resources: res as any });
-  }
-
-  function getCardResource(key: ResourceKey) {
-    const res: any = (card as any).resources ?? {};
-    return Number(res[key] ?? 0);
-  }
-
-  function setTokenCost(key: ResourceKey, value: number) {
-    if (!ability) return;
-    const n = Math.max(0, Math.floor(Number(value) || 0));
-    const cost: any = { ...(ability.cost ?? {}) };
-    const tokens: any = { ...(cost.tokens ?? {}) };
-    if (n <= 0) delete tokens[key];
-    else tokens[key] = n;
-    cost.tokens = Object.keys(tokens).length ? tokens : undefined;
-    setAbility({ cost } as any);
-  }
-
-  function getTokenCost(key: ResourceKey) {
-    const tokens: any = (ability as any)?.cost?.tokens ?? {};
-    return Number(tokens[key] ?? 0);
-  }
-
-  function setImagePosition(x: "left" | "center" | "right", y: "top" | "center" | "bottom") {
-    const pos = `${x} ${y}`;
-    const pres: any = { ...((card as any).presentation ?? {}) };
-    pres.imagePosition = pos;
-    setCard({ ...card, presentation: pres } as any);
-  }
-
-  function getImagePosParts(): { x: "left" | "center" | "right"; y: "top" | "center" | "bottom" } {
-    const pos = String((card as any).presentation?.imagePosition ?? "center center");
-    const [xRaw, yRaw] = pos.split(" ");
-    const x = (xRaw === "left" || xRaw === "right" || xRaw === "center" ? xRaw : "center") as any;
-    const y = (yRaw === "top" || yRaw === "bottom" || yRaw === "center" ? yRaw : "center") as any;
-    return { x, y };
-  }
-
-  // Targeting helper (min/max)
-  const targeting: any = (ability as any)?.targeting ?? null;
-  const rangeObj: any = targeting?.range ?? {};
-  const minRange = Number(rangeObj.min ?? 0);
-  const maxRange = Number(rangeObj.max ?? rangeObj.base ?? 0);
-  const origin = String(targeting?.origin ?? "SOURCE"); // SOURCE | ANYWHERE
-  const aoeRadius = Number(targeting?.area?.radius ?? 1);
-  const includeCenter = Boolean(targeting?.area?.includeCenter ?? true);
-
-  const { x: imgX, y: imgY } = getImagePosParts();
 
   return (
     <div className="app">
       <div className="topbar">
         <div className="brand">
           <span style={{ width: 10, height: 10, borderRadius: 999, background: "var(--accent)" }} />
-          Captain Jawa Forge <span className="badge">MVP+</span>
+          Captain Jawa Forge <span className="badge">CJ-1.1</span>
           <span className="badge">{errorCount === 0 ? "OK" : `${errorCount} errors`}</span>
         </div>
 
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <button className="btn" onClick={history.undo} disabled={!history.canUndo}>
+            Undo
+          </button>
+          <button className="btn" onClick={history.redo} disabled={!history.canRedo}>
+            Redo
+          </button>
+
+          <button className="btn" onClick={() => setCatalogOpen(true)}>
+            Catalog
+          </button>
+
           <button className="btn" onClick={() => setPreviewOpen(true)}>
             Preview Card
           </button>
@@ -647,6 +427,7 @@ export default function App() {
           <button className="btn" onClick={exportForgeProject}>
             Export Forge Project
           </button>
+
           <button
             className="btn btnPrimary"
             onClick={() => {
@@ -659,6 +440,7 @@ export default function App() {
           >
             New Card
           </button>
+
           <button
             className="btn btnDanger"
             onClick={() => {
@@ -714,13 +496,7 @@ export default function App() {
               <button className="btn btnPrimary" onClick={addAbility} style={{ flex: 1 }}>
                 + Add Ability
               </button>
-              <button
-                className="btn btnDanger"
-                onClick={removeActiveAbility}
-                style={{ flex: 1 }}
-                disabled={abilityIndexes.length <= 1}
-                title={abilityIndexes.length <= 1 ? "Keep at least one ability" : "Remove this ability"}
-              >
+              <button className="btn btnDanger" onClick={removeActiveAbility} style={{ flex: 1 }} disabled={abilityIndexes.length <= 1}>
                 Remove
               </button>
             </div>
@@ -748,14 +524,7 @@ export default function App() {
             <span className="badge">React Flow</span>
           </div>
           <div className="rfWrap">
-            <ReactFlow
-              nodes={nodes}
-              edges={edges}
-              nodeTypes={nodeTypes}
-              fitView
-              onSelectionChange={setSelected}
-              proOptions={{ hideAttribution: true }}
-            >
+            <ReactFlow nodes={nodes} edges={edges} nodeTypes={nodeTypes} fitView onSelectionChange={setSelected} proOptions={{ hideAttribution: true }}>
               <Background />
               <Controls />
               <MiniMap pannable zoomable />
@@ -763,16 +532,15 @@ export default function App() {
           </div>
         </div>
 
-        {/* Inspector + Preview JSON + Compile */}
+        {/* Inspector + JSON + Compile */}
         <div style={{ display: "flex", flexDirection: "column", gap: 12, minHeight: 0, height: "100%" }}>
-          {/* INSPECTOR */}
           <div className="panel" style={{ flex: "1 1 55%", minHeight: 0 }}>
             <div className="ph">
               <div>
                 <div className="h2">Inspector</div>
                 <div className="small">{selectedKind ?? "No selection"}</div>
               </div>
-              <span className="badge">CJ-1.0</span>
+              <span className="badge">{(card as any).schemaVersion ?? "CJ"}</span>
             </div>
 
             <div className="pb">
@@ -796,179 +564,54 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Unit stats */}
-              {card.type === "UNIT" ? (
-                <details style={{ marginTop: 10 }} open>
-                  <summary className="small" style={{ cursor: "pointer" }}>
-                    Unit Stats
-                  </summary>
-
-                  <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
-                    <div style={{ flex: 1 }}>
-                      <div className="small">HP (max)</div>
-                      <input
-                        className="input"
-                        type="number"
-                        value={Number((card as any).stats?.hp?.max ?? 0)}
-                        onChange={(e) => {
-                          const n = Math.max(0, Math.floor(Number(e.target.value) || 0));
-                          setCard({
-                            ...card,
-                            stats: {
-                              ...((card as any).stats ?? {}),
-                              hp: { ...(((card as any).stats?.hp ?? {}) as any), max: n, current: n }
-                            }
-                          } as any);
-                        }}
-                      />
-                    </div>
-                    <div style={{ flex: 1 }}>
-                      <div className="small">AP (per round)</div>
-                      <input
-                        className="input"
-                        type="number"
-                        value={Number((card as any).stats?.ap?.max ?? 0)}
-                        onChange={(e) => {
-                          const n = Math.max(0, Math.floor(Number(e.target.value) || 0));
-                          setCard({
-                            ...card,
-                            stats: {
-                              ...((card as any).stats ?? {}),
-                              ap: { ...(((card as any).stats?.ap ?? {}) as any), max: n, current: n }
-                            }
-                          } as any);
-                        }}
-                      />
-                    </div>
-                  </div>
-
-                  <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
-                    <div style={{ flex: 1 }}>
-                      <div className="small">MOVE</div>
-                      <input
-                        className="input"
-                        type="number"
-                        value={Number((card as any).stats?.movement ?? 0)}
-                        onChange={(e) => {
-                          const n = Math.max(0, Math.floor(Number(e.target.value) || 0));
-                          setCard({ ...card, stats: { ...((card as any).stats ?? {}), movement: n } } as any);
-                        }}
-                      />
-                    </div>
-                    <div style={{ flex: 1 }}>
-                      <div className="small">SIZE</div>
-                      <input
-                        className="input"
-                        type="number"
-                        value={Number((card as any).stats?.size ?? 1)}
-                        onChange={(e) => {
-                          const n = Math.max(1, Math.floor(Number(e.target.value) || 1));
-                          setCard({ ...card, stats: { ...((card as any).stats ?? {}), size: n } } as any);
-                        }}
-                      />
-                    </div>
-                  </div>
-
-                  <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
-                    <div style={{ flex: 1 }}>
-                      <div className="small">Resilience (stat)</div>
-                      <input
-                        className="input"
-                        type="number"
-                        value={Number((card as any).stats?.resilience ?? 0)}
-                        onChange={(e) => {
-                          const n = Math.max(0, Math.floor(Number(e.target.value) || 0));
-                          setCard({ ...card, stats: { ...((card as any).stats ?? {}), resilience: n } } as any);
-                        }}
-                      />
-                    </div>
-                    <div style={{ flex: 1 }} />
-                  </div>
-                </details>
-              ) : null}
-
-              {/* Card art + identity */}
               <details style={{ marginTop: 10 }}>
                 <summary className="small" style={{ cursor: "pointer" }}>
-                  Card Art + Identity
+                  Identity (Catalog-powered)
                 </summary>
-
-                <div className="small" style={{ marginTop: 8 }}>
-                  Upload Image (stored as Data URL)
-                </div>
-                <input
-                  className="input"
-                  type="file"
-                  accept="image/*"
-                  onChange={(e) => {
-                    const file = e.target.files?.[0];
-                    if (!file) return;
-                    const reader = new FileReader();
-                    reader.onload = () => {
-                      const dataUrl = String(reader.result);
-                      setCard({
-                        ...card,
-                        visuals: { ...((card as any).visuals ?? {}), cardImage: dataUrl }
-                      } as any);
-                    };
-                    reader.readAsDataURL(file);
-                  }}
-                />
-                <div className="small" style={{ marginTop: 6 }}>
-                  Tip: Very large images can exceed localStorage. Prefer smaller images.
-                </div>
-
-                <div className="small" style={{ marginTop: 8 }}>
-                  Card Image URL
-                </div>
-                <input
-                  className="input"
-                  value={String((card as any).visuals?.cardImage ?? "")}
-                  onChange={(e) =>
-                    setCard({
-                      ...card,
-                      visuals: { ...((card as any).visuals ?? {}), cardImage: e.target.value || undefined }
-                    } as any)
-                  }
-                  placeholder="https://... or cards/my_image.png"
-                />
-
-                <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
-                  <div style={{ flex: 1 }}>
-                    <div className="small">Image Align X</div>
-                    <select className="select" value={imgX} onChange={(e) => setImagePosition(e.target.value as any, imgY)}>
-                      <option value="left">left</option>
-                      <option value="center">center</option>
-                      <option value="right">right</option>
-                    </select>
-                  </div>
-                  <div style={{ flex: 1 }}>
-                    <div className="small">Image Align Y</div>
-                    <select className="select" value={imgY} onChange={(e) => setImagePosition(imgX, e.target.value as any)}>
-                      <option value="top">top</option>
-                      <option value="center">center</option>
-                      <option value="bottom">bottom</option>
-                    </select>
-                  </div>
-                </div>
 
                 <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
                   <div style={{ flex: 1 }}>
                     <div className="small">Faction (Units)</div>
-                    <input
-                      className="input"
-                      value={String((card as any).faction ?? "")}
-                      onChange={(e) => setCard({ ...card, faction: e.target.value || undefined } as any)}
-                    />
+                    <select
+                      className="select"
+                      value={card.faction ?? ""}
+                      onChange={(e) => setCard({ ...card, faction: e.target.value || undefined })}
+                    >
+                      <option value="">(none)</option>
+                      {catalog.factions.map((f) => (
+                        <option key={f.id} value={f.name}>
+                          {f.name}
+                        </option>
+                      ))}
+                    </select>
                   </div>
                   <div style={{ flex: 1 }}>
                     <div className="small">Types (comma)</div>
                     <input
                       className="input"
-                      value={String(((card as any).subType ?? []).join(", "))}
-                      onChange={(e) => setCard({ ...card, subType: e.target.value.split(",").map((s) => s.trim()).filter(Boolean) } as any)}
-                      placeholder="HUMAN, JAWA..."
+                      value={(card.subType ?? []).join(", ")}
+                      onChange={(e) => setCard({ ...card, subType: e.target.value.split(",").map((s) => s.trim()).filter(Boolean) })}
                     />
+                    <div className="small" style={{ marginTop: 6 }}>
+                      Add Type
+                    </div>
+                    <select
+                      className="select"
+                      value=""
+                      onChange={(e) => {
+                        const t = e.target.value;
+                        if (!t) return;
+                        const next = Array.from(new Set([...(card.subType ?? []), t]));
+                        setCard({ ...card, subType: next });
+                      }}
+                    >
+                      <option value="">Pick…</option>
+                      {catalog.unitTypes.map((t) => (
+                        <option key={t} value={t}>
+                          {t}
+                        </option>
+                      ))}
+                    </select>
                   </div>
                 </div>
 
@@ -977,79 +620,29 @@ export default function App() {
                 </div>
                 <input
                   className="input"
-                  value={String(((card as any).attributes ?? []).join(", "))}
-                  onChange={(e) => setCard({ ...card, attributes: e.target.value.split(",").map((s) => s.trim()).filter(Boolean) } as any)}
-                  placeholder="FIRE, STEEL..."
+                  value={(card.attributes ?? []).join(", ")}
+                  onChange={(e) => setCard({ ...card, attributes: e.target.value.split(",").map((s) => s.trim()).filter(Boolean) })}
                 />
-
-                <div className="small" style={{ marginTop: 8 }}>
-                  Card Resources (tokens on the card / unit)
+                <div className="small" style={{ marginTop: 6 }}>
+                  Add Attribute
                 </div>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginTop: 6 }}>
-                  {RESOURCE_DEFS.map((r) => (
-                    <div key={r.key}>
-                      <div className="small">
-                        {r.label} ({r.key})
-                      </div>
-                      <input
-                        className="input"
-                        type="number"
-                        value={getCardResource(r.key)}
-                        onChange={(e) => setCardResource(r.key, Number(e.target.value))}
-                      />
-                    </div>
+                <select
+                  className="select"
+                  value=""
+                  onChange={(e) => {
+                    const a = e.target.value;
+                    if (!a) return;
+                    const next = Array.from(new Set([...(card.attributes ?? []), a]));
+                    setCard({ ...card, attributes: next });
+                  }}
+                >
+                  <option value="">Pick…</option>
+                  {catalog.attributes.map((a) => (
+                    <option key={a} value={a}>
+                      {a}
+                    </option>
                   ))}
-                </div>
-
-                <div className="small" style={{ marginTop: 8 }}>
-                  Presentation (optional)
-                </div>
-                <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
-                  <select
-                    className="select"
-                    value={String((card as any).presentation?.template ?? "")}
-                    onChange={(e) =>
-                      setCard(
-                        {
-                          ...card,
-                          presentation: { ...((card as any).presentation ?? {}), template: e.target.value || undefined }
-                        } as any
-                      )
-                    }
-                    title="Template"
-                  >
-                    <option value="">Auto</option>
-                    <option value="T1">T1</option>
-                    <option value="T2">T2</option>
-                    <option value="T3">T3</option>
-                    <option value="T4">T4</option>
-                    <option value="T5">T5</option>
-                  </select>
-
-                  <select
-                    className="select"
-                    value={String((card as any).presentation?.theme ?? "BLUE")}
-                    onChange={(e) =>
-                      setCard(
-                        {
-                          ...card,
-                          presentation: { ...((card as any).presentation ?? {}), theme: e.target.value }
-                        } as any
-                      )
-                    }
-                    title="Theme"
-                  >
-                    {["BLUE", "GREEN", "PURPLE", "ORANGE", "RED"].map((t) => (
-                      <option key={t} value={t}>
-                        {t}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <button className="btn btnPrimary" style={{ marginTop: 10 }} onClick={() => setPreviewOpen(true)}>
-                  Open Preview
-                </button>
+                </select>
               </details>
 
               <hr style={{ borderColor: "var(--border)", opacity: 0.5, margin: "12px 0" }} />
@@ -1061,7 +654,6 @@ export default function App() {
                 </div>
               ) : (
                 <>
-                  {/* Ability root editing */}
                   {(selectedKind === "ABILITY_ROOT" || !selectedKind) && (
                     <>
                       <div className="small">Ability Name</div>
@@ -1070,7 +662,7 @@ export default function App() {
                       <div className="small" style={{ marginTop: 8 }}>
                         Description
                       </div>
-                      <textarea className="textarea" value={ability.description} onChange={(e) => setAbility({ description: e.target.value })} />
+                      <textarea className="textarea" value={ability.description ?? ""} onChange={(e) => setAbility({ description: e.target.value })} />
 
                       <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
                         <div style={{ flex: 1 }}>
@@ -1089,233 +681,14 @@ export default function App() {
                             className="input"
                             type="number"
                             value={ability.cost?.ap ?? 0}
-                            onChange={(e) =>
-                              setAbility({
-                                cost: { ...(ability.cost ?? {}), ap: Math.max(0, Math.floor(Number(e.target.value) || 0)) }
-                              })
-                            }
+                            onChange={(e) => setAbility({ cost: { ...(ability.cost ?? {}), ap: Math.max(0, Math.floor(Number(e.target.value) || 0)) } })}
                           />
                         </div>
                       </div>
                     </>
                   )}
 
-                  {/* Cost */}
-                  {selectedKind === "COST" && (
-                    <>
-                      <div className="small">Required Equipped Item IDs (comma-separated)</div>
-                      <input
-                        className="input"
-                        value={(ability.cost?.requiredEquippedItemIds ?? []).join(", ")}
-                        onChange={(e) =>
-                          setAbility({
-                            cost: {
-                              ...(ability.cost ?? {}),
-                              requiredEquippedItemIds: e.target.value
-                                .split(",")
-                                .map((s) => s.trim())
-                                .filter(Boolean)
-                            }
-                          })
-                        }
-                      />
-
-                      <div className="small" style={{ marginTop: 8 }}>
-                        Cooldown (turns)
-                      </div>
-                      <input
-                        className="input"
-                        type="number"
-                        value={ability.cost?.cooldown?.turns ?? 0}
-                        onChange={(e) => {
-                          const n = Math.max(0, Math.floor(Number(e.target.value) || 0));
-                          setAbility({
-                            cost: { ...(ability.cost ?? {}), cooldown: n > 0 ? { turns: Math.max(1, n) } : undefined }
-                          });
-                        }}
-                      />
-
-                      <div className="small" style={{ marginTop: 10 }}>
-                        Token Costs (appear on card preview)
-                      </div>
-                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginTop: 6 }}>
-                        {RESOURCE_DEFS.map((r) => (
-                          <div key={r.key}>
-                            <div className="small">
-                              {r.label} ({r.key})
-                            </div>
-                            <input
-                              className="input"
-                              type="number"
-                              value={getTokenCost(r.key)}
-                              onChange={(e) => setTokenCost(r.key, Number(e.target.value))}
-                            />
-                          </div>
-                        ))}
-                      </div>
-                    </>
-                  )}
-
-                  {/* Targeting */}
-                  {selectedKind === "TARGETING" && (
-                    <>
-                      <div className="small">Targeting Type</div>
-                      <select
-                        className="select"
-                        value={ability.targeting?.type ?? "SINGLE_TARGET"}
-                        onChange={(e) => {
-                          const type = e.target.value as any;
-                          const next: any = { ...(ability.targeting ?? { type }), type };
-
-                          if (!next.origin) next.origin = "SOURCE";
-
-                          if (type === "AREA_RADIUS" && !next.area) next.area = { radius: 1, includeCenter: true };
-                          if (type === "SELF") next.area = undefined;
-
-                          // Ensure range object exists for non-SELF
-                          if (type !== "SELF" && !next.range) next.range = { min: 0, max: 4, base: 4 };
-
-                          setAbility({ targeting: next });
-                        }}
-                      >
-                        {(blockRegistry.targeting.types as string[]).map((t) => (
-                          <option key={t} value={t}>
-                            {t}
-                          </option>
-                        ))}
-                      </select>
-
-                      {/* Origin */}
-                      {ability.targeting?.type !== "SELF" ? (
-                        <div style={{ marginTop: 8 }}>
-                          <div className="small">Cast Origin</div>
-                          <select
-                            className="select"
-                            value={origin}
-                            onChange={(e) => {
-                              const next: any = { ...(ability.targeting ?? {}) };
-                              next.origin = e.target.value;
-                              setAbility({ targeting: next });
-                            }}
-                          >
-                            <option value="SOURCE">From caster (show grid)</option>
-                            <option value="ANYWHERE">Anywhere / Global (hide grid)</option>
-                          </select>
-                        </div>
-                      ) : null}
-
-                      {/* Min/Max range */}
-                      {ability.targeting?.type !== "SELF" ? (
-                        <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
-                          <div style={{ flex: 1 }}>
-                            <div className="small">Min Range</div>
-                            <input
-                              className="input"
-                              type="number"
-                              value={minRange}
-                              onChange={(e) => {
-                                const min = Math.max(0, Math.floor(Number(e.target.value) || 0));
-                                const max = Math.max(min, Math.floor(maxRange));
-                                const next: any = { ...(ability.targeting ?? {}) };
-                                next.range = { ...(next.range ?? {}), min, max, base: max };
-                                setAbility({ targeting: next });
-                              }}
-                            />
-                          </div>
-                          <div style={{ flex: 1 }}>
-                            <div className="small">Max Range</div>
-                            <input
-                              className="input"
-                              type="number"
-                              value={maxRange}
-                              onChange={(e) => {
-                                const max = Math.max(0, Math.floor(Number(e.target.value) || 0));
-                                const min = Math.min(Math.floor(minRange), max);
-                                const next: any = { ...(ability.targeting ?? {}) };
-                                next.range = { ...(next.range ?? {}), min, max, base: max };
-                                setAbility({ targeting: next });
-                              }}
-                            />
-                          </div>
-                        </div>
-                      ) : null}
-
-                      {/* Line of sight */}
-                      {ability.targeting?.type !== "SELF" ? (
-                        <div style={{ marginTop: 8 }}>
-                          <div className="small">Line of Sight</div>
-                          <select
-                            className="select"
-                            value={String(ability.targeting?.lineOfSight ?? false)}
-                            onChange={(e) =>
-                              setAbility({
-                                targeting: { ...(ability.targeting ?? { type: "SINGLE_TARGET" }), lineOfSight: e.target.value === "true" } as any
-                              })
-                            }
-                          >
-                            <option value="false">false</option>
-                            <option value="true">true</option>
-                          </select>
-                        </div>
-                      ) : null}
-
-                      {/* Area radius settings */}
-                      {ability.targeting?.type === "AREA_RADIUS" ? (
-                        <>
-                          <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
-                            <div style={{ flex: 1 }}>
-                              <div className="small">AoE Radius</div>
-                              <input
-                                className="input"
-                                type="number"
-                                value={aoeRadius}
-                                onChange={(e) => {
-                                  const radius = Math.max(0, Math.floor(Number(e.target.value) || 0));
-                                  const next: any = { ...(ability.targeting ?? {}) };
-                                  next.area = { ...(next.area ?? {}), radius };
-                                  setAbility({ targeting: next });
-                                }}
-                              />
-                            </div>
-                            <div style={{ flex: 1 }}>
-                              <div className="small">Include Center</div>
-                              <select
-                                className="select"
-                                value={String(includeCenter)}
-                                onChange={(e) => {
-                                  const next: any = { ...(ability.targeting ?? {}) };
-                                  next.area = { ...(next.area ?? {}), includeCenter: e.target.value === "true" };
-                                  setAbility({ targeting: next });
-                                }}
-                              >
-                                <option value="true">true</option>
-                                <option value="false">false</option>
-                              </select>
-                            </div>
-                          </div>
-
-                          {/* Grid selector only when origin is caster-based */}
-                          {origin !== "ANYWHERE" ? (
-                            <TargetGridPicker
-                              minRange={minRange}
-                              maxRange={maxRange}
-                              aoeRadius={aoeRadius}
-                              includeCenter={includeCenter}
-                              selected={gridTarget}
-                              onSelect={(p) => setGridTarget(p)}
-                            />
-                          ) : (
-                            <div className="small" style={{ marginTop: 10 }}>
-                              Global cast enabled: grid preview hidden.
-                            </div>
-                          )}
-                        </>
-                      ) : null}
-                    </>
-                  )}
-
-                  {/* Step */}
-                  {selectedKind === "STEP" && selectedStep && (
+                  {selectedKind === "STEP" && selectedStep ? (
                     <>
                       <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
                         <div style={{ flex: 1 }}>
@@ -1337,192 +710,119 @@ export default function App() {
                         </button>
                       </div>
 
-                      <div style={{ marginTop: 10 }}>
-                        {selectedStep.type === "SHOW_TEXT" && (
-                          <>
-                            <div className="small">Text</div>
-                            <textarea
-                              className="textarea"
-                              value={(selectedStep as any).text}
-                              onChange={(e) => setStep(selectedStepIdx, { text: e.target.value })}
-                            />
-                          </>
-                        )}
+                      {/* NESTED EDITOR ENABLED */}
+                      {selectedStep.type === "IF_ELSE" || selectedStep.type === "OPPONENT_SAVE" ? (
+                        <StepListEditor
+                          title="Nested Step Editor"
+                          steps={[selectedStep]}
+                          onChange={(next) => setStep(selectedStepIdx, next[0] as any)}
+                        />
+                      ) : (
+                        <div style={{ marginTop: 10 }}>
+                          {selectedStep.type === "SHOW_TEXT" ? (
+                            <>
+                              <div className="small">Text</div>
+                              <textarea className="textarea" value={(selectedStep as any).text ?? ""} onChange={(e) => patchStep(selectedStepIdx, { text: e.target.value })} />
+                            </>
+                          ) : null}
 
-                        {(selectedStep.type === "ROLL_D6" || selectedStep.type === "ROLL_D20") && (
-                          <>
-                            <div className="small">saveAs</div>
-                            <input
-                              className="input"
-                              value={(selectedStep as any).saveAs ?? ""}
-                              onChange={(e) => setStep(selectedStepIdx, { saveAs: e.target.value || undefined })}
-                              placeholder="e.g. roll"
-                            />
-                          </>
-                        )}
+                          {(selectedStep.type === "ROLL_D6" || selectedStep.type === "ROLL_D20") ? (
+                            <>
+                              <div className="small">saveAs</div>
+                              <input className="input" value={(selectedStep as any).saveAs ?? ""} onChange={(e) => patchStep(selectedStepIdx, { saveAs: e.target.value || undefined })} />
+                            </>
+                          ) : null}
 
-                        {selectedStep.type === "SET_VARIABLE" && (
-                          <>
-                            <div className="small">saveAs</div>
-                            <input
-                              className="input"
-                              value={(selectedStep as any).saveAs}
-                              onChange={(e) => setStep(selectedStepIdx, { saveAs: e.target.value })}
-                            />
-                            <div className="small" style={{ marginTop: 8 }}>
-                              valueExpr
-                            </div>
-                            <ExpressionEditor value={(selectedStep as any).valueExpr} onChange={(valueExpr) => setStep(selectedStepIdx, { valueExpr })} />
-                          </>
-                        )}
+                          {selectedStep.type === "SET_VARIABLE" ? (
+                            <>
+                              <div className="small">saveAs</div>
+                              <input className="input" value={(selectedStep as any).saveAs ?? ""} onChange={(e) => patchStep(selectedStepIdx, { saveAs: e.target.value })} />
+                              <div className="small" style={{ marginTop: 8 }}>
+                                valueExpr
+                              </div>
+                              <ExpressionEditor value={(selectedStep as any).valueExpr} onChange={(valueExpr) => patchStep(selectedStepIdx, { valueExpr })} />
+                            </>
+                          ) : null}
 
-                        {selectedStep.type === "DEAL_DAMAGE" && (
-                          <>
-                            <div className="small">Damage Type</div>
-                            <select
-                              className="select"
-                              value={(selectedStep as any).damageType}
-                              onChange={(e) => setStep(selectedStepIdx, { damageType: e.target.value })}
-                            >
-                              {(blockRegistry.keys.DamageType as string[]).map((d) => (
-                                <option key={d} value={d}>
-                                  {d}
-                                </option>
-                              ))}
-                            </select>
-                            <div className="small" style={{ marginTop: 8 }}>
-                              Amount Expression
-                            </div>
-                            <ExpressionEditor value={(selectedStep as any).amountExpr} onChange={(amountExpr) => setStep(selectedStepIdx, { amountExpr })} />
-                          </>
-                        )}
+                          {selectedStep.type === "DEAL_DAMAGE" ? (
+                            <>
+                              <div className="small">Damage Type</div>
+                              <select className="select" value={(selectedStep as any).damageType} onChange={(e) => patchStep(selectedStepIdx, { damageType: e.target.value })}>
+                                {(blockRegistry.keys.DamageType as string[]).map((d) => (
+                                  <option key={d} value={d}>
+                                    {d}
+                                  </option>
+                                ))}
+                              </select>
+                              <div className="small" style={{ marginTop: 8 }}>
+                                Amount Expression
+                              </div>
+                              <ExpressionEditor value={(selectedStep as any).amountExpr} onChange={(amountExpr) => patchStep(selectedStepIdx, { amountExpr })} />
+                            </>
+                          ) : null}
 
-                        {selectedStep.type === "HEAL" && (
-                          <>
-                            <div className="small">Amount Expression</div>
-                            <ExpressionEditor value={(selectedStep as any).amountExpr} onChange={(amountExpr) => setStep(selectedStepIdx, { amountExpr })} />
-                          </>
-                        )}
+                          {selectedStep.type === "HEAL" ? (
+                            <>
+                              <div className="small">Amount Expression</div>
+                              <ExpressionEditor value={(selectedStep as any).amountExpr} onChange={(amountExpr) => patchStep(selectedStepIdx, { amountExpr })} />
+                            </>
+                          ) : null}
 
-                        {selectedStep.type === "APPLY_STATUS" && (
-                          <>
-                            <div className="small">Status</div>
-                            <select
-                              className="select"
-                              value={(selectedStep as any).status}
-                              onChange={(e) => setStep(selectedStepIdx, { status: e.target.value })}
-                            >
-                              {(blockRegistry.keys.StatusKey as string[]).map((s) => (
-                                <option key={s} value={s}>
-                                  {s}
-                                </option>
-                              ))}
-                            </select>
-                            <div className="small" style={{ marginTop: 8 }}>
-                              Duration (turns)
-                            </div>
-                            <input
-                              className="input"
-                              type="number"
-                              value={(selectedStep as any).duration?.turns ?? 1}
-                              onChange={(e) =>
-                                setStep(selectedStepIdx, { duration: { turns: Math.max(1, Math.floor(Number(e.target.value) || 1)) } })
-                              }
-                            />
-                          </>
-                        )}
+                          {selectedStep.type === "APPLY_STATUS" ? (
+                            <>
+                              <div className="small">Status</div>
+                              <select className="select" value={(selectedStep as any).status} onChange={(e) => patchStep(selectedStepIdx, { status: e.target.value })}>
+                                {(blockRegistry.keys.StatusKey as string[]).map((s) => (
+                                  <option key={s} value={s}>
+                                    {s}
+                                  </option>
+                                ))}
+                              </select>
+                              <div className="small" style={{ marginTop: 8 }}>
+                                Duration (turns)
+                              </div>
+                              <input
+                                className="input"
+                                type="number"
+                                value={(selectedStep as any).duration?.turns ?? 1}
+                                onChange={(e) => patchStep(selectedStepIdx, { duration: { turns: Math.max(1, Math.floor(Number(e.target.value) || 1)) } })}
+                              />
+                            </>
+                          ) : null}
 
-                        {selectedStep.type === "REMOVE_STATUS" && (
-                          <>
-                            <div className="small">Status</div>
-                            <select
-                              className="select"
-                              value={(selectedStep as any).status}
-                              onChange={(e) => setStep(selectedStepIdx, { status: e.target.value })}
-                            >
-                              {(blockRegistry.keys.StatusKey as string[]).map((s) => (
-                                <option key={s} value={s}>
-                                  {s}
-                                </option>
-                              ))}
-                            </select>
-                          </>
-                        )}
+                          {selectedStep.type === "REMOVE_STATUS" ? (
+                            <>
+                              <div className="small">Status</div>
+                              <select className="select" value={(selectedStep as any).status} onChange={(e) => patchStep(selectedStepIdx, { status: e.target.value })}>
+                                {(blockRegistry.keys.StatusKey as string[]).map((s) => (
+                                  <option key={s} value={s}>
+                                    {s}
+                                  </option>
+                                ))}
+                              </select>
+                            </>
+                          ) : null}
 
-                        {selectedStep.type === "MOVE_ENTITY" && (
-                          <>
-                            <div className="small">Max Tiles</div>
-                            <input
-                              className="input"
-                              type="number"
-                              value={(selectedStep as any).maxTiles ?? 1}
-                              onChange={(e) =>
-                                setStep(selectedStepIdx, { maxTiles: Math.max(1, Math.floor(Number(e.target.value) || 1)) })
-                              }
-                            />
-                          </>
-                        )}
+                          {selectedStep.type === "MOVE_ENTITY" ? (
+                            <>
+                              <div className="small">Max Tiles</div>
+                              <input
+                                className="input"
+                                type="number"
+                                value={(selectedStep as any).maxTiles ?? 1}
+                                onChange={(e) => patchStep(selectedStepIdx, { maxTiles: Math.max(1, Math.floor(Number(e.target.value) || 1)) })}
+                              />
+                            </>
+                          ) : null}
 
-                        {selectedStep.type === "OPEN_REACTION_WINDOW" && (
-                          <>
-                            <div className="small">windowId</div>
-                            <input
-                              className="input"
-                              value={(selectedStep as any).windowId}
-                              onChange={(e) => setStep(selectedStepIdx, { windowId: e.target.value })}
-                            />
-                            <div className="small" style={{ marginTop: 8 }}>
-                              timing
-                            </div>
-                            <div style={{ fontWeight: 700 }}>{(selectedStep as any).timing}</div>
-                          </>
-                        )}
-
-                        {selectedStep.type === "OPPONENT_SAVE" && (
-                          <>
-                            <div className="small">Stat</div>
-                            <input
-                              className="input"
-                              value={(selectedStep as any).stat}
-                              onChange={(e) => setStep(selectedStepIdx, { stat: e.target.value })}
-                            />
-                            <div className="small" style={{ marginTop: 8 }}>
-                              Difficulty
-                            </div>
-                            <input
-                              className="input"
-                              type="number"
-                              value={(selectedStep as any).difficulty ?? 10}
-                              onChange={(e) =>
-                                setStep(selectedStepIdx, { difficulty: Math.max(1, Math.floor(Number(e.target.value) || 10)) })
-                              }
-                            />
-                            <div className="small" style={{ marginTop: 8 }}>
-                              MVP: edit <b>onFail</b> / <b>onSuccess</b> in Raw Step JSON below.
-                            </div>
-                          </>
-                        )}
-
-                        {selectedStep.type === "IF_ELSE" && (
-                          <>
-                            <div className="small">Condition</div>
-                            <ConditionEditor
-                              value={(selectedStep as any).condition}
-                              onChange={(condition) => setStep(selectedStepIdx, { condition })}
-                            />
-                            <div className="small" style={{ marginTop: 8 }}>
-                              MVP: edit <b>then</b> / <b>else</b> in Raw Step JSON below.
-                            </div>
-                          </>
-                        )}
-
-                        {selectedStep.type === "UNKNOWN_STEP" && (
-                          <div className="err">
-                            <b>UNKNOWN_STEP</b>
-                            <div className="small">This step type isn’t in the BR-1.0 registry.</div>
-                          </div>
-                        )}
-                      </div>
+                          {selectedStep.type === "IF_ELSE" ? (
+                            <>
+                              <div className="small">Condition</div>
+                              <ConditionEditor value={(selectedStep as any).condition} onChange={(condition) => patchStep(selectedStepIdx, { condition })} />
+                            </>
+                          ) : null}
+                        </div>
+                      )}
 
                       <details style={{ marginTop: 10 }}>
                         <summary className="small" style={{ cursor: "pointer" }}>
@@ -1531,27 +831,25 @@ export default function App() {
                         <pre>{JSON.stringify(selectedStep, null, 2)}</pre>
                       </details>
                     </>
-                  )}
+                  ) : null}
                 </>
               )}
             </div>
           </div>
 
-          {/* PREVIEW JSON */}
           <div className="panel" style={{ flex: "1 1 30%", minHeight: 0 }}>
             <div className="ph">
               <div>
                 <div className="h2">Preview</div>
                 <div className="small">Card JSON (read-only)</div>
               </div>
-              <span className="badge">CJ-1.0</span>
+              <span className="badge">{(card as any).schemaVersion}</span>
             </div>
             <div className="pb">
               <pre>{JSON.stringify(card, null, 2)}</pre>
             </div>
           </div>
 
-          {/* COMPILE */}
           <div className="panel" style={{ flex: "0 0 190px", minHeight: 0 }}>
             <div className="ph">
               <div>
@@ -1589,7 +887,7 @@ export default function App() {
       {/* Import modal */}
       <Modal
         open={importOpen}
-        title="Import CJ-1.0 Card JSON (or FORGE-1.0 project)"
+        title="Import CJ Card JSON (CJ-1.0/CJ-1.1) or FORGE-1.0 project"
         onClose={() => {
           setImportOpen(false);
           setImportError(null);
@@ -1612,55 +910,61 @@ export default function App() {
         <textarea className="textarea" style={{ minHeight: 260 }} value={importText} onChange={(e) => setImportText(e.target.value)} />
       </Modal>
 
+      {/* Catalog modal */}
+      <Modal
+        open={catalogOpen}
+        title="Catalog Editor (Factions / Unit Types / Attributes)"
+        onClose={() => {
+          setCatalogOpen(false);
+          setCatalogErr(null);
+        }}
+        footer={
+          <div style={{ display: "flex", gap: 8 }}>
+            <button
+              className="btn"
+              onClick={() => {
+                resetCatalog();
+                const fresh = loadCatalog();
+                setCatalog(fresh);
+                setCatalogText(JSON.stringify(fresh, null, 2));
+                setCatalogErr(null);
+              }}
+            >
+              Reset to Default
+            </button>
+            <button
+              className="btn btnPrimary"
+              onClick={() => {
+                setCatalogErr(null);
+                try {
+                  const parsed = JSON.parse(catalogText);
+                  const normalized = normalizeCatalog(parsed);
+                  setCatalog(normalized);
+                  setCatalogOpen(false);
+                } catch (e: any) {
+                  setCatalogErr(e.message ?? String(e));
+                }
+              }}
+            >
+              Save
+            </button>
+          </div>
+        }
+      >
+        {catalogErr ? (
+          <div className="err">
+            <b>Catalog error</b>
+            <div className="small">{catalogErr}</div>
+          </div>
+        ) : null}
+        <div className="small" style={{ marginBottom: 8 }}>
+          Edit JSON and Save (stored in localStorage).
+        </div>
+        <textarea className="textarea" style={{ minHeight: 320 }} value={catalogText} onChange={(e) => setCatalogText(e.target.value)} />
+      </Modal>
+
       {/* Card preview modal */}
       <Modal open={previewOpen} title="Card Preview" onClose={() => setPreviewOpen(false)}>
-        <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 10 }}>
-          <div style={{ flex: "1 1 180px" }}>
-            <div className="small">Template</div>
-            <select
-              className="select"
-              value={String((card as any).presentation?.template ?? "")}
-              onChange={(e) =>
-                setCard(
-                  {
-                    ...card,
-                    presentation: { ...((card as any).presentation ?? {}), template: e.target.value || undefined }
-                  } as any
-                )
-              }
-            >
-              <option value="">Auto</option>
-              <option value="T1">T1 (Unit)</option>
-              <option value="T2">T2 (Item)</option>
-              <option value="T3">T3 (Spell)</option>
-              <option value="T4">T4 (Environment)</option>
-              <option value="T5">T5 (Token)</option>
-            </select>
-          </div>
-
-          <div style={{ flex: "1 1 180px" }}>
-            <div className="small">Theme</div>
-            <select
-              className="select"
-              value={String((card as any).presentation?.theme ?? "BLUE")}
-              onChange={(e) =>
-                setCard(
-                  {
-                    ...card,
-                    presentation: { ...((card as any).presentation ?? {}), theme: e.target.value }
-                  } as any
-                )
-              }
-            >
-              {["BLUE", "GREEN", "PURPLE", "ORANGE", "RED"].map((t) => (
-                <option key={t} value={t}>
-                  {t}
-                </option>
-              ))}
-            </select>
-          </div>
-        </div>
-
         <CardPreview card={card} />
       </Modal>
     </div>
