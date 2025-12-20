@@ -1,7 +1,8 @@
 import React, { useEffect, useMemo, useState } from "react";
 import ReactFlow, { Background, Controls, MiniMap, Handle, Position } from "reactflow";
 import "reactflow/dist/style.css";
-
+import { ExpressionEditor } from "./components/ExpressionEditor";
+import { ConditionEditor } from "./components/ConditionEditor";
 import { v4 as uuidv4 } from "uuid";
 import type { CardEntity, Step, AbilityComponent } from "./lib/types";
 import { makeDefaultCard, canonicalToGraph, abilitySummary } from "./lib/graph";
