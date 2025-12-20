@@ -1,7 +1,12 @@
 export type CardType = "UNIT" | "ITEM" | "ENVIRONMENT" | "SPELL" | "TOKEN";
 export type TriggerType =
-  | "ACTIVE_ACTION" | "PASSIVE_AURA" | "REACTION"
-  | "ON_DEATH" | "ON_SPAWN" | "ON_TURN_START" | "ON_TURN_END";
+  | "ACTIVE_ACTION"
+  | "PASSIVE_AURA"
+  | "REACTION"
+  | "ON_DEATH"
+  | "ON_SPAWN"
+  | "ON_TURN_START"
+  | "ON_TURN_END";
 
 export type TargetingType = "SELF" | "SINGLE_TARGET" | "AREA_RADIUS";
 export type DamageType = "PHYSICAL" | "FIRE" | "ICE" | "DARK" | "LIGHT";
@@ -11,18 +16,32 @@ export type EntityRef =
   | { type: "SELF" }
   | { type: "TARGET" }
   | { type: "SOURCE" }
-  | { type: "ENTITY_WITH_TAG"; tag: string; selection: { mode: "NEAREST_TO_SELF"; tieBreak: "LOWEST_ENTITY_ID" } };
+  | {
+      type: "ENTITY_WITH_TAG";
+      tag: string;
+      selection: { mode: "NEAREST_TO_SELF"; tieBreak: "LOWEST_ENTITY_ID" };
+    };
+
+export type StatKey =
+  | "HP_CURRENT" | "HP_MAX"
+  | "AP_CURRENT" | "AP_MAX"
+  | "MOVEMENT" | "RESILIENCE" | "SIZE"
+  | "SPEED" | "AWARENESS" | "INTELLIGENCE" | "WISDOM"
+  | "STRENGTH" | "CHARISMA" | "COORDINATION";
 
 export type Expr =
   | { type: "CONST_NUMBER"; value: number }
   | { type: "SAVED_VALUE"; key: string }
+  | { type: "READ_STAT"; entity: EntityRef; stat: StatKey }
   | { type: "ADD" | "SUBTRACT" | "MULTIPLY" | "DIVIDE" | "MIN" | "MAX"; a: Expr; b: Expr };
 
 export type Condition =
   | { type: "ALWAYS" }
   | { type: "NOT"; condition: Condition }
   | { type: "AND" | "OR"; conditions: Condition[] }
-  | { type: "COMPARE_NUMBERS"; lhs: Expr; op: ">" | ">=" | "==" | "!=" | "<=" | "<"; rhs: Expr };
+  | { type: "COMPARE_NUMBERS"; lhs: Expr; op: ">" | ">=" | "==" | "!=" | "<=" | "<"; rhs: Expr }
+  | { type: "HAS_TAG"; entity: EntityRef; tag: string }
+  | { type: "COUNT_UNITS_ON_BOARD"; targetTag: string; min: number; faction?: "ANY" | "ALLY" | "ENEMY" };
 
 export type Cost = {
   ap?: number;
@@ -62,11 +81,57 @@ export type AbilityComponent = {
   execution?: { steps: Step[] };
 };
 
+export type Visuals = {
+  cardImage?: string;
+  tokenImage?: string;
+  model3d?: string;
+};
+
+export type Stats = {
+  hp?: { current?: number; max?: number };
+  ap?: { current?: number; max?: number };
+  movement?: number;
+  resilience?: number;
+  size?: number;
+
+  speed?: number;
+  awareness?: number;
+  intelligence?: number;
+  wisdom?: number;
+  strength?: number;
+  charisma?: number;
+  coordination?: number;
+};
+
+export type Resources = {
+  umbra?: number;
+  aether?: number;
+  strength?: number;
+};
+
+export type Presentation = {
+  template?: "T1" | "T2" | "T3" | "T4" | "T5";
+  theme?: "BLUE" | "GREEN" | "PURPLE" | "ORANGE" | "RED";
+};
+
 export type CardEntity = {
   schemaVersion: "CJ-1.0";
   id: string;
   name: string;
   type: CardType;
+
+  // requested metadata
+  faction?: string;
+  subType?: string[];      // e.g., ["HUMAN","JAWA","UNDEAD"]
+  attributes?: string[];   // e.g., ["FIRE","STEEL"]
   tags?: string[];
+
+  visuals?: Visuals;
+  stats?: Stats;
+  resources?: Resources;
+
+  // UI-only but safe to keep in CJ-1.0 exports for now
+  presentation?: Presentation;
+
   components: Array<AbilityComponent | { componentType: string; [k: string]: any }>;
 };
