@@ -3,7 +3,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import ReactFlow, { Background, Controls, MiniMap, Handle, Position } from "reactflow";
 import "reactflow/dist/style.css";
 
-import type { CardEntity, Step, AbilityComponent } from "./lib/types";
+import type { CardEntity, Step, AbilityComponent, TargetingProfile } from "./lib/types";
 import { makeDefaultCard, canonicalToGraph, abilitySummary } from "./lib/graph";
 import {
   saveCardJson,
@@ -97,16 +97,17 @@ function AbilityRootNode({ data, selected, card }: any) {
 
 function MetaNode({ data, selected, card }: any) {
   const ability = card.components[data.abilityIdx] as AbilityComponent | undefined;
-  const title = data.kind === "COST" ? "COST" : "TARGETING";
+  const title = String(data.kind ?? "").toUpperCase().includes("COST") ? "COST" : "TARGETING";
 
-  const rangeObj: any = ability?.targeting?.range ?? {};
+  const firstProfile = (ability as any)?.targetingProfiles?.[0];
+  const legacy = (ability as any)?.targeting;
+
+  const type = firstProfile?.type ?? legacy?.type ?? "—";
+  const rangeObj = firstProfile?.range ?? legacy?.range ?? {};
   const maxR = rangeObj.max ?? rangeObj.base ?? 0;
   const minR = rangeObj.min ?? 0;
 
-  const desc =
-    data.kind === "COST"
-      ? `AP: ${ability?.cost?.ap ?? 0}`
-      : `${ability?.targeting?.type ?? "—"} • Range ${minR}-${maxR}`;
+  const desc = title === "COST" ? `AP: ${ability?.cost?.ap ?? 0}` : `${type} • Range ${minR}-${maxR}`;
 
   return (
     <div className="node" style={{ borderColor: selected ? "rgba(99,179,255,.6)" : undefined }}>
@@ -174,6 +175,13 @@ function findAbilityIndexes(card: CardEntity): number[] {
   return out;
 }
 
+function clampInt(n: any, min: number, max?: number) {
+  const x = Math.floor(Number(n || 0));
+  const a = Math.max(min, x);
+  if (typeof max === "number") return Math.min(max, a);
+  return a;
+}
+
 export default function App() {
   // History-backed card state (undo/redo)
   const history = useHistoryState<CardEntity>(loadMigratedCardOrDefault(makeDefaultCard));
@@ -195,8 +203,11 @@ export default function App() {
   const [catalogText, setCatalogText] = useState(JSON.stringify(catalog, null, 2));
   const [catalogErr, setCatalogErr] = useState<string | null>(null);
 
-  // Hex picker UI state (per active ability)
-  const [hexPickerByAbility, setHexPickerByAbility] = useState<Record<number, any>>({});
+  // Hex picker UI state (per ability + profile)
+  const [hexPickerByAbility, setHexPickerByAbility] = useState<Record<number, Record<string, any>>>({});
+
+  // Target profile selection per ability
+  const [activeProfileByAbility, setActiveProfileByAbility] = useState<Record<number, string>>({});
 
   useEffect(() => {
     try {
@@ -319,34 +330,34 @@ export default function App() {
     const mk = (): Step => {
       switch (stepType) {
         case "SHOW_TEXT":
-          return { type: "SHOW_TEXT", text: "..." };
+          return { type: "SHOW_TEXT", text: "..." } as any;
         case "ROLL_D6":
-          return { type: "ROLL_D6", saveAs: "roll" };
+          return { type: "ROLL_D6", saveAs: "roll" } as any;
         case "ROLL_D20":
-          return { type: "ROLL_D20", saveAs: "roll" };
+          return { type: "ROLL_D20", saveAs: "roll" } as any;
         case "OPEN_REACTION_WINDOW":
           return { type: "OPEN_REACTION_WINDOW", timing: "BEFORE_DAMAGE", windowId: "pre_damage" } as any;
         case "DEAL_DAMAGE":
           return {
             type: "DEAL_DAMAGE",
-            target: { type: "TARGET" } as any,
-            amountExpr: { type: "CONST_NUMBER", value: 10 } as any,
-            damageType: "PHYSICAL" as any
+            target: { type: "TARGET" },
+            amountExpr: { type: "CONST_NUMBER", value: 10 },
+            damageType: "PHYSICAL"
           } as any;
         case "HEAL":
           return {
             type: "HEAL",
-            target: { type: "SELF" } as any,
-            amountExpr: { type: "CONST_NUMBER", value: 10 } as any
+            target: { type: "SELF" },
+            amountExpr: { type: "CONST_NUMBER", value: 10 }
           } as any;
         case "SET_VARIABLE":
-          return { type: "SET_VARIABLE", saveAs: "var", valueExpr: { type: "CONST_NUMBER", value: 1 } as any } as any;
+          return { type: "SET_VARIABLE", saveAs: "var", valueExpr: { type: "CONST_NUMBER", value: 1 } } as any;
         case "APPLY_STATUS":
-          return { type: "APPLY_STATUS", target: { type: "TARGET" } as any, status: "SLOWED" as any, duration: { turns: 1 } } as any;
+          return { type: "APPLY_STATUS", target: { type: "TARGET" }, status: "SLOWED", duration: { turns: 1 } } as any;
         case "REMOVE_STATUS":
-          return { type: "REMOVE_STATUS", target: { type: "SELF" } as any, status: "STUNNED" as any } as any;
+          return { type: "REMOVE_STATUS", target: { type: "SELF" }, status: "STUNNED" } as any;
         case "MOVE_ENTITY":
-          return { type: "MOVE_ENTITY", target: { type: "SELF" } as any, to: { mode: "TARGET_POSITION" }, maxTiles: 5 } as any;
+          return { type: "MOVE_ENTITY", target: { type: "SELF" }, to: { mode: "TARGET_POSITION" }, maxTiles: 5 } as any;
         case "OPPONENT_SAVE":
           return {
             type: "OPPONENT_SAVE",
@@ -358,9 +369,17 @@ export default function App() {
         case "IF_ELSE":
           return {
             type: "IF_ELSE",
-            condition: { type: "ALWAYS" } as any,
+            condition: { type: "ALWAYS" },
             then: [{ type: "SHOW_TEXT", text: "Then" }],
             else: [{ type: "SHOW_TEXT", text: "Else" }]
+          } as any;
+        case "SELECT_TARGETS":
+          return { type: "SELECT_TARGETS", profileId: "primary", saveAs: "primary" } as any;
+        case "FOR_EACH_TARGET":
+          return {
+            type: "FOR_EACH_TARGET",
+            targetSet: { ref: "primary" },
+            do: [{ type: "SHOW_TEXT", text: "For each target..." }]
           } as any;
         default:
           return { type: "UNKNOWN_STEP", raw: { type: stepType } } as any;
@@ -412,12 +431,25 @@ export default function App() {
       description: "",
       trigger: "ACTIVE_ACTION",
       cost: { ap: 1, tokens: {} } as any,
-      targeting: { type: "SINGLE_TARGET", origin: "SOURCE", range: { min: 0, max: 4, base: 4 }, lineOfSight: true } as any,
-      execution: { steps: [{ type: "SHOW_TEXT", text: "Do something!" }] }
-    };
+      targetingProfiles: [
+        {
+          id: "primary",
+          label: "Primary Target",
+          type: "SINGLE_TARGET",
+          origin: "SOURCE",
+          range: { min: 0, max: 4, base: 4 },
+          lineOfSight: true,
+          constraints: { excludeSelf: true }
+        } as any
+      ],
+      execution: { steps: [{ type: "SELECT_TARGETS", profileId: "primary", saveAs: "primary" } as any] }
+    } as any;
+
     setCard({ ...card, components: [...card.components, newAbility as any] });
     setActiveAbilityIdx(card.components.length);
     setSelectedNodeId(null);
+
+    setActiveProfileByAbility((m) => ({ ...m, [card.components.length]: "primary" }));
   }
 
   function removeActiveAbility() {
@@ -433,15 +465,13 @@ export default function App() {
     setSelectedNodeId(null);
   }
 
-  // Derive selected node by id
+  // Selected node
   const selectedNode = useMemo(() => {
     if (!selectedNodeId) return null;
     return displayedNodes.find((n: any) => n.id === selectedNodeId) ?? null;
   }, [displayedNodes, selectedNodeId]);
 
   const kindUpper = String(selectedNode?.data?.kind ?? "").toUpperCase();
-
-  // Robust matching to avoid “tool not appearing” due to different kind strings
   const isCost = kindUpper.includes("COST");
   const isTargeting = kindUpper.includes("TARGET");
   const isAbilityRoot = kindUpper.includes("ABILITY");
@@ -455,32 +485,151 @@ export default function App() {
   const COST_KEYS = ["UMB", "AET", "CRD", "CHR", "STR", "RES", "WIS", "INT", "SPD", "AWR"] as const;
   function setTokenCost(k: string, v: number) {
     if (!ability) return;
-    const tokens = { ...((ability.cost as any)?.tokens ?? {}) };
+    const tokens = { ...(((ability.cost as any)?.tokens ?? {}) as any) };
     const n = Math.max(0, Math.floor(v || 0));
     if (n <= 0) delete tokens[k];
     else tokens[k] = n;
     setAbility({ cost: { ...(ability.cost ?? {}), tokens } } as any);
   }
 
-  // Targeting defaults for showing picker even if targeting missing
-  const targeting: any =
-    ability?.targeting ??
-    ({
+  // Target profiles utilities
+  const profiles: TargetingProfile[] = (ability?.targetingProfiles ?? []) as any;
+
+  // Keep active profile valid
+  useEffect(() => {
+    if (!ability) return;
+    if (!profiles.length) return;
+
+    const current = activeProfileByAbility[activeAbilityIdx];
+    if (current && profiles.some((p) => p.id === current)) return;
+
+    setActiveProfileByAbility((m) => ({ ...m, [activeAbilityIdx]: profiles[0].id }));
+  }, [activeAbilityIdx, ability, profiles.map((p) => p.id).join("|")]);
+
+  const activeProfileId = activeProfileByAbility[activeAbilityIdx] ?? profiles[0]?.id ?? "primary";
+  const activeProfile = profiles.find((p) => p.id === activeProfileId) ?? profiles[0] ?? null;
+
+  function setProfiles(next: TargetingProfile[]) {
+    setAbility({ targetingProfiles: next as any });
+  }
+
+  function initProfilesFromLegacy() {
+    if (!ability) return;
+
+    const legacy: any = (ability as any).targeting ?? {
       type: "SINGLE_TARGET",
       origin: "SOURCE",
       range: { min: 0, max: 4, base: 4 },
       lineOfSight: true
-    } as any);
+    };
 
-  const origin = String(targeting.origin ?? "SOURCE");
-  const targetingType = String(targeting.type ?? "SINGLE_TARGET");
-  const minRange = Number(targeting?.range?.min ?? 0);
-  const maxRange = Number(targeting?.range?.max ?? targeting?.range?.base ?? 0);
-  const aoeRadius = targetingType === "AREA_RADIUS" ? Number(targeting?.area?.radius ?? 0) : 0;
-  const includeCenter = targetingType === "AREA_RADIUS" ? Boolean(targeting?.area?.includeCenter ?? true) : true;
-  const los = Boolean(targeting?.lineOfSight);
+    const range = legacy.range ?? {};
+    const max = range.max ?? range.base ?? 4;
+    const min = range.min ?? 0;
 
-  const shouldShowHexPicker = origin !== "ANYWHERE" && targetingType !== "SELF";
+    const p: TargetingProfile = {
+      id: "primary",
+      label: "Primary Target",
+      type: legacy.type ?? "SINGLE_TARGET",
+      origin: legacy.origin ?? "SOURCE",
+      range: { min, max, base: max },
+      lineOfSight: Boolean(legacy.lineOfSight),
+      area: legacy.area ? { ...legacy.area } : undefined,
+      constraints: { excludeSelf: true }
+    } as any;
+
+    setProfiles([p]);
+    setActiveProfileByAbility((m) => ({ ...m, [activeAbilityIdx]: "primary" }));
+  }
+
+  function nextProfileId(existing: string[]) {
+    const preferred = ["primary", "secondary", "tertiary", "quaternary"];
+    for (const p of preferred) if (!existing.includes(p)) return p;
+    let i = 1;
+    while (existing.includes(`p${i}`)) i++;
+    return `p${i}`;
+  }
+
+  function addProfile() {
+    const ids = profiles.map((p) => p.id);
+    const id = nextProfileId(ids);
+    const p: TargetingProfile = {
+      id,
+      label: id[0].toUpperCase() + id.slice(1),
+      type: "SINGLE_TARGET",
+      origin: "SOURCE",
+      range: { min: 0, max: 4, base: 4 },
+      lineOfSight: true,
+      constraints: { excludeSelf: true }
+    } as any;
+
+    const next = [...profiles, p];
+    setProfiles(next);
+    setActiveProfileByAbility((m) => ({ ...m, [activeAbilityIdx]: id }));
+  }
+
+  function deleteProfile(id: string) {
+    const next = profiles.filter((p) => p.id !== id);
+    setProfiles(next);
+    const nextActive = next[0]?.id ?? "primary";
+    setActiveProfileByAbility((m) => ({ ...m, [activeAbilityIdx]: nextActive }));
+  }
+
+  function patchProfile(id: string, patch: Partial<TargetingProfile>) {
+    const next = profiles.map((p) => (p.id === id ? ({ ...p, ...patch } as any) : p));
+    setProfiles(next);
+  }
+
+  function renameProfile(oldId: string, newIdRaw: string) {
+    const newId = String(newIdRaw ?? "").trim();
+    if (!newId) return;
+    if (oldId === newId) return;
+    if (profiles.some((p) => p.id === newId)) return; // avoid collision
+
+    // Update profiles
+    const nextProfiles = profiles.map((p) => {
+      if (p.id !== oldId) {
+        // update relativeTo / constraints references if they used oldId
+        const rp: any = { ...p };
+        if (rp.relativeTo?.targetSetId === oldId) rp.relativeTo = { ...rp.relativeTo, targetSetId: newId };
+        if (rp.constraints?.excludeTargetSet === oldId) rp.constraints = { ...rp.constraints, excludeTargetSet: newId };
+        if (rp.constraints?.mustBeAdjacentTo === oldId) rp.constraints = { ...rp.constraints, mustBeAdjacentTo: newId };
+        return rp;
+      }
+      return { ...p, id: newId };
+    });
+
+    // Update steps referencing profileId in SELECT_TARGETS
+    const steps = (ability?.execution?.steps ?? []).map((s: any) => {
+      if (s?.type === "SELECT_TARGETS" && s.profileId === oldId) return { ...s, profileId: newId };
+      return s;
+    });
+
+    setAbility({ targetingProfiles: nextProfiles as any, execution: { steps } } as any);
+    setActiveProfileByAbility((m) => ({ ...m, [activeAbilityIdx]: newId }));
+  }
+
+  // Helpers: available target sets from SELECT_TARGETS (top-level scan)
+  const availableTargetSets = useMemo(() => {
+    const steps = ability?.execution?.steps ?? [];
+    const out: string[] = [];
+    for (const s of steps as any[]) {
+      if (s?.type === "SELECT_TARGETS" && String(s.saveAs ?? "").trim()) out.push(String(s.saveAs).trim());
+    }
+    return Array.from(new Set(out));
+  }, [ability?.execution?.steps]);
+
+  // Hex picker props from active profile
+  const pRange = activeProfile?.range ?? {};
+  const pMin = Number((pRange as any).min ?? 0);
+  const pMax = Number((pRange as any).max ?? (pRange as any).base ?? 0);
+  const pType = String(activeProfile?.type ?? "SINGLE_TARGET");
+  const pOrigin = String(activeProfile?.origin ?? "SOURCE");
+  const pAoe = pType === "AREA_RADIUS" ? Number((activeProfile as any)?.area?.radius ?? 0) : 0;
+  const pIncludeCenter = pType === "AREA_RADIUS" ? Boolean((activeProfile as any)?.area?.includeCenter ?? true) : true;
+  const pLoS = Boolean(activeProfile?.lineOfSight);
+
+  const showHexPicker = Boolean(activeProfile) && pOrigin !== "ANYWHERE" && pType !== "SELF";
 
   return (
     <div className="app">
@@ -856,179 +1005,350 @@ export default function App() {
                     </>
                   )}
 
-                  {/* TARGETING editor */}
+                  {/* TARGET PROFILES editor */}
                   {isTargeting && (
                     <>
                       <div className="h2" style={{ marginTop: 4 }}>
-                        Targeting
+                        Target Profiles
                       </div>
 
-                      <div className="small" style={{ marginTop: 8 }}>
-                        Targeting Type
-                      </div>
-                      <select
-                        className="select"
-                        value={targetingType}
-                        onChange={(e) => {
-                          const type = e.target.value;
-                          const next: any = { ...(ability.targeting ?? {}), type };
-
-                          // Ensure origin
-                          if (!next.origin) next.origin = "SOURCE";
-
-                          // Ensure range for non-SELF
-                          if (type !== "SELF") {
-                            const r = next.range ?? {};
-                            const max = typeof r.max === "number" ? r.max : typeof r.base === "number" ? r.base : 4;
-                            next.range = { ...r, min: typeof r.min === "number" ? r.min : 0, max, base: max };
-                          }
-
-                          // AREA_RADIUS requires area
-                          if (type === "AREA_RADIUS" && !next.area) next.area = { radius: 1, includeCenter: true };
-                          if (type !== "AREA_RADIUS") next.area = undefined;
-
-                          setAbility({ targeting: next });
-                        }}
-                      >
-                        {(blockRegistry.targeting.types as string[]).map((t) => (
-                          <option key={t} value={t}>
-                            {t}
-                          </option>
-                        ))}
-                      </select>
-
-                      <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
-                        <div style={{ flex: 1 }}>
-                          <div className="small">Origin</div>
-                          <select
-                            className="select"
-                            value={origin}
-                            onChange={(e) =>
-                              setAbility({
-                                targeting: { ...(ability.targeting ?? targeting), origin: e.target.value } as any
-                              })
-                            }
-                          >
-                            <option value="SOURCE">SOURCE</option>
-                            <option value="ANYWHERE">ANYWHERE</option>
-                          </select>
-                        </div>
-
-                        <div style={{ flex: 1 }}>
-                          <div className="small">Line of Sight</div>
-                          <select
-                            className="select"
-                            value={String(los)}
-                            onChange={(e) =>
-                              setAbility({
-                                targeting: { ...(ability.targeting ?? targeting), lineOfSight: e.target.value === "true" } as any
-                              })
-                            }
-                          >
-                            <option value="false">false</option>
-                            <option value="true">true</option>
-                          </select>
-                        </div>
-                      </div>
-
-                      {targetingType !== "SELF" ? (
-                        <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
-                          <div style={{ flex: 1 }}>
-                            <div className="small">Min Range</div>
-                            <input
-                              className="input"
-                              type="number"
-                              value={minRange}
-                              onChange={(e) => {
-                                const min = Math.max(0, Math.floor(Number(e.target.value) || 0));
-                                const max = Math.max(min, Math.floor(Number(maxRange || 0)));
-                                setAbility({
-                                  targeting: {
-                                    ...(ability.targeting ?? targeting),
-                                    range: { ...(targeting.range ?? {}), min, max, base: max }
-                                  } as any
-                                });
-                              }}
-                            />
+                      {!profiles.length ? (
+                        <div className="err" style={{ marginTop: 8 }}>
+                          <b>No targetingProfiles</b>
+                          <div className="small">
+                            Option A uses targetingProfiles. You can create them from legacy targeting or start fresh.
                           </div>
-
-                          <div style={{ flex: 1 }}>
-                            <div className="small">Max Range</div>
-                            <input
-                              className="input"
-                              type="number"
-                              value={maxRange}
-                              onChange={(e) => {
-                                const max = Math.max(0, Math.floor(Number(e.target.value) || 0));
-                                const min = Math.min(Math.floor(Number(minRange || 0)), max);
-                                setAbility({
-                                  targeting: {
-                                    ...(ability.targeting ?? targeting),
-                                    range: { ...(targeting.range ?? {}), min, max, base: max }
-                                  } as any
-                                });
-                              }}
-                            />
+                          <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+                            <button className="btn btnPrimary" onClick={initProfilesFromLegacy}>
+                              Init from legacy targeting
+                            </button>
+                            <button className="btn" onClick={addProfile}>
+                              + Add profile
+                            </button>
                           </div>
                         </div>
-                      ) : null}
-
-                      {targetingType === "AREA_RADIUS" ? (
-                        <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
-                          <div style={{ flex: 1 }}>
-                            <div className="small">AoE Radius</div>
-                            <input
-                              className="input"
-                              type="number"
-                              value={aoeRadius}
-                              onChange={(e) => {
-                                const radius = Math.max(0, Math.floor(Number(e.target.value) || 0));
-                                setAbility({
-                                  targeting: {
-                                    ...(ability.targeting ?? targeting),
-                                    area: { ...(targeting.area ?? {}), radius }
-                                  } as any
-                                });
-                              }}
-                            />
-                          </div>
-
-                          <div style={{ flex: 1 }}>
-                            <div className="small">Include Center</div>
-                            <select
-                              className="select"
-                              value={String(includeCenter)}
-                              onChange={(e) =>
-                                setAbility({
-                                  targeting: {
-                                    ...(ability.targeting ?? targeting),
-                                    area: { ...(targeting.area ?? {}), includeCenter: e.target.value === "true" }
-                                  } as any
-                                })
-                              }
-                            >
-                              <option value="true">true</option>
-                              <option value="false">false</option>
-                            </select>
-                          </div>
-                        </div>
-                      ) : null}
-
-                      {/* Hex grid tool */}
-                      {shouldShowHexPicker ? (
-                        <HexTargetPicker
-                          minRange={minRange}
-                          maxRange={maxRange}
-                          aoeRadius={aoeRadius}
-                          includeCenter={includeCenter}
-                          lineOfSight={los}
-                          value={hexPickerByAbility[activeAbilityIdx]}
-                          onChange={(next) => setHexPickerByAbility((p) => ({ ...p, [activeAbilityIdx]: next }))}
-                        />
                       ) : (
-                        <div className="small" style={{ marginTop: 10 }}>
-                          Hex preview hidden for origin=ANYWHERE or SELF targeting.
-                        </div>
+                        <>
+                          <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 8 }}>
+                            <div style={{ flex: 1 }}>
+                              <div className="small">Active Profile</div>
+                              <select
+                                className="select"
+                                value={activeProfileId}
+                                onChange={(e) => setActiveProfileByAbility((m) => ({ ...m, [activeAbilityIdx]: e.target.value }))}
+                              >
+                                {profiles.map((p) => (
+                                  <option key={p.id} value={p.id}>
+                                    {p.id} {p.label ? `— ${p.label}` : ""}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                            <button className="btn" onClick={addProfile} style={{ marginTop: 18 }}>
+                              + Add
+                            </button>
+                            <button
+                              className="btn btnDanger"
+                              onClick={() => activeProfile && deleteProfile(activeProfile.id)}
+                              style={{ marginTop: 18 }}
+                              disabled={!activeProfile || profiles.length <= 1}
+                              title={profiles.length <= 1 ? "Keep at least one profile" : "Delete this profile"}
+                            >
+                              Delete
+                            </button>
+                          </div>
+
+                          {activeProfile ? (
+                            <>
+                              <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+                                <div style={{ flex: 1 }}>
+                                  <div className="small">Profile ID</div>
+                                  <input
+                                    className="input"
+                                    value={activeProfile.id}
+                                    onChange={(e) => renameProfile(activeProfile.id, e.target.value)}
+                                  />
+                                  <div className="small" style={{ marginTop: 6 }}>
+                                    (Renaming updates SELECT_TARGETS.profileId references)
+                                  </div>
+                                </div>
+                                <div style={{ flex: 1 }}>
+                                  <div className="small">Label</div>
+                                  <input
+                                    className="input"
+                                    value={activeProfile.label ?? ""}
+                                    onChange={(e) => patchProfile(activeProfile.id, { label: e.target.value })}
+                                  />
+                                </div>
+                              </div>
+
+                              <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+                                <div style={{ flex: 1 }}>
+                                  <div className="small">Type</div>
+                                  <select
+                                    className="select"
+                                    value={activeProfile.type}
+                                    onChange={(e) => {
+                                      const type = e.target.value as any;
+                                      const patch: any = { type };
+                                      if (type === "AREA_RADIUS" && !activeProfile.area) patch.area = { radius: 1, includeCenter: true };
+                                      if (type !== "AREA_RADIUS") patch.area = undefined;
+                                      if (type === "MULTI_TARGET" && typeof activeProfile.maxTargets !== "number") patch.maxTargets = 2;
+                                      if (type !== "MULTI_TARGET") {
+                                        patch.maxTargets = undefined;
+                                        patch.optional = undefined;
+                                      }
+                                      patchProfile(activeProfile.id, patch);
+                                    }}
+                                  >
+                                    {["SELF", "SINGLE_TARGET", "MULTI_TARGET", "AREA_RADIUS"].map((t) => (
+                                      <option key={t} value={t}>
+                                        {t}
+                                      </option>
+                                    ))}
+                                  </select>
+                                </div>
+
+                                <div style={{ flex: 1 }}>
+                                  <div className="small">Origin</div>
+                                  <select
+                                    className="select"
+                                    value={activeProfile.origin}
+                                    onChange={(e) => {
+                                      const origin = e.target.value as any;
+                                      const patch: any = { origin };
+                                      if (origin !== "RELATIVE_TO_TARGET_SET") patch.relativeTo = undefined;
+                                      if (origin === "RELATIVE_TO_TARGET_SET" && !activeProfile.relativeTo) {
+                                        patch.relativeTo = { targetSetId: profiles[0]?.id ?? "primary" };
+                                      }
+                                      patchProfile(activeProfile.id, patch);
+                                    }}
+                                  >
+                                    {["SOURCE", "ANYWHERE", "RELATIVE_TO_TARGET_SET"].map((o) => (
+                                      <option key={o} value={o}>
+                                        {o}
+                                      </option>
+                                    ))}
+                                  </select>
+                                </div>
+                              </div>
+
+                              {activeProfile.origin === "RELATIVE_TO_TARGET_SET" ? (
+                                <div style={{ marginTop: 10 }}>
+                                  <div className="small">Relative To (profile id)</div>
+                                  <select
+                                    className="select"
+                                    value={activeProfile.relativeTo?.targetSetId ?? ""}
+                                    onChange={(e) =>
+                                      patchProfile(activeProfile.id, {
+                                        relativeTo: { targetSetId: e.target.value }
+                                      } as any)
+                                    }
+                                  >
+                                    {profiles
+                                      .filter((p) => p.id !== activeProfile.id)
+                                      .map((p) => (
+                                        <option key={p.id} value={p.id}>
+                                          {p.id}
+                                        </option>
+                                      ))}
+                                  </select>
+                                  <div className="small" style={{ marginTop: 6 }}>
+                                    (Hex preview anchoring for RELATIVE profiles will be improved next.)
+                                  </div>
+                                </div>
+                              ) : null}
+
+                              {activeProfile.type !== "SELF" ? (
+                                <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+                                  <div style={{ flex: 1 }}>
+                                    <div className="small">Min Range</div>
+                                    <input
+                                      className="input"
+                                      type="number"
+                                      value={Number(activeProfile.range?.min ?? 0)}
+                                      onChange={(e) => {
+                                        const min = clampInt(e.target.value, 0);
+                                        const max = Math.max(min, Number(activeProfile.range?.max ?? activeProfile.range?.base ?? 4));
+                                        patchProfile(activeProfile.id, { range: { ...(activeProfile.range ?? {}), min, max, base: max } });
+                                      }}
+                                    />
+                                  </div>
+                                  <div style={{ flex: 1 }}>
+                                    <div className="small">Max Range</div>
+                                    <input
+                                      className="input"
+                                      type="number"
+                                      value={Number(activeProfile.range?.max ?? activeProfile.range?.base ?? 4)}
+                                      onChange={(e) => {
+                                        const max = clampInt(e.target.value, 0);
+                                        const min = Math.min(Number(activeProfile.range?.min ?? 0), max);
+                                        patchProfile(activeProfile.id, { range: { ...(activeProfile.range ?? {}), min, max, base: max } });
+                                      }}
+                                    />
+                                  </div>
+                                  <div style={{ flex: 1 }}>
+                                    <div className="small">Line of Sight</div>
+                                    <select
+                                      className="select"
+                                      value={String(Boolean(activeProfile.lineOfSight))}
+                                      onChange={(e) => patchProfile(activeProfile.id, { lineOfSight: e.target.value === "true" })}
+                                    >
+                                      <option value="false">false</option>
+                                      <option value="true">true</option>
+                                    </select>
+                                  </div>
+                                </div>
+                              ) : null}
+
+                              {activeProfile.type === "MULTI_TARGET" ? (
+                                <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+                                  <div style={{ flex: 1 }}>
+                                    <div className="small">Max Targets</div>
+                                    <input
+                                      className="input"
+                                      type="number"
+                                      value={Number(activeProfile.maxTargets ?? 2)}
+                                      onChange={(e) => patchProfile(activeProfile.id, { maxTargets: clampInt(e.target.value, 1, 12) } as any)}
+                                    />
+                                  </div>
+                                  <div style={{ flex: 1 }}>
+                                    <div className="small">Optional</div>
+                                    <select
+                                      className="select"
+                                      value={String(Boolean(activeProfile.optional))}
+                                      onChange={(e) => patchProfile(activeProfile.id, { optional: e.target.value === "true" } as any)}
+                                    >
+                                      <option value="false">false</option>
+                                      <option value="true">true</option>
+                                    </select>
+                                  </div>
+                                </div>
+                              ) : null}
+
+                              {activeProfile.type === "AREA_RADIUS" ? (
+                                <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+                                  <div style={{ flex: 1 }}>
+                                    <div className="small">AoE Radius</div>
+                                    <input
+                                      className="input"
+                                      type="number"
+                                      value={Number((activeProfile as any).area?.radius ?? 0)}
+                                      onChange={(e) =>
+                                        patchProfile(activeProfile.id, {
+                                          area: { ...((activeProfile as any).area ?? { includeCenter: true }), radius: clampInt(e.target.value, 0, 30) }
+                                        } as any)
+                                      }
+                                    />
+                                  </div>
+                                  <div style={{ flex: 1 }}>
+                                    <div className="small">Include Center</div>
+                                    <select
+                                      className="select"
+                                      value={String(Boolean((activeProfile as any).area?.includeCenter ?? true))}
+                                      onChange={(e) =>
+                                        patchProfile(activeProfile.id, {
+                                          area: { ...((activeProfile as any).area ?? { radius: 1 }), includeCenter: e.target.value === "true" }
+                                        } as any)
+                                      }
+                                    >
+                                      <option value="true">true</option>
+                                      <option value="false">false</option>
+                                    </select>
+                                  </div>
+                                </div>
+                              ) : null}
+
+                              <details style={{ marginTop: 10 }}>
+                                <summary className="small" style={{ cursor: "pointer" }}>
+                                  Constraints
+                                </summary>
+
+                                <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+                                  <label className="small" style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                                    <input
+                                      type="checkbox"
+                                      checked={Boolean((activeProfile as any).constraints?.excludeSelf)}
+                                      onChange={(e) =>
+                                        patchProfile(activeProfile.id, {
+                                          constraints: { ...((activeProfile as any).constraints ?? {}), excludeSelf: e.target.checked }
+                                        } as any)
+                                      }
+                                    />
+                                    Exclude Self
+                                  </label>
+                                </div>
+
+                                <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+                                  <div style={{ flex: 1 }}>
+                                    <div className="small">Exclude Target Set (name)</div>
+                                    <select
+                                      className="select"
+                                      value={String((activeProfile as any).constraints?.excludeTargetSet ?? "")}
+                                      onChange={(e) =>
+                                        patchProfile(activeProfile.id, {
+                                          constraints: { ...((activeProfile as any).constraints ?? {}), excludeTargetSet: e.target.value || undefined }
+                                        } as any)
+                                      }
+                                    >
+                                      <option value="">(none)</option>
+                                      {profiles.map((p) => (
+                                        <option key={p.id} value={p.id}>
+                                          {p.id}
+                                        </option>
+                                      ))}
+                                    </select>
+                                  </div>
+
+                                  <div style={{ flex: 1 }}>
+                                    <div className="small">Must Be Adjacent To (set)</div>
+                                    <select
+                                      className="select"
+                                      value={String((activeProfile as any).constraints?.mustBeAdjacentTo ?? "")}
+                                      onChange={(e) =>
+                                        patchProfile(activeProfile.id, {
+                                          constraints: { ...((activeProfile as any).constraints ?? {}), mustBeAdjacentTo: e.target.value || undefined }
+                                        } as any)
+                                      }
+                                    >
+                                      <option value="">(none)</option>
+                                      {profiles.map((p) => (
+                                        <option key={p.id} value={p.id}>
+                                          {p.id}
+                                        </option>
+                                      ))}
+                                    </select>
+                                  </div>
+                                </div>
+
+                                <div className="small" style={{ marginTop: 8 }}>
+                                  (Constraints reference target sets by name — best practice is to keep saveAs == profileId.)
+                                </div>
+                              </details>
+
+                              {showHexPicker ? (
+                                <HexTargetPicker
+                                  minRange={pMin}
+                                  maxRange={pMax}
+                                  aoeRadius={pAoe}
+                                  includeCenter={pIncludeCenter}
+                                  lineOfSight={pLoS}
+                                  value={hexPickerByAbility[activeAbilityIdx]?.[activeProfile.id]}
+                                  onChange={(next) =>
+                                    setHexPickerByAbility((m) => ({
+                                      ...m,
+                                      [activeAbilityIdx]: { ...(m[activeAbilityIdx] ?? {}), [activeProfile.id]: next }
+                                    }))
+                                  }
+                                />
+                              ) : (
+                                <div className="small" style={{ marginTop: 10 }}>
+                                  Hex preview hidden for origin=ANYWHERE or type=SELF.
+                                </div>
+                              )}
+                            </>
+                          ) : null}
+                        </>
                       )}
                     </>
                   )}
@@ -1056,13 +1376,81 @@ export default function App() {
                         </button>
                       </div>
 
+                      {/* New: SELECT_TARGETS editor */}
+                      {selectedStep.type === "SELECT_TARGETS" ? (
+                        <div style={{ marginTop: 10 }}>
+                          <div className="small">profileId</div>
+                          <select
+                            className="select"
+                            value={(selectedStep as any).profileId ?? ""}
+                            onChange={(e) => patchStep(selectedStepIdx, { profileId: e.target.value })}
+                          >
+                            <option value="">(select)</option>
+                            {profiles.map((p) => (
+                              <option key={p.id} value={p.id}>
+                                {p.id}
+                              </option>
+                            ))}
+                          </select>
+
+                          <div className="small" style={{ marginTop: 8 }}>
+                            saveAs (target set name)
+                          </div>
+                          <input
+                            className="input"
+                            value={(selectedStep as any).saveAs ?? ""}
+                            onChange={(e) => patchStep(selectedStepIdx, { saveAs: e.target.value })}
+                            placeholder="e.g. primary"
+                          />
+
+                          <div className="small" style={{ marginTop: 8 }}>
+                            Tip: keep saveAs == profileId (best practice)
+                          </div>
+                        </div>
+                      ) : null}
+
+                      {/* New: FOR_EACH_TARGET editor */}
+                      {selectedStep.type === "FOR_EACH_TARGET" ? (
+                        <div style={{ marginTop: 10 }}>
+                          <div className="small">targetSet.ref</div>
+                          <select
+                            className="select"
+                            value={(selectedStep as any).targetSet?.ref ?? ""}
+                            onChange={(e) => patchStep(selectedStepIdx, { targetSet: { ref: e.target.value } })}
+                          >
+                            <option value="">(select)</option>
+                            {availableTargetSets.map((s) => (
+                              <option key={s} value={s}>
+                                {s}
+                              </option>
+                            ))}
+                          </select>
+
+                          <div className="small" style={{ marginTop: 10 }}>
+                            do (steps)
+                          </div>
+                          <StepListEditor
+                            title="FOR_EACH_TARGET.do"
+                            steps={(selectedStep as any).do ?? []}
+                            onChange={(nextSteps: Step[]) => patchStep(selectedStepIdx, { do: nextSteps })}
+                          />
+                        </div>
+                      ) : null}
+
+                      {/* Existing nested editors */}
                       {selectedStep.type === "IF_ELSE" || selectedStep.type === "OPPONENT_SAVE" ? (
                         <StepListEditor
                           title="Nested Step Editor"
                           steps={[selectedStep]}
                           onChange={(next) => setStep(selectedStepIdx, next[0] as any)}
                         />
-                      ) : (
+                      ) : null}
+
+                      {/* Base editors for other step types */}
+                      {selectedStep.type !== "IF_ELSE" &&
+                      selectedStep.type !== "OPPONENT_SAVE" &&
+                      selectedStep.type !== "SELECT_TARGETS" &&
+                      selectedStep.type !== "FOR_EACH_TARGET" ? (
                         <div style={{ marginTop: 10 }}>
                           {selectedStep.type === "SHOW_TEXT" ? (
                             <>
@@ -1160,52 +1548,15 @@ export default function App() {
                                 type="number"
                                 value={(selectedStep as any).duration?.turns ?? 1}
                                 onChange={(e) =>
-                                  patchStep(selectedStepIdx, { duration: { turns: Math.max(1, Math.floor(Number(e.target.value) || 1)) } })
+                                  patchStep(selectedStepIdx, {
+                                    duration: { turns: Math.max(1, Math.floor(Number(e.target.value) || 1)) }
+                                  })
                                 }
                               />
                             </>
                           ) : null}
-
-                          {selectedStep.type === "REMOVE_STATUS" ? (
-                            <>
-                              <div className="small">Status</div>
-                              <select
-                                className="select"
-                                value={(selectedStep as any).status}
-                                onChange={(e) => patchStep(selectedStepIdx, { status: e.target.value })}
-                              >
-                                {(blockRegistry.keys.StatusKey as string[]).map((s) => (
-                                  <option key={s} value={s}>
-                                    {s}
-                                  </option>
-                                ))}
-                              </select>
-                            </>
-                          ) : null}
-
-                          {selectedStep.type === "MOVE_ENTITY" ? (
-                            <>
-                              <div className="small">Max Tiles</div>
-                              <input
-                                className="input"
-                                type="number"
-                                value={(selectedStep as any).maxTiles ?? 1}
-                                onChange={(e) => patchStep(selectedStepIdx, { maxTiles: Math.max(1, Math.floor(Number(e.target.value) || 1)) })}
-                              />
-                            </>
-                          ) : null}
-
-                          {selectedStep.type === "IF_ELSE" ? (
-                            <>
-                              <div className="small">Condition</div>
-                              <ConditionEditor
-                                value={(selectedStep as any).condition}
-                                onChange={(condition) => patchStep(selectedStepIdx, { condition })}
-                              />
-                            </>
-                          ) : null}
                         </div>
-                      )}
+                      ) : null}
 
                       <details style={{ marginTop: 10 }}>
                         <summary className="small" style={{ cursor: "pointer" }}>
