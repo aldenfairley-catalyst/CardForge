@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import ReactFlow, { Background, Controls, MiniMap, Handle, Position } from "reactflow";
 import "reactflow/dist/style.css";
-
+import HexTargetPicker from "./components/HexTargetPicker";
 import type { CardEntity, Step, AbilityComponent } from "./lib/types";
 import { makeDefaultCard, canonicalToGraph, abilitySummary } from "./lib/graph";
 import { saveCardJson, clearSaved, loadMigratedCardOrDefault, loadCatalog, saveCatalog, resetCatalog } from "./lib/storage";
@@ -170,6 +170,7 @@ export default function App() {
   const history = useHistoryState<CardEntity>(loadMigratedCardOrDefault(makeDefaultCard));
   const card = history.present;
   const setCard = history.set;
+const [hexPickerByAbility, setHexPickerByAbility] = useState<Record<number, any>>({});
 
   const [issues, setIssues] = useState<ValidationIssue[]>([]);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
