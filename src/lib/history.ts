@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 export function useHistoryState<T>(initial: T) {
   const [past, setPast] = useState<T[]>([]);
@@ -20,8 +20,8 @@ export function useHistoryState<T>(initial: T) {
   const undo = useCallback(() => {
     setPast((p) => {
       if (!p.length) return p;
+      const prev = p[p.length - 1];
       setPresent((cur) => {
-        const prev = p[p.length - 1];
         setFuture((f) => [cur, ...f]);
         return prev;
       });
@@ -41,23 +41,17 @@ export function useHistoryState<T>(initial: T) {
     });
   }, []);
 
-  // Keyboard shortcuts
-  const presentRef = useRef(present);
-  useEffect(() => {
-    presentRef.current = present;
-  }, [present]);
-
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       const isMac = navigator.platform.toLowerCase().includes("mac");
       const mod = isMac ? e.metaKey : e.ctrlKey;
-
       if (!mod) return;
 
-      if (e.key.toLowerCase() === "z" && !e.shiftKey) {
+      const k = e.key.toLowerCase();
+      if (k === "z" && !e.shiftKey) {
         e.preventDefault();
         undo();
-      } else if ((e.key.toLowerCase() === "z" && e.shiftKey) || e.key.toLowerCase() === "y") {
+      } else if ((k === "z" && e.shiftKey) || k === "y") {
         e.preventDefault();
         redo();
       }
