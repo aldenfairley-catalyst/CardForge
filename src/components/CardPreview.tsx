@@ -1,300 +1,371 @@
 import React, { useMemo } from "react";
-import type { AbilityComponent, CardEntity } from "../lib/types";
-import { blockRegistry } from "../lib/registry";
+import type { CardEntity } from "../lib/types";
 
-type TemplateId = "T1" | "T2" | "T3" | "T4" | "T5";
-type ThemeId = "BLUE" | "GREEN" | "PURPLE" | "ORANGE" | "RED";
+type ResourceKey = "UMB" | "AET" | "CRD" | "CHR" | "STR" | "RES" | "WIS" | "INT" | "SPD" | "AWR";
 
-const typeHelp: Record<string, string> = {
-  UNIT: "A controllable character on the board. Has stats, can move, act, and hold items.",
-  ITEM: "Equippable gear or relics that can modify stats and/or inject abilities.",
-  SPELL: "Played from hand. Usually resolves an effect and may not remain on board.",
-  ENVIRONMENT: "Terrain, obstacles, hazards, or interactive objects on the board.",
-  TOKEN: "A temporary marker/resource/status representation."
+const RESOURCE_LABELS: Record<ResourceKey, string> = {
+  UMB: "Umbra",
+  AET: "Aether",
+  CRD: "Coordination",
+  CHR: "Charisma",
+  STR: "Strength",
+  RES: "Resilience",
+  WIS: "Wisdom",
+  INT: "Intelligence",
+  SPD: "Speed",
+  AWR: "Awareness"
 };
 
-const triggerHelp: Record<string, string> = {
-  ACTIVE_ACTION: "Player chooses to use this action (typically costs AP).",
-  PASSIVE_AURA: "Always-on effect that applies while conditions are met.",
-  REACTION: "Can be used during a reaction window (interrupt/response).",
-  ON_DEATH: "Triggers when the unit/entity is destroyed.",
-  ON_SPAWN: "Triggers when the unit/entity enters play.",
-  ON_TURN_START: "Triggers at the start of the owner’s turn.",
-  ON_TURN_END: "Triggers at the end of the owner’s turn."
+const TYPE_HELP: Record<string, string> = {
+  UNIT: "A unit placed on the board. Has HP/AP/MOVE/SIZE and can act.",
+  ITEM: "An equippable or usable item that modifies units or actions.",
+  SPELL: "Played from hand (or cast) to produce an effect.",
+  ENVIRONMENT: "Terrain / obstacles / hazards that exist on the board.",
+  TOKEN: "A token entity used for economy/statuses/summons."
 };
 
-const stepHelp: Record<string, string> = {
-  ROLL_D6: "Roll a six-sided die and optionally save the result.",
-  ROLL_D20: "Roll a twenty-sided die and optionally save the result.",
-  SET_VARIABLE: "Compute a value and store it under saveAs for later steps.",
-  OPPONENT_SAVE: "Target makes a save check. Branch into onFail/onSuccess.",
-  DEAL_DAMAGE: "Deal damage of a given type to a target entity.",
-  HEAL: "Restore HP to a target entity.",
-  APPLY_STATUS: "Apply a named status for a duration.",
-  REMOVE_STATUS: "Remove a named status from a target.",
-  MOVE_ENTITY: "Move an entity up to maxTiles to a chosen position.",
-  SHOW_TEXT: "Write a log/message line.",
-  IF_ELSE: "Branch based on a condition.",
-  OPEN_REACTION_WINDOW: "Open a reaction window at a defined timing."
+const TRIGGER_HELP: Record<string, string> = {
+  ACTIVE_ACTION: "You choose to use this on your turn (costs AP).",
+  PASSIVE_AURA: "Always-on passive effect (usually radius/aura).",
+  REACTION: "Triggered in a reaction window (interrupt/response).",
+  ON_EQUIP: "Triggers when the item is equipped.",
+  ON_DRAW: "Triggers when drawn into hand.",
+  ON_PLAY: "Triggers when played from hand.",
+  ON_DEATH: "Triggers when the entity dies."
 };
 
-function abbrev(s?: string) {
-  if (!s) return "";
-  const t = s.trim();
-  if (!t) return "";
-  const parts = t.split(/\s+/g);
-  const a = parts.length >= 2 ? (parts[0][0] + parts[1][0]) : t.slice(0, 2);
-  return a.toUpperCase();
-}
-
-function defaultTemplateFor(card: CardEntity): TemplateId {
-  switch (card.type) {
-    case "UNIT": return "T1";
-    case "ITEM": return "T2";
-    case "SPELL": return "T3";
-    case "ENVIRONMENT": return "T4";
-    case "TOKEN": return "T5";
-    default: return "T1";
+function inferTemplate(card: any): "T1" | "T2" | "T3" | "T4" | "T5" {
+  const preset = card?.presentation?.template;
+  if (preset === "T1" || preset === "T2" || preset === "T3" || preset === "T4" || preset === "T5") return preset;
+  switch (card?.type) {
+    case "UNIT":
+      return "T1";
+    case "ITEM":
+      return "T2";
+    case "SPELL":
+      return "T3";
+    case "ENVIRONMENT":
+      return "T4";
+    case "TOKEN":
+      return "T5";
+    default:
+      return "T1";
   }
 }
 
-function themeClass(theme?: ThemeId) {
-  const t = (theme ?? "BLUE").toLowerCase();
-  return `theme-${t}`;
+function themeClass(card: any): string {
+  const t = String(card?.presentation?.theme ?? "BLUE").toLowerCase();
+  const allowed = ["blue", "green", "purple", "orange", "red"];
+  return allowed.includes(t) ? `theme-${t}` : "theme-blue";
 }
 
-function templateClass(tpl?: TemplateId) {
-  const t = (tpl ?? "T1").toLowerCase();
-  return `tpl-${t}`;
+function templateClass(tpl: string): string {
+  return `tpl-${String(tpl).toLowerCase()}`;
 }
 
-function getAbilities(card: CardEntity): AbilityComponent[] {
-  return card.components.filter((c: any) => c?.componentType === "ABILITY") as AbilityComponent[];
+function abbreviate(text: string | undefined, max = 3): string {
+  if (!text) return "—";
+  const cleaned = text.replace(/[^a-z0-9]/gi, "");
+  if (!cleaned.length) return "—";
+  return cleaned.slice(0, max).toUpperCase();
 }
 
-function uniqueStepTypes(a: AbilityComponent): string[] {
-  const types = new Set<string>();
-  const steps = a.execution?.steps ?? [];
-  for (const s of steps as any[]) {
-    if (s?.type && s.type !== "UNKNOWN_STEP") types.add(s.type);
+function asNumber(n: any, fallback = 0) {
+  const v = Number(n);
+  return Number.isFinite(v) ? v : fallback;
+}
+
+function formatTokenCosts(tokens: Record<string, any> | undefined): Array<{ k: string; v: number; label: string }> {
+  if (!tokens) return [];
+  const out: Array<{ k: string; v: number; label: string }> = [];
+  for (const [k, raw] of Object.entries(tokens)) {
+    const v = Math.max(0, Math.floor(Number(raw) || 0));
+    if (v <= 0) continue;
+    const kk = k as ResourceKey;
+    const label = (RESOURCE_LABELS as any)[kk] ?? k;
+    out.push({ k, v, label });
   }
-  return Array.from(types);
+  // stable order: known resources first
+  const order: ResourceKey[] = ["UMB", "AET", "CRD", "CHR", "STR", "RES", "WIS", "INT", "SPD", "AWR"];
+  out.sort((a, b) => {
+    const ai = order.indexOf(a.k as ResourceKey);
+    const bi = order.indexOf(b.k as ResourceKey);
+    return (ai === -1 ? 999 : ai) - (bi === -1 ? 999 : bi) || a.k.localeCompare(b.k);
+  });
+  return out;
 }
 
-function statValue(card: CardEntity, key: string): number | null {
-  const s: any = card.stats ?? {};
-  // match both lowercase and canonical keys if you later normalize
-  const direct = s?.[key];
-  if (typeof direct === "number") return direct;
-  return null;
+function groupAbilities(abilities: any[]) {
+  const groups: Record<string, any[]> = {};
+  for (const a of abilities) {
+    const trig = String(a?.trigger ?? "UNKNOWN");
+    if (!groups[trig]) groups[trig] = [];
+    groups[trig].push(a);
+  }
+  return groups;
 }
 
-function hpMax(card: CardEntity): number | null {
-  const hp = (card.stats as any)?.hp;
-  const v = hp?.max;
-  return typeof v === "number" ? v : null;
-}
-function apMax(card: CardEntity): number | null {
-  const ap = (card.stats as any)?.ap;
-  const v = ap?.max;
-  return typeof v === "number" ? v : null;
-}
-
-function Pill({ label, value }: { label: string; value: string | number }) {
-  return (
-    <div className="cpPill">
-      <span className="cpPillLabel">{label}</span>
-      <span className="cpPillValue">{value}</span>
-    </div>
-  );
-}
-
-function ApToken({ ap }: { ap: number }) {
-  return (
-    <span className="cpApToken" title="AP cost">
-      <span className="cpApCircle">AP</span>
-      <span className="cpApNum">{ap}</span>
-    </span>
-  );
+function sectionTitleForTrigger(trigger: string) {
+  switch (trigger) {
+    case "ACTIVE_ACTION":
+      return "Abilities";
+    case "PASSIVE_AURA":
+      return "Passive Effects";
+    case "REACTION":
+      return "Reactions";
+    case "ON_EQUIP":
+      return "On Equip";
+    case "ON_DRAW":
+      return "On Draw";
+    case "ON_PLAY":
+      return "On Play";
+    case "ON_DEATH":
+      return "On Death";
+    default:
+      return trigger;
+  }
 }
 
-function StepChips({ types }: { types: string[] }) {
-  if (!types.length) return null;
-  return (
-    <div className="cpChips">
-      {types.map((t) => (
-        <span
-          key={t}
-          className="cpChip"
-          title={stepHelp[t] ?? "Execution step"}
-        >
-          {t}
-        </span>
-      ))}
-    </div>
-  );
-}
-
-/**
- * 5 templates:
- * T1 Unit (hero/unit focus)
- * T2 Item (equipment focus)
- * T3 Spell (hand-play focus)
- * T4 Environment (terrain focus)
- * T5 Token (simple)
- */
 export function CardPreview({ card }: { card: CardEntity }) {
-  const tpl = (card.presentation?.template as TemplateId | undefined) ?? defaultTemplateFor(card);
-  const theme = (card.presentation?.theme as ThemeId | undefined) ?? "BLUE";
-  const abilities = useMemo(() => getAbilities(card), [card]);
+  const c: any = card as any;
 
-  const faction = card.faction;
-  const unitType = (card.subType && card.subType.length) ? card.subType[0] : undefined;
+  const tpl = inferTemplate(c);
+  const wrapperClass = `cardPreview ${themeClass(c)} ${templateClass(tpl)}`;
 
-  const img = card.visuals?.cardImage;
+  const imgUrl = String(c?.visuals?.cardImage ?? "");
+  const objPos = String(c?.presentation?.imagePosition ?? "center center");
 
-  const headerRight = (
-    <div className="cpTypeLine" title={typeHelp[card.type] ?? "Card type"}>
-      Type: <b>{card.type}</b>
-    </div>
-  );
+  const faction = String(c?.faction ?? "");
+  const primaryType = Array.isArray(c?.subType) && c.subType.length ? String(c.subType[0]) : "";
 
-  const sections = useMemo(() => {
-    const groups: Record<string, AbilityComponent[]> = {
-      Abilities: [],
-      "Passive Effects": [],
-      Reactions: [],
-      "Other Effects": []
-    };
+  const unitHp = asNumber(c?.stats?.hp?.max, 0);
+  const unitAp = asNumber(c?.stats?.ap?.max, 0);
+  const unitMove = asNumber(c?.stats?.movement, 0);
+  const unitSize = asNumber(c?.stats?.size, 1);
 
-    for (const a of abilities) {
-      if (a.trigger === "ACTIVE_ACTION") groups["Abilities"].push(a);
-      else if (a.trigger === "PASSIVE_AURA") groups["Passive Effects"].push(a);
-      else if (a.trigger === "REACTION") groups["Reactions"].push(a);
-      else groups["Other Effects"].push(a);
-    }
+  const abilities = useMemo(() => {
+    const comps = Array.isArray(c?.components) ? c.components : [];
+    return comps.filter((x: any) => x?.componentType === "ABILITY");
+  }, [c]);
 
-    // Hide empty groups
-    return Object.entries(groups).filter(([, list]) => list.length > 0);
-  }, [abilities]);
+  const grouped = useMemo(() => groupAbilities(abilities), [abilities]);
+
+  const resourcesOnCard = useMemo(() => {
+    const res: Record<string, any> = c?.resources ?? {};
+    const out = formatTokenCosts(res);
+    return out;
+  }, [c]);
+
+  const tags = Array.isArray(c?.tags) ? c.tags : [];
+  const typeHelp = TYPE_HELP[c?.type] ?? "Card type.";
+  const typeLabel = String(c?.type ?? "—");
+
+  const subtitle = (() => {
+    const bits: string[] = [];
+    if (faction) bits.push(faction);
+    if (primaryType) bits.push(primaryType);
+    if (bits.length === 0) return "";
+    return bits.join(" • ");
+  })();
 
   return (
-    <div className={`cardPreview ${themeClass(theme)} ${templateClass(tpl)}`}>
-      {/* Corner badges only for Units (as requested) */}
-      {card.type === "UNIT" && faction ? (
-        <div className="cpCorner cpCornerLeft" title={`Faction: ${faction}`}>
-          <span className="cpCornerText">{abbrev(faction)}</span>
-        </div>
-      ) : null}
-
-      {card.type === "UNIT" && unitType ? (
-        <div className="cpCorner cpCornerRight" title={`Type: ${unitType}`}>
-          <span className="cpCornerText">{abbrev(unitType)}</span>
-        </div>
+    <div className={wrapperClass}>
+      {/* Corner icons for units */}
+      {c?.type === "UNIT" ? (
+        <>
+          <div className="cpCorner cpCornerLeft" title={faction ? `Faction: ${faction}` : "Faction"}>
+            <div className="cpCornerText">{abbreviate(faction, 3)}</div>
+          </div>
+          <div className="cpCorner cpCornerRight" title={primaryType ? `Type: ${primaryType}` : "Type"}>
+            <div className="cpCornerText">{abbreviate(primaryType, 3)}</div>
+          </div>
+        </>
       ) : null}
 
       <div className="cpHeader">
-        <div className="cpName" title={card.name}>{card.name}</div>
-        {headerRight}
+        <div style={{ minWidth: 0 }}>
+          <div className="cpName" title={String(c?.name ?? "")}>
+            {String(c?.name ?? "Unnamed Card")}
+          </div>
+          {subtitle ? (
+            <div className="small" style={{ marginTop: 2 }}>
+              {subtitle}
+            </div>
+          ) : null}
+        </div>
+
+        <div className="cpTypeLine" title={typeHelp}>
+          {typeLabel}
+        </div>
       </div>
 
       <div className="cpImageWrap">
-        {img ? (
-          <img className="cpImage" src={img} alt={card.name} />
+        {imgUrl ? (
+          <img className="cpImage" src={imgUrl} alt={String(c?.name ?? "card")} style={{ objectPosition: objPos }} />
         ) : (
           <div className="cpImagePlaceholder">
-            <div className="cpImagePlaceholderTitle">No Image</div>
-            <div className="cpImagePlaceholderSub">Paste an image URL in the Inspector</div>
+            <div className="cpImagePlaceholderTitle">No Art</div>
+            <div className="cpImagePlaceholderSub">Upload an image or paste a URL</div>
           </div>
         )}
       </div>
 
-      {/* Template-specific stat bars */}
-      {tpl === "T1" && (
+      {/* Unit Stat Strip */}
+      {c?.type === "UNIT" ? (
         <div className="cpStats">
-          {hpMax(card) != null ? <Pill label="HP" value={hpMax(card)!} /> : null}
-          {apMax(card) != null ? <Pill label="AP" value={apMax(card)!} /> : null}
-          {statValue(card, "speed") != null ? <Pill label="SPD" value={statValue(card, "speed")!} /> : null}
-          {statValue(card, "resilience") != null ? <Pill label="RES" value={statValue(card, "resilience")!} /> : null}
+          <div className="cpPill" title="Hit Points">
+            <div className="cpPillLabel">HP</div>
+            <div className="cpPillValue">{unitHp}</div>
+          </div>
+          <div className="cpPill" title="Action Points per round">
+            <div className="cpPillLabel">AP</div>
+            <div className="cpPillValue">{unitAp}</div>
+          </div>
+          <div className="cpPill" title="Movement (tiles per round)">
+            <div className="cpPillLabel">MOVE</div>
+            <div className="cpPillValue">{unitMove}</div>
+          </div>
+          <div className="cpPill" title="Size (affects some abilities)">
+            <div className="cpPillLabel">SIZE</div>
+            <div className="cpPillValue">{unitSize}</div>
+          </div>
         </div>
-      )}
-
-      {tpl === "T2" && (
-        <div className="cpStats">
-          {statValue(card, "strength") != null ? <Pill label="STR" value={statValue(card, "strength")!} /> : null}
-          {statValue(card, "coordination") != null ? <Pill label="COORD" value={statValue(card, "coordination")!} /> : null}
-          {((card.resources?.aether ?? 0) > 0) ? <Pill label="AETH" value={card.resources!.aether!} /> : null}
-          {((card.resources?.umbra ?? 0) > 0) ? <Pill label="UMB" value={card.resources!.umbra!} /> : null}
-        </div>
-      )}
-
-      {tpl === "T3" && (
-        <div className="cpStats">
-          {((card.resources?.aether ?? 0) > 0) ? <Pill label="AETH" value={card.resources!.aether!} /> : null}
-          {((card.resources?.umbra ?? 0) > 0) ? <Pill label="UMB" value={card.resources!.umbra!} /> : null}
-          {statValue(card, "intelligence") != null ? <Pill label="INT" value={statValue(card, "intelligence")!} /> : null}
-          {statValue(card, "wisdom") != null ? <Pill label="WIS" value={statValue(card, "wisdom")!} /> : null}
-        </div>
-      )}
-
-      {tpl === "T4" && (
-        <div className="cpStats">
-          {hpMax(card) != null ? <Pill label="HP" value={hpMax(card)!} /> : null}
-          <Pill label="TERR" value={(card.type === "ENVIRONMENT") ? "Yes" : "—"} />
-          {(card.tags?.length ?? 0) > 0 ? <Pill label="TAGS" value={card.tags!.length} /> : null}
-        </div>
-      )}
-
-      {tpl === "T5" && (
-        <div className="cpStats">
-          {(card.resources?.aether ?? 0) > 0 ? <Pill label="AETH" value={card.resources!.aether!} /> : null}
-          {(card.resources?.umbra ?? 0) > 0 ? <Pill label="UMB" value={card.resources!.umbra!} /> : null}
-          {(card.resources?.strength ?? 0) > 0 ? <Pill label="STR" value={card.resources!.strength!} /> : null}
-        </div>
+      ) : (
+        <div className="cpStats" />
       )}
 
       <div className="cpBody">
-        {sections.map(([title, list]) => (
-          <div key={title} className="cpSection">
-            <div className="cpSectionTitle">{title}</div>
-            <div className="cpSectionList">
-              {list.map((a, i) => {
-                const ap = a.cost?.ap ?? 0;
-                const stepTypes = uniqueStepTypes(a);
-                return (
-                  <div key={`${a.name}-${i}`} className="cpAbility">
-                    <div className="cpAbilityTop">
-                      <div className="cpAbilityName">{a.name}</div>
-                      <div className="cpAbilityMeta">
-                        {ap > 0 ? <ApToken ap={ap} /> : null}
-                        <span className="cpTriggerChip" title={triggerHelp[a.trigger] ?? "Trigger"}>
-                          {a.trigger}
-                        </span>
+        {/* Abilities grouped by trigger */}
+        {Object.keys(grouped).length ? (
+          Object.entries(grouped).map(([trigger, list]) => {
+            const title = sectionTitleForTrigger(trigger);
+            const trigHelp = TRIGGER_HELP[trigger] ?? "Trigger.";
+            return (
+              <div key={trigger} className="cpSection">
+                <div className="cpSectionTitle" title={trigHelp}>
+                  {title}
+                </div>
+
+                <div className="cpSectionList">
+                  {list.map((a: any, idx: number) => {
+                    const ap = Math.max(0, Math.floor(Number(a?.cost?.ap ?? 0)));
+                    const tokenCosts = formatTokenCosts(a?.cost?.tokens);
+                    const trig = String(a?.trigger ?? "—");
+                    const tType = String(a?.targeting?.type ?? "");
+                    const tRange = a?.targeting?.range;
+                    const minR = typeof tRange?.min === "number" ? tRange.min : 0;
+                    const maxR =
+                      typeof tRange?.max === "number"
+                        ? tRange.max
+                        : typeof tRange?.base === "number"
+                        ? tRange.base
+                        : 0;
+
+                    const targetingHint =
+                      tType && tType !== "SELF"
+                        ? `Targeting: ${tType}${maxR ? ` • Range ${minR}-${maxR}` : ""}`
+                        : tType
+                        ? `Targeting: ${tType}`
+                        : "";
+
+                    return (
+                      <div key={`${trigger}-${idx}`} className="cpAbility">
+                        <div className="cpAbilityTop">
+                          <div style={{ minWidth: 0 }}>
+                            <div className="cpAbilityName" title={String(a?.name ?? "")}>
+                              {String(a?.name ?? "Ability")}
+                            </div>
+                            {targetingHint ? (
+                              <div className="small" style={{ marginTop: 3 }}>
+                                {targetingHint}
+                              </div>
+                            ) : null}
+                          </div>
+
+                          <div className="cpAbilityMeta">
+                            <span className="cpTriggerChip" title={TRIGGER_HELP[trig] ?? trig}>
+                              {trig}
+                            </span>
+
+                            {/* AP token */}
+                            {ap > 0 ? (
+                              <span className="cpApToken" title={`AP Cost: ${ap}`}>
+                                <span className="cpApCircle">AP</span>
+                                <span className="cpApNum">{ap}</span>
+                              </span>
+                            ) : null}
+
+                            {/* Token costs */}
+                            {tokenCosts.map((t) => (
+                              <span
+                                key={t.k}
+                                className="cpTriggerChip"
+                                title={`${t.label} cost: ${t.v}`}
+                                style={{ fontWeight: 900 }}
+                              >
+                                {t.k} {t.v}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+
+                        {a?.description ? <div className="cpAbilityDesc">{String(a.description)}</div> : null}
                       </div>
-                    </div>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })
+        ) : (
+          <div className="small">No abilities yet.</div>
+        )}
 
-                    {a.description ? <div className="cpAbilityDesc">{a.description}</div> : null}
-
-                    <StepChips types={stepTypes} />
-                  </div>
-                );
-              })}
+        {/* Tags / Attributes */}
+        {tags.length || (Array.isArray(c?.attributes) && c.attributes.length) ? (
+          <div className="cpSection">
+            <div className="cpSectionTitle" title="Keywords and elemental/material attributes.">
+              Tags
+            </div>
+            <div className="cpChips">
+              {tags.map((t: string) => (
+                <span key={t} className="cpChip">
+                  {t}
+                </span>
+              ))}
+              {(Array.isArray(c?.attributes) ? c.attributes : []).map((a: string) => (
+                <span key={`attr-${a}`} className="cpChip" title="Attribute">
+                  {a}
+                </span>
+              ))}
             </div>
           </div>
-        ))}
+        ) : null}
+
+        {/* Resources stored on the card/unit */}
+        {resourcesOnCard.length ? (
+          <div className="cpSection">
+            <div className="cpSectionTitle" title="Tokens stored on this card/unit (not costs).">
+              Stored Tokens
+            </div>
+            <div className="cpChips">
+              {resourcesOnCard.map((r) => (
+                <span key={`res-${r.k}`} className="cpChip" title={r.label}>
+                  {r.k} {r.v}
+                </span>
+              ))}
+            </div>
+          </div>
+        ) : null}
       </div>
 
       <div className="cpFooter">
-        {(card.attributes?.length ?? 0) > 0 ? (
-          <div className="cpFooterLine" title="Attributes">
-            Attr: {card.attributes!.join(", ")}
-          </div>
-        ) : (
-          <div className="cpFooterLine" title="Tip">
-            Hover labels for rules help • Template {tpl} • Theme {theme}
-          </div>
-        )}
+        <div className="cpFooterLine" title="Template + theme used for preview rendering">
+          {tpl} • {String(c?.presentation?.theme ?? "BLUE")}
+        </div>
       </div>
     </div>
   );
 }
+
+export default CardPreview;
