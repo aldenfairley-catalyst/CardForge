@@ -40,7 +40,13 @@ function coerceUnknownSteps(card: any) {
   return card;
 }
 
-function Modal(props: { open: boolean; title: string; onClose: () => void; children: React.ReactNode; footer?: React.ReactNode }) {
+function Modal(props: {
+  open: boolean;
+  title: string;
+  onClose: () => void;
+  children: React.ReactNode;
+  footer?: React.ReactNode;
+}) {
   if (!props.open) return null;
   return (
     <div className="modalBack">
@@ -53,7 +59,9 @@ function Modal(props: { open: boolean; title: string; onClose: () => void; child
         </div>
         <div className="pb">
           {props.children}
-          {props.footer ? <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 10 }}>{props.footer}</div> : null}
+          {props.footer ? (
+            <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 10 }}>{props.footer}</div>
+          ) : null}
         </div>
       </div>
     </div>
@@ -164,7 +172,7 @@ export default function App() {
   const setCard = history.set;
 
   const [issues, setIssues] = useState<ValidationIssue[]>([]);
-  const [selected, setSelected] = useState<any>(null);
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
 
   const [importOpen, setImportOpen] = useState(false);
   const [importText, setImportText] = useState("");
@@ -227,6 +235,12 @@ export default function App() {
     return { nodes: patchedNodes, edges: g.edges };
   }, [card, activeAbilityIdx]);
 
+  // Keep selection highlight stable even if ReactFlow emits empty selection while nodes update
+  const displayedNodes = useMemo(
+    () => nodes.map((n: any) => ({ ...n, selected: selectedNodeId ? n.id === selectedNodeId : false })),
+    [nodes, selectedNodeId]
+  );
+
   const errorCount = issues.filter((i) => i.severity === "ERROR").length;
 
   const nodeTypes = useMemo(
@@ -273,7 +287,7 @@ export default function App() {
     const steps = (ability.execution?.steps ?? []).slice();
     steps.splice(stepIdx, 1);
     setAbility({ execution: { steps } } as any);
-    setSelected(null);
+    setSelectedNodeId(null);
   }
 
   function moveStep(stepIdx: number, dir: -1 | 1) {
@@ -302,9 +316,18 @@ export default function App() {
         case "OPEN_REACTION_WINDOW":
           return { type: "OPEN_REACTION_WINDOW", timing: "BEFORE_DAMAGE", windowId: "pre_damage" } as any;
         case "DEAL_DAMAGE":
-          return { type: "DEAL_DAMAGE", target: { type: "TARGET" } as any, amountExpr: { type: "CONST_NUMBER", value: 10 } as any, damageType: "PHYSICAL" as any } as any;
+          return {
+            type: "DEAL_DAMAGE",
+            target: { type: "TARGET" } as any,
+            amountExpr: { type: "CONST_NUMBER", value: 10 } as any,
+            damageType: "PHYSICAL" as any
+          } as any;
         case "HEAL":
-          return { type: "HEAL", target: { type: "SELF" } as any, amountExpr: { type: "CONST_NUMBER", value: 10 } as any } as any;
+          return {
+            type: "HEAL",
+            target: { type: "SELF" } as any,
+            amountExpr: { type: "CONST_NUMBER", value: 10 } as any
+          } as any;
         case "SET_VARIABLE":
           return { type: "SET_VARIABLE", saveAs: "var", valueExpr: { type: "CONST_NUMBER", value: 1 } as any } as any;
         case "APPLY_STATUS":
@@ -314,9 +337,20 @@ export default function App() {
         case "MOVE_ENTITY":
           return { type: "MOVE_ENTITY", target: { type: "SELF" } as any, to: { mode: "TARGET_POSITION" }, maxTiles: 5 } as any;
         case "OPPONENT_SAVE":
-          return { type: "OPPONENT_SAVE", stat: "SPEED", difficulty: 13, onFail: [{ type: "SHOW_TEXT", text: "Fail" }], onSuccess: [{ type: "SHOW_TEXT", text: "Success" }] } as any;
+          return {
+            type: "OPPONENT_SAVE",
+            stat: "SPEED",
+            difficulty: 13,
+            onFail: [{ type: "SHOW_TEXT", text: "Fail" }],
+            onSuccess: [{ type: "SHOW_TEXT", text: "Success" }]
+          } as any;
         case "IF_ELSE":
-          return { type: "IF_ELSE", condition: { type: "ALWAYS" } as any, then: [{ type: "SHOW_TEXT", text: "Then" }], else: [{ type: "SHOW_TEXT", text: "Else" }] } as any;
+          return {
+            type: "IF_ELSE",
+            condition: { type: "ALWAYS" } as any,
+            then: [{ type: "SHOW_TEXT", text: "Then" }],
+            else: [{ type: "SHOW_TEXT", text: "Else" }]
+          } as any;
         default:
           return { type: "UNKNOWN_STEP", raw: { type: stepType } } as any;
       }
@@ -336,7 +370,7 @@ export default function App() {
       card,
       ui: {
         activeAbilityIdx,
-        nodes: nodes.map((n: any) => ({ id: n.id, x: n.position.x, y: n.position.y, kind: n.data.kind }))
+        nodes: displayedNodes.map((n: any) => ({ id: n.id, x: n.position.x, y: n.position.y, kind: n.data.kind }))
       }
     };
     download(cardFileName(card, "FORGE-1.0"), JSON.stringify(project, null, 2));
@@ -352,7 +386,7 @@ export default function App() {
       const idxs = findAbilityIndexes(incoming);
       setActiveAbilityIdx(idxs[0] ?? 0);
 
-      setSelected(null);
+      setSelectedNodeId(null);
       setImportOpen(false);
       setImportText("");
     } catch (e: any) {
@@ -366,13 +400,13 @@ export default function App() {
       name: "New Ability",
       description: "",
       trigger: "ACTIVE_ACTION",
-      cost: { ap: 1 },
-      targeting: { type: "SINGLE_TARGET", range: { min: 0, max: 4, base: 4 }, lineOfSight: true } as any,
+      cost: { ap: 1, tokens: {} },
+      targeting: { type: "SINGLE_TARGET", origin: "SOURCE", range: { min: 0, max: 4, base: 4 }, lineOfSight: true } as any,
       execution: { steps: [{ type: "SHOW_TEXT", text: "Do something!" }] }
     };
     setCard({ ...card, components: [...card.components, newAbility as any] });
     setActiveAbilityIdx(card.components.length);
-    setSelected(null);
+    setSelectedNodeId(null);
   }
 
   function removeActiveAbility() {
@@ -385,14 +419,37 @@ export default function App() {
     setCard(nextCard);
     const nextIdxs = findAbilityIndexes(nextCard);
     setActiveAbilityIdx(nextIdxs[0] ?? 0);
-    setSelected(null);
+    setSelectedNodeId(null);
   }
 
-  const selectedInfo = selected?.nodes?.[0]?.data ?? null;
-  const selectedKind = selectedInfo?.kind ?? null;
-  const selectedStepIdx = selectedKind === "STEP" ? selectedInfo.stepIdx : null;
+  // Derive the currently selected node (by id) from the current nodes list
+  const selectedNode = useMemo(() => {
+    if (!selectedNodeId) return null;
+    return displayedNodes.find((n: any) => n.id === selectedNodeId) ?? null;
+  }, [displayedNodes, selectedNodeId]);
+
+  const selectedKindRaw = selectedNode?.data?.kind ?? null;
+  const selectedKind = typeof selectedKindRaw === "string" ? selectedKindRaw : null;
+
+  const isCost = selectedKind === "COST" || selectedKind === "META_COST";
+  const isTargeting = selectedKind === "TARGETING" || selectedKind === "META_TARGETING";
+  const isAbilityRoot = selectedKind === "ABILITY_ROOT" || selectedKind === "ABILITY";
+  const isStep = selectedKind === "STEP";
+
+  const selectedStepIdx = isStep ? selectedNode?.data?.stepIdx ?? null : null;
   const selectedStep =
     selectedStepIdx != null && ability?.execution?.steps ? (ability.execution.steps[selectedStepIdx] as Step) : null;
+
+  // Helpers for COST editor (token costs)
+  const COST_KEYS = ["UMB", "AET", "CRD", "CHR", "STR", "RES", "WIS", "INT", "SPD", "AWR"] as const;
+  function setTokenCost(k: string, v: number) {
+    if (!ability) return;
+    const tokens = { ...((ability.cost?.tokens as any) ?? {}) };
+    const n = Math.max(0, Math.floor(v || 0));
+    if (n <= 0) delete tokens[k];
+    else tokens[k] = n;
+    setAbility({ cost: { ...(ability.cost ?? {}), tokens } } as any);
+  }
 
   return (
     <div className="app">
@@ -435,7 +492,7 @@ export default function App() {
               setCard(fresh);
               const idxs = findAbilityIndexes(fresh);
               setActiveAbilityIdx(idxs[0] ?? 0);
-              setSelected(null);
+              setSelectedNodeId(null);
             }}
           >
             New Card
@@ -449,7 +506,7 @@ export default function App() {
               setCard(fresh);
               const idxs = findAbilityIndexes(fresh);
               setActiveAbilityIdx(idxs[0] ?? 0);
-              setSelected(null);
+              setSelectedNodeId(null);
             }}
           >
             Reset Local
@@ -479,7 +536,7 @@ export default function App() {
               value={String(activeAbilityIdx)}
               onChange={(e) => {
                 setActiveAbilityIdx(Number(e.target.value));
-                setSelected(null);
+                setSelectedNodeId(null);
               }}
             >
               {abilityIndexes.map((idx) => {
@@ -524,7 +581,20 @@ export default function App() {
             <span className="badge">React Flow</span>
           </div>
           <div className="rfWrap">
-            <ReactFlow nodes={nodes} edges={edges} nodeTypes={nodeTypes} fitView onSelectionChange={setSelected} proOptions={{ hideAttribution: true }}>
+            <ReactFlow
+              nodes={displayedNodes}
+              edges={edges}
+              nodeTypes={nodeTypes}
+              fitView
+              onNodeClick={(_, node) => setSelectedNodeId(node.id)}
+              onSelectionChange={(sel) => {
+                // IMPORTANT: don't clear selection on empty events; keep node stable while editing
+                const n = sel?.nodes?.[0];
+                if (n?.id) setSelectedNodeId(n.id);
+              }}
+              onPaneClick={() => setSelectedNodeId(null)}
+              proOptions={{ hideAttribution: true }}
+            >
               <Background />
               <Controls />
               <MiniMap pannable zoomable />
@@ -544,6 +614,7 @@ export default function App() {
             </div>
 
             <div className="pb">
+              {/* Card header */}
               <div className="small">Card Name</div>
               <input className="input" value={card.name} onChange={(e) => setCard({ ...card, name: e.target.value })} />
 
@@ -572,11 +643,7 @@ export default function App() {
                 <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
                   <div style={{ flex: 1 }}>
                     <div className="small">Faction (Units)</div>
-                    <select
-                      className="select"
-                      value={card.faction ?? ""}
-                      onChange={(e) => setCard({ ...card, faction: e.target.value || undefined })}
-                    >
+                    <select className="select" value={card.faction ?? ""} onChange={(e) => setCard({ ...card, faction: e.target.value || undefined })}>
                       <option value="">(none)</option>
                       {catalog.factions.map((f) => (
                         <option key={f.id} value={f.name}>
@@ -585,6 +652,7 @@ export default function App() {
                       ))}
                     </select>
                   </div>
+
                   <div style={{ flex: 1 }}>
                     <div className="small">Types (comma)</div>
                     <input
@@ -654,7 +722,8 @@ export default function App() {
                 </div>
               ) : (
                 <>
-                  {(selectedKind === "ABILITY_ROOT" || !selectedKind) && (
+                  {/* Ability Root editor (default if nothing selected OR ability root selected) */}
+                  {(!selectedKind || isAbilityRoot) && (
                     <>
                       <div className="small">Ability Name</div>
                       <input className="input" value={ability.name} onChange={(e) => setAbility({ name: e.target.value })} />
@@ -681,16 +750,200 @@ export default function App() {
                             className="input"
                             type="number"
                             value={ability.cost?.ap ?? 0}
-                            onChange={(e) => setAbility({ cost: { ...(ability.cost ?? {}), ap: Math.max(0, Math.floor(Number(e.target.value) || 0)) } })}
+                            onChange={(e) =>
+                              setAbility({ cost: { ...(ability.cost ?? {}), ap: Math.max(0, Math.floor(Number(e.target.value) || 0)) } })
+                            }
                           />
                         </div>
                       </div>
                     </>
                   )}
 
-                  {selectedKind === "STEP" && selectedStep ? (
+                  {/* COST node editor */}
+                  {isCost && (
                     <>
-                      <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                      <div className="h2" style={{ marginTop: 4 }}>
+                        Cost
+                      </div>
+
+                      <div className="small" style={{ marginTop: 8 }}>
+                        Required Equipped Item IDs (comma-separated)
+                      </div>
+                      <input
+                        className="input"
+                        value={(ability.cost?.requiredEquippedItemIds ?? []).join(", ")}
+                        onChange={(e) =>
+                          setAbility({
+                            cost: {
+                              ...(ability.cost ?? {}),
+                              requiredEquippedItemIds: e.target.value
+                                .split(",")
+                                .map((s) => s.trim())
+                                .filter(Boolean)
+                            }
+                          })
+                        }
+                      />
+
+                      <div className="small" style={{ marginTop: 8 }}>
+                        Cooldown (turns)
+                      </div>
+                      <input
+                        className="input"
+                        type="number"
+                        value={ability.cost?.cooldown?.turns ?? 0}
+                        onChange={(e) => {
+                          const n = Math.max(0, Math.floor(Number(e.target.value) || 0));
+                          setAbility({
+                            cost: { ...(ability.cost ?? {}), cooldown: n > 0 ? { turns: n } : undefined }
+                          });
+                        }}
+                      />
+
+                      <div className="small" style={{ marginTop: 10 }}>
+                        Token Costs (appear on preview)
+                      </div>
+                      <div style={{ display: "grid", gridTemplateColumns: "repeat(5, minmax(0, 1fr))", gap: 8, marginTop: 6 }}>
+                        {COST_KEYS.map((k) => (
+                          <div key={k}>
+                            <div className="small">{k}</div>
+                            <input
+                              className="input"
+                              type="number"
+                              value={Number((ability.cost?.tokens as any)?.[k] ?? 0)}
+                              onChange={(e) => setTokenCost(k, Number(e.target.value))}
+                            />
+                          </div>
+                        ))}
+                      </div>
+                    </>
+                  )}
+
+                  {/* TARGETING node editor */}
+                  {isTargeting && (
+                    <>
+                      <div className="h2" style={{ marginTop: 4 }}>
+                        Targeting
+                      </div>
+
+                      <div className="small" style={{ marginTop: 8 }}>
+                        Targeting Type
+                      </div>
+                      <select
+                        className="select"
+                        value={ability.targeting?.type ?? "SINGLE_TARGET"}
+                        onChange={(e) => {
+                          const type = e.target.value as any;
+                          const next: any = { ...(ability.targeting ?? {}), type };
+
+                          // Ensure range object exists for non-SELF types
+                          if (type !== "SELF") {
+                            const r = next.range ?? {};
+                            const max = typeof r.max === "number" ? r.max : typeof r.base === "number" ? r.base : 4;
+                            next.range = { ...r, min: typeof r.min === "number" ? r.min : 0, max, base: max };
+                          } else {
+                            // SELF doesn't need range/area
+                            // keep origin as SOURCE though
+                          }
+
+                          // AREA_RADIUS requires area
+                          if (type === "AREA_RADIUS" && !next.area) next.area = { radius: 1, includeCenter: true };
+                          if (type !== "AREA_RADIUS") next.area = undefined;
+
+                          setAbility({ targeting: next });
+                        }}
+                      >
+                        {(blockRegistry.targeting.types as string[]).map((t) => (
+                          <option key={t} value={t}>
+                            {t}
+                          </option>
+                        ))}
+                      </select>
+
+                      <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+                        <div style={{ flex: 1 }}>
+                          <div className="small">Origin</div>
+                          <select
+                            className="select"
+                            value={(ability.targeting as any)?.origin ?? "SOURCE"}
+                            onChange={(e) => setAbility({ targeting: { ...(ability.targeting ?? {}), origin: e.target.value } as any })}
+                          >
+                            <option value="SOURCE">SOURCE</option>
+                            <option value="ANYWHERE">ANYWHERE</option>
+                          </select>
+                        </div>
+
+                        <div style={{ flex: 1 }}>
+                          <div className="small">Line of Sight</div>
+                          <select
+                            className="select"
+                            value={String(ability.targeting?.lineOfSight ?? false)}
+                            onChange={(e) => setAbility({ targeting: { ...(ability.targeting ?? {}), lineOfSight: e.target.value === "true" } as any })}
+                          >
+                            <option value="false">false</option>
+                            <option value="true">true</option>
+                          </select>
+                        </div>
+                      </div>
+
+                      {ability.targeting?.type !== "SELF" ? (
+                        <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+                          <div style={{ flex: 1 }}>
+                            <div className="small">Min Range</div>
+                            <input
+                              className="input"
+                              type="number"
+                              value={(ability.targeting as any)?.range?.min ?? 0}
+                              onChange={(e) => {
+                                const min = Math.max(0, Math.floor(Number(e.target.value) || 0));
+                                const max = Math.max(min, Math.floor(Number((ability.targeting as any)?.range?.max ?? 4)));
+                                setAbility({ targeting: { ...(ability.targeting ?? {}), range: { ...(ability.targeting as any)?.range, min, max, base: max } } as any });
+                              }}
+                            />
+                          </div>
+                          <div style={{ flex: 1 }}>
+                            <div className="small">Max Range</div>
+                            <input
+                              className="input"
+                              type="number"
+                              value={(ability.targeting as any)?.range?.max ?? (ability.targeting as any)?.range?.base ?? 4}
+                              onChange={(e) => {
+                                const max = Math.max(0, Math.floor(Number(e.target.value) || 0));
+                                const min = Math.min(Math.floor(Number((ability.targeting as any)?.range?.min ?? 0)), max);
+                                setAbility({ targeting: { ...(ability.targeting ?? {}), range: { ...(ability.targeting as any)?.range, min, max, base: max } } as any });
+                              }}
+                            />
+                          </div>
+                        </div>
+                      ) : null}
+
+                      {ability.targeting?.type === "AREA_RADIUS" ? (
+                        <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+                          <div style={{ flex: 1 }}>
+                            <div className="small">Area Radius</div>
+                            <input
+                              className="input"
+                              type="number"
+                              value={(ability.targeting as any)?.area?.radius ?? 1}
+                              onChange={(e) => {
+                                const radius = Math.max(0, Math.floor(Number(e.target.value) || 0));
+                                setAbility({ targeting: { ...(ability.targeting ?? {}), area: { ...((ability.targeting as any)?.area ?? {}), radius } } as any });
+                              }}
+                            />
+                          </div>
+                        </div>
+                      ) : null}
+
+                      <div className="small" style={{ marginTop: 8 }}>
+                        (Grid selection tool comes next; this panel configures its rules.)
+                      </div>
+                    </>
+                  )}
+
+                  {/* STEP node editor */}
+                  {isStep && selectedStep ? (
+                    <>
+                      <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 6 }}>
                         <div style={{ flex: 1 }}>
                           <div className="small">Step Type</div>
                           <div style={{ fontWeight: 800 }}>{selectedStep.type}</div>
@@ -710,7 +963,6 @@ export default function App() {
                         </button>
                       </div>
 
-                      {/* NESTED EDITOR ENABLED */}
                       {selectedStep.type === "IF_ELSE" || selectedStep.type === "OPPONENT_SAVE" ? (
                         <StepListEditor
                           title="Nested Step Editor"
