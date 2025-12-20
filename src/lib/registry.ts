@@ -1,16 +1,18 @@
 // src/lib/registry.ts
 import rawRegistry from "../assets/blockRegistry.json";
 
-// We extend the JSON registry at runtime so you don't have to keep
-// editing the JSON file while we iterate on new step types.
-const EXTRA_STEP_TYPES = ["SELECT_TARGETS", "FOR_EACH_TARGET"] as const;
+const EXTRA_STEP_TYPES = [
+  "SELECT_TARGETS",
+  "FOR_EACH_TARGET",
+  "SET_STATE",
+  "TOGGLE_STATE"
+] as const;
 
 function uniq(arr: string[]) {
   return Array.from(new Set(arr));
 }
 
 function extendRegistry(reg: any) {
-  // Defensive copies so we don't mutate the imported JSON module
   const next = {
     ...(reg ?? {}),
     steps: {
@@ -18,7 +20,6 @@ function extendRegistry(reg: any) {
     }
   };
 
-  // Your JSON currently exposes step types at: blockRegistry.steps.types
   const types: string[] = Array.isArray(next.steps?.types) ? [...next.steps.types] : [];
   next.steps.types = uniq([...types, ...EXTRA_STEP_TYPES]);
 
