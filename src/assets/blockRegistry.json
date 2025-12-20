@@ -1,54 +1,132 @@
 {
-  "exportVersion": "BREX-1.0",
-  "registryVersion": "BR-1.0",
-  "cardSchemaVersion": "CJ-1.0",
   "triggers": [
     "ACTIVE_ACTION",
     "PASSIVE_AURA",
     "REACTION",
+    "ON_EQUIP",
+    "ON_UNEQUIP",
+    "ON_PLAY",
+    "ON_DRAW",
     "ON_DEATH",
-    "ON_SPAWN",
     "ON_TURN_START",
-    "ON_TURN_END"
+    "ON_TURN_END",
+    "ON_MOVE",
+    "ON_DAMAGE",
+    "ON_DISTRACT"
   ],
-  "keys": {
-    "DamageType": ["PHYSICAL", "FIRE", "ICE", "DARK", "LIGHT"],
-    "StatusKey": ["STUNNED", "SLOWED", "POISONED", "BURNING", "FRIGHTENED", "WEAKENED"],
-    "StatKey": [
-      "HP_CURRENT",
-      "HP_MAX",
-      "AP_CURRENT",
-      "AP_MAX",
-      "MOVEMENT",
-      "RESILIENCE",
-      "SIZE",
-      "SPEED",
-      "AWARENESS",
-      "INTELLIGENCE",
-      "WISDOM",
-      "STRENGTH",
-      "CHARISMA",
-      "COORDINATION"
-    ]
-  },
   "targeting": {
-    "types": ["SELF", "SINGLE_TARGET", "AREA_RADIUS"],
-    "rangeModifierOperations": ["ADD", "SUBTRACT"]
+    "types": ["SELF", "SINGLE_TARGET", "MULTI_TARGET", "AREA_RADIUS", "LINE", "CONE", "TEMPLATE_LINE"],
+    "origins": ["SOURCE", "ANYWHERE"]
+  },
+  "uiFlows": {
+    "types": [
+      "PROPERTY_CONTEST",
+      "PICK_CARDS_FROM_POOL",
+      "ORDER_CARDS",
+      "PICK_TARGETS",
+      "PICK_PATH",
+      "PICK_TEMPLATE_LINE",
+      "CUSTOM"
+    ]
   },
   "steps": {
     "types": [
+      "SHOW_TEXT",
       "ROLL_D6",
       "ROLL_D20",
       "SET_VARIABLE",
-      "OPPONENT_SAVE",
+      "IF_ELSE",
+      "SELECT_TARGETS",
+      "FOR_EACH_TARGET",
       "DEAL_DAMAGE",
       "HEAL",
       "APPLY_STATUS",
       "REMOVE_STATUS",
       "MOVE_ENTITY",
-      "SHOW_TEXT",
-      "IF_ELSE",
-      "OPEN_REACTION_WINDOW"
+      "OPEN_REACTION_WINDOW",
+      "OPPONENT_SAVE",
+      "CALC_DISTANCE",
+      "EMIT_EVENT",
+      "WEBHOOK_CALL",
+      "OPEN_UI_FLOW",
+      "REQUEST_PLAYER_CHOICE",
+      "REGISTER_INTERRUPTS",
+      "PROPERTY_CONTEST",
+      "DRAW_CARDS",
+      "MOVE_CARDS",
+      "SHUFFLE_ZONE",
+      "PUT_ON_TOP_ORDERED",
+      "END_TURN_IMMEDIATELY",
+      "MOVE_WITH_PATH_CAPTURE",
+      "SELECT_TEMPLATE_LINE",
+      "AI_REQUEST"
+    ],
+    "groups": [
+      {
+        "id": "core",
+        "label": "Core",
+        "types": ["SHOW_TEXT", "ROLL_D6", "ROLL_D20", "SET_VARIABLE"]
+      },
+      {
+        "id": "control",
+        "label": "Control Flow",
+        "types": ["IF_ELSE", "FOR_EACH_TARGET"]
+      },
+      {
+        "id": "targeting",
+        "label": "Targeting",
+        "types": ["SELECT_TARGETS", "SELECT_TEMPLATE_LINE", "CALC_DISTANCE"]
+      },
+      {
+        "id": "combat",
+        "label": "Combat",
+        "types": ["DEAL_DAMAGE", "HEAL", "OPPONENT_SAVE", "OPEN_REACTION_WINDOW"]
+      },
+      {
+        "id": "status",
+        "label": "Statuses",
+        "types": ["APPLY_STATUS", "REMOVE_STATUS"]
+      },
+      {
+        "id": "movement",
+        "label": "Movement",
+        "types": ["MOVE_ENTITY", "MOVE_WITH_PATH_CAPTURE"]
+      },
+      {
+        "id": "cards",
+        "label": "Cards & Zones",
+        "types": ["DRAW_CARDS", "MOVE_CARDS", "SHUFFLE_ZONE", "PUT_ON_TOP_ORDERED", "END_TURN_IMMEDIATELY"]
+      },
+      {
+        "id": "minigames",
+        "label": "Minigames / Subsystems",
+        "types": ["PROPERTY_CONTEST", "REQUEST_PLAYER_CHOICE", "OPEN_UI_FLOW", "REGISTER_INTERRUPTS"]
+      },
+      {
+        "id": "hooks",
+        "label": "Hooks & Integrations",
+        "types": ["EMIT_EVENT", "WEBHOOK_CALL", "AI_REQUEST"]
+      }
     ]
+  },
+  "keys": {
+    "TokenKey": ["UMB", "AET", "CRD", "CHR", "STR", "RES", "WIS", "INT", "SPD", "AWR"],
+    "ZoneKey": [
+      "ACTOR_ACTION_DECK",
+      "ACTOR_ACTION_HAND",
+      "ACTOR_ACTION_DISCARD",
+      "OPPONENT_ACTION_DECK",
+      "OPPONENT_ACTION_HAND",
+      "OPPONENT_ACTION_DISCARD",
+      "CONTEST_POOL_ACTOR_PUBLIC",
+      "CONTEST_POOL_OPPONENT_PUBLIC",
+      "EQUIPPED_ITEMS",
+      "EXILE"
+    ],
+    "DamageType": ["PHYSICAL", "FIRE", "ICE", "POISON", "ARCANE", "TRUE"],
+    "StatusKey": ["PRONE", "STUNNED", "SLOWED", "CANNOT_REACT"],
+    "LoSMode": ["NONE", "HEX_RAYCAST", "SQUARE_RAYCAST"],
+    "LoSBlockerPolicy": ["BLOCK_ALL", "BLOCK_PROJECTILES", "BLOCK_MAGIC", "BLOCK_MOVEMENT", "NONE"],
+    "DistanceMetric": ["HEX", "SQUARE_MANHATTAN", "SQUARE_CHEBYSHEV"]
   }
 }
