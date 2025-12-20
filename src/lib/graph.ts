@@ -3,7 +3,7 @@ import type { CardEntity, AbilityComponent } from "./types";
 
 export function makeDefaultCard(): CardEntity {
   return {
-    schemaVersion: "CJ-1.0",
+    schemaVersion: "CJ-1.1",
     id: uuidv4(),
     name: "New Card",
     type: "UNIT",
