@@ -108,7 +108,18 @@ const StepZ: z.ZodType<any> = z.lazy(() => z.union([
     maxTiles: z.number().int().min(1)
   }).strict(),
   z.object({ type: z.literal("SHOW_TEXT"), text: z.string() }).strict(),
-  z.object({ type: z.literal("IF_ELSE"), condition: ConditionZ, then: z.array(StepZ), else: z.array(StepZ) }).strict(),
+z.object({
+  type: z.literal("IF_ELSE"),
+  condition: ConditionZ,
+  then: z.array(StepZ),
+  elseIf: z.array(
+    z.object({
+      condition: ConditionZ,
+      then: z.array(StepZ)
+    }).strict()
+  ).optional(),
+  else: z.array(StepZ)
+}).strict(),
   z.object({ type: z.literal("OPEN_REACTION_WINDOW"), timing: z.literal("BEFORE_DAMAGE"), windowId: z.string().min(1) }).strict(),
   z.object({ type: z.literal("UNKNOWN_STEP"), raw: z.any() }).strict()
 ]));
