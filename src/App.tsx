@@ -12,6 +12,21 @@ import { ExpressionEditor } from "./components/ExpressionEditor";
 import { ConditionEditor } from "./components/ConditionEditor";
 import { CardPreview } from "./components/CardPreview";
 
+type ResourceKey = "UMB" | "AET" | "CRD" | "CHR" | "STR" | "RES" | "WIS" | "INT" | "SPD" | "AWR";
+
+const RESOURCE_DEFS: Array<{ key: ResourceKey; label: string }> = [
+  { key: "UMB", label: "Umbra" },
+  { key: "AET", label: "Aether" },
+  { key: "CRD", label: "Coordination" },
+  { key: "CHR", label: "Charisma" },
+  { key: "STR", label: "Strength" },
+  { key: "RES", label: "Resilience" },
+  { key: "WIS", label: "Wisdom" },
+  { key: "INT", label: "Intelligence" },
+  { key: "SPD", label: "Speed" },
+  { key: "AWR", label: "Awareness" }
+];
+
 function download(filename: string, text: string) {
   const blob = new Blob([text], { type: "application/json" });
   const url = URL.createObjectURL(blob);
@@ -63,6 +78,140 @@ function Modal(props: {
   );
 }
 
+/**
+ * Targeting grid picker: 48x48, caster in center.
+ * - Green = targetable squares between minRange/maxRange (Manhattan distance)
+ * - Red = AoE based on radius around selected target (Chebyshev square radius)
+ */
+function TargetGridPicker(props: {
+  minRange: number;
+  maxRange: number;
+  aoeRadius: number;
+  includeCenter: boolean;
+  selected: { x: number; y: number } | null;
+  onSelect: (pos: { x: number; y: number }) => void;
+}) {
+  const size = 48;
+  const src = { x: 24, y: 24 };
+
+  const cell = 8;
+  const gap = 1;
+  const width = size * cell + (size - 1) * gap;
+
+  const minR = Math.max(0, Math.floor(props.minRange));
+  const maxR = Math.max(0, Math.floor(props.maxRange));
+  const r = Math.max(0, Math.floor(props.aoeRadius));
+
+  function manhattan(a: { x: number; y: number }, b: { x: number; y: number }) {
+    return Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
+  }
+  function chebyshev(a: { x: number; y: number }, b: { x: number; y: number }) {
+    return Math.max(Math.abs(a.x - b.x), Math.abs(a.y - b.y));
+  }
+
+  const gridStyle: React.CSSProperties = {
+    display: "grid",
+    gridTemplateColumns: `repeat(${size}, ${cell}px)`,
+    gap,
+    width,
+    userSelect: "none",
+    border: "1px solid rgba(255,255,255,.12)",
+    borderRadius: 12,
+    padding: 8,
+    background: "rgba(0,0,0,.18)"
+  };
+
+  const legendStyle: React.CSSProperties = {
+    display: "flex",
+    gap: 10,
+    flexWrap: "wrap",
+    alignItems: "center",
+    marginTop: 8
+  };
+
+  const swatch: React.CSSProperties = {
+    width: 12,
+    height: 12,
+    borderRadius: 4,
+    border: "1px solid rgba(255,255,255,.14)"
+  };
+
+  return (
+    <div style={{ marginTop: 10 }}>
+      <div className="small" style={{ marginBottom: 6 }}>
+        48×48 targeting grid (caster in center). Green = targetable squares, Red = affected AoE.
+      </div>
+
+      <div style={gridStyle}>
+        {Array.from({ length: size * size }).map((_, idx) => {
+          const x = idx % size;
+          const y = Math.floor(idx / size);
+          const p = { x, y };
+
+          const dist = manhattan(p, src);
+          const isTargetable = dist >= minR && dist <= maxR;
+
+          const isSource = x === src.x && y === src.y;
+          const isSelected = props.selected && props.selected.x === x && props.selected.y === y;
+
+          const aoeHit =
+            props.selected &&
+            ((props.includeCenter && chebyshev(p, props.selected) <= r) ||
+              (!props.includeCenter && chebyshev(p, props.selected) <= r && !(x === props.selected.x && y === props.selected.y)));
+
+          const bg = isSource
+            ? "rgba(99,179,255,.9)"
+            : aoeHit
+            ? "rgba(255,107,107,.65)"
+            : isTargetable
+            ? "rgba(96,243,166,.38)"
+            : "rgba(255,255,255,.06)";
+
+          const border = isSelected ? "1px solid rgba(255,255,255,.9)" : "1px solid rgba(255,255,255,.06)";
+
+          return (
+            <div
+              key={idx}
+              title={`(${x - src.x},${y - src.y})  range=${dist}`}
+              onClick={() => {
+                if (!isTargetable) return;
+                props.onSelect(p);
+              }}
+              style={{
+                width: cell,
+                height: cell,
+                background: bg,
+                border,
+                borderRadius: 2,
+                cursor: isTargetable ? "pointer" : "default"
+              }}
+            />
+          );
+        })}
+      </div>
+
+      <div style={legendStyle}>
+        <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+          <span style={{ ...swatch, background: "rgba(99,179,255,.9)" }} />
+          <span className="small">Caster</span>
+        </div>
+        <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+          <span style={{ ...swatch, background: "rgba(96,243,166,.38)" }} />
+          <span className="small">Targetable</span>
+        </div>
+        <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+          <span style={{ ...swatch, background: "rgba(255,107,107,.65)" }} />
+          <span className="small">AoE affected</span>
+        </div>
+        <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+          <span style={{ ...swatch, background: "rgba(255,255,255,.2)" }} />
+          <span className="small">Other</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ---- React Flow node renderers (minimal) ----
 function AbilityRootNode({ data, selected, card }: any) {
   const ability = card.components[data.abilityIdx] as AbilityComponent | undefined;
@@ -84,10 +233,16 @@ function AbilityRootNode({ data, selected, card }: any) {
 function MetaNode({ data, selected, card }: any) {
   const ability = card.components[data.abilityIdx] as AbilityComponent | undefined;
   const title = data.kind === "COST" ? "COST" : "TARGETING";
+
+  const rangeObj: any = ability?.targeting?.range ?? {};
+  const maxR = rangeObj.max ?? rangeObj.base ?? 0;
+  const minR = rangeObj.min ?? 0;
+
   const desc =
     data.kind === "COST"
       ? `AP: ${ability?.cost?.ap ?? 0}`
-      : `${ability?.targeting?.type ?? "—"} • Range ${ability?.targeting?.range?.base ?? 0}`;
+      : `${ability?.targeting?.type ?? "—"} • Range ${minR}-${maxR}`;
+
   return (
     <div className="node" style={{ borderColor: selected ? "rgba(99,179,255,.6)" : undefined }}>
       <div className="nodeH">
@@ -176,6 +331,9 @@ export default function App() {
 
   const [previewOpen, setPreviewOpen] = useState(false);
 
+  // Target grid picker state (UX only)
+  const [gridTarget, setGridTarget] = useState<{ x: number; y: number } | null>(null);
+
   // Multi-ability: choose which ability we are editing in the canvas/palette/inspector
   const abilityIndexes = useMemo(() => findAbilityIndexes(card), [card]);
   const [activeAbilityIdx, setActiveAbilityIdx] = useState<number>(() => {
@@ -191,11 +349,11 @@ export default function App() {
 
   useEffect(() => {
     setIssues(validateCard(card));
-    // If you embed large images as Data URLs, localStorage may overflow.
-    // This try/catch prevents the whole UI from breaking.
     try {
       saveCardJson(JSON.stringify(card));
     } catch (e) {
+      // If Data URL images make JSON too large, localStorage can overflow.
+      // Keep UI alive even if persistence fails.
       // eslint-disable-next-line no-console
       console.warn("Could not save card to local storage (possibly too large).", e);
     }
@@ -357,7 +515,8 @@ export default function App() {
     try {
       const parsed = coerceUnknownSteps(JSON.parse(importText));
       const incoming: CardEntity = parsed?.projectVersion === "FORGE-1.0" ? parsed.card : parsed;
-      if (!incoming || incoming.schemaVersion !== "CJ-1.0") throw new Error("Expected CJ-1.0 card JSON (or FORGE-1.0 project).");
+      if (!incoming || (incoming as any).schemaVersion !== "CJ-1.0")
+        throw new Error("Expected CJ-1.0 card JSON (or FORGE-1.0 project).");
 
       setCard(incoming);
       const idxs = findAbilityIndexes(incoming);
@@ -378,7 +537,7 @@ export default function App() {
       description: "",
       trigger: "ACTIVE_ACTION",
       cost: { ap: 1 },
-      targeting: { type: "SINGLE_TARGET", range: { base: 4 }, lineOfSight: true },
+      targeting: { type: "SINGLE_TARGET", range: { base: 4 }, lineOfSight: true } as any,
       execution: { steps: [{ type: "SHOW_TEXT", text: "Do something!" }] }
     };
     setCard({ ...card, components: [...card.components, newAbility as any] });
@@ -405,6 +564,66 @@ export default function App() {
   const selectedStepIdx = selectedKind === "STEP" ? selectedInfo.stepIdx : null;
   const selectedStep =
     selectedStepIdx != null && ability?.execution?.steps ? (ability.execution.steps[selectedStepIdx] as Step) : null;
+
+  // Reset grid target when ability/targeting changes
+  useEffect(() => {
+    setGridTarget(null);
+  }, [activeAbilityIdx, selectedKind]);
+
+  function setCardResource(key: ResourceKey, value: number) {
+    const n = Math.max(0, Math.floor(Number(value) || 0));
+    const res = { ...((card as any).resources ?? {}) };
+    if (n <= 0) delete res[key];
+    else res[key] = n;
+    setCard({ ...card, resources: res as any });
+  }
+
+  function getCardResource(key: ResourceKey) {
+    const res: any = (card as any).resources ?? {};
+    return Number(res[key] ?? 0);
+  }
+
+  function setTokenCost(key: ResourceKey, value: number) {
+    if (!ability) return;
+    const n = Math.max(0, Math.floor(Number(value) || 0));
+    const cost: any = { ...(ability.cost ?? {}) };
+    const tokens: any = { ...(cost.tokens ?? {}) };
+    if (n <= 0) delete tokens[key];
+    else tokens[key] = n;
+    cost.tokens = Object.keys(tokens).length ? tokens : undefined;
+    setAbility({ cost } as any);
+  }
+
+  function getTokenCost(key: ResourceKey) {
+    const tokens: any = (ability as any)?.cost?.tokens ?? {};
+    return Number(tokens[key] ?? 0);
+  }
+
+  function setImagePosition(x: "left" | "center" | "right", y: "top" | "center" | "bottom") {
+    const pos = `${x} ${y}`;
+    const pres: any = { ...((card as any).presentation ?? {}) };
+    pres.imagePosition = pos;
+    setCard({ ...card, presentation: pres } as any);
+  }
+
+  function getImagePosParts(): { x: "left" | "center" | "right"; y: "top" | "center" | "bottom" } {
+    const pos = String((card as any).presentation?.imagePosition ?? "center center");
+    const [xRaw, yRaw] = pos.split(" ");
+    const x = (xRaw === "left" || xRaw === "right" || xRaw === "center" ? xRaw : "center") as any;
+    const y = (yRaw === "top" || yRaw === "bottom" || yRaw === "center" ? yRaw : "center") as any;
+    return { x, y };
+  }
+
+  // Targeting helper (min/max)
+  const targeting: any = (ability as any)?.targeting ?? null;
+  const rangeObj: any = targeting?.range ?? {};
+  const minRange = Number(rangeObj.min ?? 0);
+  const maxRange = Number(rangeObj.max ?? rangeObj.base ?? 0);
+  const origin = String(targeting?.origin ?? "SOURCE"); // SOURCE | ANYWHERE
+  const aoeRadius = Number(targeting?.area?.radius ?? 1);
+  const includeCenter = Boolean(targeting?.area?.includeCenter ?? true);
+
+  const { x: imgX, y: imgY } = getImagePosParts();
 
   return (
     <div className="app">
@@ -573,11 +792,102 @@ export default function App() {
                 </div>
                 <div style={{ flex: 1 }}>
                   <div className="small">Schema</div>
-                  <input className="input" value={card.schemaVersion} disabled />
+                  <input className="input" value={(card as any).schemaVersion} disabled />
                 </div>
               </div>
 
-              {/* Card preview-relevant fields */}
+              {/* Unit stats */}
+              {card.type === "UNIT" ? (
+                <details style={{ marginTop: 10 }} open>
+                  <summary className="small" style={{ cursor: "pointer" }}>
+                    Unit Stats
+                  </summary>
+
+                  <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+                    <div style={{ flex: 1 }}>
+                      <div className="small">HP (max)</div>
+                      <input
+                        className="input"
+                        type="number"
+                        value={Number((card as any).stats?.hp?.max ?? 0)}
+                        onChange={(e) => {
+                          const n = Math.max(0, Math.floor(Number(e.target.value) || 0));
+                          setCard({
+                            ...card,
+                            stats: {
+                              ...((card as any).stats ?? {}),
+                              hp: { ...(((card as any).stats?.hp ?? {}) as any), max: n, current: n }
+                            }
+                          } as any);
+                        }}
+                      />
+                    </div>
+                    <div style={{ flex: 1 }}>
+                      <div className="small">AP (per round)</div>
+                      <input
+                        className="input"
+                        type="number"
+                        value={Number((card as any).stats?.ap?.max ?? 0)}
+                        onChange={(e) => {
+                          const n = Math.max(0, Math.floor(Number(e.target.value) || 0));
+                          setCard({
+                            ...card,
+                            stats: {
+                              ...((card as any).stats ?? {}),
+                              ap: { ...(((card as any).stats?.ap ?? {}) as any), max: n, current: n }
+                            }
+                          } as any);
+                        }}
+                      />
+                    </div>
+                  </div>
+
+                  <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+                    <div style={{ flex: 1 }}>
+                      <div className="small">MOVE</div>
+                      <input
+                        className="input"
+                        type="number"
+                        value={Number((card as any).stats?.movement ?? 0)}
+                        onChange={(e) => {
+                          const n = Math.max(0, Math.floor(Number(e.target.value) || 0));
+                          setCard({ ...card, stats: { ...((card as any).stats ?? {}), movement: n } } as any);
+                        }}
+                      />
+                    </div>
+                    <div style={{ flex: 1 }}>
+                      <div className="small">SIZE</div>
+                      <input
+                        className="input"
+                        type="number"
+                        value={Number((card as any).stats?.size ?? 1)}
+                        onChange={(e) => {
+                          const n = Math.max(1, Math.floor(Number(e.target.value) || 1));
+                          setCard({ ...card, stats: { ...((card as any).stats ?? {}), size: n } } as any);
+                        }}
+                      />
+                    </div>
+                  </div>
+
+                  <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+                    <div style={{ flex: 1 }}>
+                      <div className="small">Resilience (stat)</div>
+                      <input
+                        className="input"
+                        type="number"
+                        value={Number((card as any).stats?.resilience ?? 0)}
+                        onChange={(e) => {
+                          const n = Math.max(0, Math.floor(Number(e.target.value) || 0));
+                          setCard({ ...card, stats: { ...((card as any).stats ?? {}), resilience: n } } as any);
+                        }}
+                      />
+                    </div>
+                    <div style={{ flex: 1 }} />
+                  </div>
+                </details>
+              ) : null}
+
+              {/* Card art + identity */}
               <details style={{ marginTop: 10 }}>
                 <summary className="small" style={{ cursor: "pointer" }}>
                   Card Art + Identity
@@ -598,14 +908,14 @@ export default function App() {
                       const dataUrl = String(reader.result);
                       setCard({
                         ...card,
-                        visuals: { ...(card.visuals ?? {}), cardImage: dataUrl }
-                      });
+                        visuals: { ...((card as any).visuals ?? {}), cardImage: dataUrl }
+                      } as any);
                     };
                     reader.readAsDataURL(file);
                   }}
                 />
                 <div className="small" style={{ marginTop: 6 }}>
-                  Tip: Big images make JSON large. If you hit localStorage limits, use a smaller image.
+                  Tip: Very large images can exceed localStorage. Prefer smaller images.
                 </div>
 
                 <div className="small" style={{ marginTop: 8 }}>
@@ -613,31 +923,50 @@ export default function App() {
                 </div>
                 <input
                   className="input"
-                  value={card.visuals?.cardImage ?? ""}
+                  value={String((card as any).visuals?.cardImage ?? "")}
                   onChange={(e) =>
                     setCard({
                       ...card,
-                      visuals: { ...(card.visuals ?? {}), cardImage: e.target.value || undefined }
-                    })
+                      visuals: { ...((card as any).visuals ?? {}), cardImage: e.target.value || undefined }
+                    } as any)
                   }
                   placeholder="https://... or cards/my_image.png"
                 />
 
                 <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
                   <div style={{ flex: 1 }}>
+                    <div className="small">Image Align X</div>
+                    <select className="select" value={imgX} onChange={(e) => setImagePosition(e.target.value as any, imgY)}>
+                      <option value="left">left</option>
+                      <option value="center">center</option>
+                      <option value="right">right</option>
+                    </select>
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <div className="small">Image Align Y</div>
+                    <select className="select" value={imgY} onChange={(e) => setImagePosition(imgX, e.target.value as any)}>
+                      <option value="top">top</option>
+                      <option value="center">center</option>
+                      <option value="bottom">bottom</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+                  <div style={{ flex: 1 }}>
                     <div className="small">Faction (Units)</div>
                     <input
                       className="input"
-                      value={card.faction ?? ""}
-                      onChange={(e) => setCard({ ...card, faction: e.target.value || undefined })}
+                      value={String((card as any).faction ?? "")}
+                      onChange={(e) => setCard({ ...card, faction: e.target.value || undefined } as any)}
                     />
                   </div>
                   <div style={{ flex: 1 }}>
                     <div className="small">Types (comma)</div>
                     <input
                       className="input"
-                      value={(card.subType ?? []).join(", ")}
-                      onChange={(e) => setCard({ ...card, subType: e.target.value.split(",").map((s) => s.trim()).filter(Boolean) })}
+                      value={String(((card as any).subType ?? []).join(", "))}
+                      onChange={(e) => setCard({ ...card, subType: e.target.value.split(",").map((s) => s.trim()).filter(Boolean) } as any)}
                       placeholder="HUMAN, JAWA..."
                     />
                   </div>
@@ -648,51 +977,28 @@ export default function App() {
                 </div>
                 <input
                   className="input"
-                  value={(card.attributes ?? []).join(", ")}
-                  onChange={(e) => setCard({ ...card, attributes: e.target.value.split(",").map((s) => s.trim()).filter(Boolean) })}
+                  value={String(((card as any).attributes ?? []).join(", "))}
+                  onChange={(e) => setCard({ ...card, attributes: e.target.value.split(",").map((s) => s.trim()).filter(Boolean) } as any)}
                   placeholder="FIRE, STEEL..."
                 />
 
                 <div className="small" style={{ marginTop: 8 }}>
-                  Resources (Umbra / Aether / Strength)
+                  Card Resources (tokens on the card / unit)
                 </div>
-                <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
-                  <input
-                    className="input"
-                    type="number"
-                    value={card.resources?.umbra ?? 0}
-                    onChange={(e) =>
-                      setCard({
-                        ...card,
-                        resources: { ...(card.resources ?? {}), umbra: Number(e.target.value) }
-                      })
-                    }
-                    title="Umbra"
-                  />
-                  <input
-                    className="input"
-                    type="number"
-                    value={card.resources?.aether ?? 0}
-                    onChange={(e) =>
-                      setCard({
-                        ...card,
-                        resources: { ...(card.resources ?? {}), aether: Number(e.target.value) }
-                      })
-                    }
-                    title="Aether"
-                  />
-                  <input
-                    className="input"
-                    type="number"
-                    value={card.resources?.strength ?? 0}
-                    onChange={(e) =>
-                      setCard({
-                        ...card,
-                        resources: { ...(card.resources ?? {}), strength: Number(e.target.value) }
-                      })
-                    }
-                    title="Strength"
-                  />
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginTop: 6 }}>
+                  {RESOURCE_DEFS.map((r) => (
+                    <div key={r.key}>
+                      <div className="small">
+                        {r.label} ({r.key})
+                      </div>
+                      <input
+                        className="input"
+                        type="number"
+                        value={getCardResource(r.key)}
+                        onChange={(e) => setCardResource(r.key, Number(e.target.value))}
+                      />
+                    </div>
+                  ))}
                 </div>
 
                 <div className="small" style={{ marginTop: 8 }}>
@@ -701,12 +1007,14 @@ export default function App() {
                 <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
                   <select
                     className="select"
-                    value={card.presentation?.template ?? ""}
+                    value={String((card as any).presentation?.template ?? "")}
                     onChange={(e) =>
-                      setCard({
-                        ...card,
-                        presentation: { ...(card.presentation ?? {}), template: (e.target.value || undefined) as any }
-                      })
+                      setCard(
+                        {
+                          ...card,
+                          presentation: { ...((card as any).presentation ?? {}), template: e.target.value || undefined }
+                        } as any
+                      )
                     }
                     title="Template"
                   >
@@ -720,12 +1028,14 @@ export default function App() {
 
                   <select
                     className="select"
-                    value={card.presentation?.theme ?? "BLUE"}
+                    value={String((card as any).presentation?.theme ?? "BLUE")}
                     onChange={(e) =>
-                      setCard({
-                        ...card,
-                        presentation: { ...(card.presentation ?? {}), theme: e.target.value as any }
-                      })
+                      setCard(
+                        {
+                          ...card,
+                          presentation: { ...((card as any).presentation ?? {}), theme: e.target.value }
+                        } as any
+                      )
                     }
                     title="Theme"
                   >
@@ -781,7 +1091,7 @@ export default function App() {
                             value={ability.cost?.ap ?? 0}
                             onChange={(e) =>
                               setAbility({
-                                cost: { ...(ability.cost ?? {}), ap: Number(e.target.value) }
+                                cost: { ...(ability.cost ?? {}), ap: Math.max(0, Math.floor(Number(e.target.value) || 0)) }
                               })
                             }
                           />
@@ -809,6 +1119,7 @@ export default function App() {
                           })
                         }
                       />
+
                       <div className="small" style={{ marginTop: 8 }}>
                         Cooldown (turns)
                       </div>
@@ -817,12 +1128,31 @@ export default function App() {
                         type="number"
                         value={ability.cost?.cooldown?.turns ?? 0}
                         onChange={(e) => {
-                          const n = Number(e.target.value);
+                          const n = Math.max(0, Math.floor(Number(e.target.value) || 0));
                           setAbility({
-                            cost: { ...(ability.cost ?? {}), cooldown: n > 0 ? { turns: Math.max(1, Math.floor(n)) } : undefined }
+                            cost: { ...(ability.cost ?? {}), cooldown: n > 0 ? { turns: Math.max(1, n) } : undefined }
                           });
                         }}
                       />
+
+                      <div className="small" style={{ marginTop: 10 }}>
+                        Token Costs (appear on card preview)
+                      </div>
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginTop: 6 }}>
+                        {RESOURCE_DEFS.map((r) => (
+                          <div key={r.key}>
+                            <div className="small">
+                              {r.label} ({r.key})
+                            </div>
+                            <input
+                              className="input"
+                              type="number"
+                              value={getTokenCost(r.key)}
+                              onChange={(e) => setTokenCost(r.key, Number(e.target.value))}
+                            />
+                          </div>
+                        ))}
+                      </div>
                     </>
                   )}
 
@@ -836,8 +1166,15 @@ export default function App() {
                         onChange={(e) => {
                           const type = e.target.value as any;
                           const next: any = { ...(ability.targeting ?? { type }), type };
+
+                          if (!next.origin) next.origin = "SOURCE";
+
                           if (type === "AREA_RADIUS" && !next.area) next.area = { radius: 1, includeCenter: true };
                           if (type === "SELF") next.area = undefined;
+
+                          // Ensure range object exists for non-SELF
+                          if (type !== "SELF" && !next.range) next.range = { min: 0, max: 4, base: 4 };
+
                           setAbility({ targeting: next });
                         }}
                       >
@@ -848,20 +1185,64 @@ export default function App() {
                         ))}
                       </select>
 
-                      <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
-                        <div style={{ flex: 1 }}>
-                          <div className="small">Range Base</div>
-                          <input
-                            className="input"
-                            type="number"
-                            value={ability.targeting?.range?.base ?? 0}
+                      {/* Origin */}
+                      {ability.targeting?.type !== "SELF" ? (
+                        <div style={{ marginTop: 8 }}>
+                          <div className="small">Cast Origin</div>
+                          <select
+                            className="select"
+                            value={origin}
                             onChange={(e) => {
-                              const base = Math.max(0, Math.floor(Number(e.target.value)));
-                              setAbility({ targeting: { ...(ability.targeting ?? { type: "SINGLE_TARGET" }), range: { base } } as any });
+                              const next: any = { ...(ability.targeting ?? {}) };
+                              next.origin = e.target.value;
+                              setAbility({ targeting: next });
                             }}
-                          />
+                          >
+                            <option value="SOURCE">From caster (show grid)</option>
+                            <option value="ANYWHERE">Anywhere / Global (hide grid)</option>
+                          </select>
                         </div>
-                        <div style={{ flex: 1 }}>
+                      ) : null}
+
+                      {/* Min/Max range */}
+                      {ability.targeting?.type !== "SELF" ? (
+                        <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+                          <div style={{ flex: 1 }}>
+                            <div className="small">Min Range</div>
+                            <input
+                              className="input"
+                              type="number"
+                              value={minRange}
+                              onChange={(e) => {
+                                const min = Math.max(0, Math.floor(Number(e.target.value) || 0));
+                                const max = Math.max(min, Math.floor(maxRange));
+                                const next: any = { ...(ability.targeting ?? {}) };
+                                next.range = { ...(next.range ?? {}), min, max, base: max };
+                                setAbility({ targeting: next });
+                              }}
+                            />
+                          </div>
+                          <div style={{ flex: 1 }}>
+                            <div className="small">Max Range</div>
+                            <input
+                              className="input"
+                              type="number"
+                              value={maxRange}
+                              onChange={(e) => {
+                                const max = Math.max(0, Math.floor(Number(e.target.value) || 0));
+                                const min = Math.min(Math.floor(minRange), max);
+                                const next: any = { ...(ability.targeting ?? {}) };
+                                next.range = { ...(next.range ?? {}), min, max, base: max };
+                                setAbility({ targeting: next });
+                              }}
+                            />
+                          </div>
+                        </div>
+                      ) : null}
+
+                      {/* Line of sight */}
+                      {ability.targeting?.type !== "SELF" ? (
+                        <div style={{ marginTop: 8 }}>
                           <div className="small">Line of Sight</div>
                           <select
                             className="select"
@@ -876,24 +1257,60 @@ export default function App() {
                             <option value="true">true</option>
                           </select>
                         </div>
-                      </div>
+                      ) : null}
 
-                      {ability.targeting?.type === "AREA_RADIUS" && (
-                        <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
-                          <div style={{ flex: 1 }}>
-                            <div className="small">Area Radius</div>
-                            <input
-                              className="input"
-                              type="number"
-                              value={(ability.targeting as any).area?.radius ?? 1}
-                              onChange={(e) => {
-                                const radius = Math.max(1, Math.floor(Number(e.target.value)));
-                                setAbility({ targeting: { ...(ability.targeting as any), area: { ...((ability.targeting as any).area ?? {}), radius } } as any });
-                              }}
-                            />
+                      {/* Area radius settings */}
+                      {ability.targeting?.type === "AREA_RADIUS" ? (
+                        <>
+                          <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+                            <div style={{ flex: 1 }}>
+                              <div className="small">AoE Radius</div>
+                              <input
+                                className="input"
+                                type="number"
+                                value={aoeRadius}
+                                onChange={(e) => {
+                                  const radius = Math.max(0, Math.floor(Number(e.target.value) || 0));
+                                  const next: any = { ...(ability.targeting ?? {}) };
+                                  next.area = { ...(next.area ?? {}), radius };
+                                  setAbility({ targeting: next });
+                                }}
+                              />
+                            </div>
+                            <div style={{ flex: 1 }}>
+                              <div className="small">Include Center</div>
+                              <select
+                                className="select"
+                                value={String(includeCenter)}
+                                onChange={(e) => {
+                                  const next: any = { ...(ability.targeting ?? {}) };
+                                  next.area = { ...(next.area ?? {}), includeCenter: e.target.value === "true" };
+                                  setAbility({ targeting: next });
+                                }}
+                              >
+                                <option value="true">true</option>
+                                <option value="false">false</option>
+                              </select>
+                            </div>
                           </div>
-                        </div>
-                      )}
+
+                          {/* Grid selector only when origin is caster-based */}
+                          {origin !== "ANYWHERE" ? (
+                            <TargetGridPicker
+                              minRange={minRange}
+                              maxRange={maxRange}
+                              aoeRadius={aoeRadius}
+                              includeCenter={includeCenter}
+                              selected={gridTarget}
+                              onSelect={(p) => setGridTarget(p)}
+                            />
+                          ) : (
+                            <div className="small" style={{ marginTop: 10 }}>
+                              Global cast enabled: grid preview hidden.
+                            </div>
+                          )}
+                        </>
+                      ) : null}
                     </>
                   )}
 
@@ -924,7 +1341,11 @@ export default function App() {
                         {selectedStep.type === "SHOW_TEXT" && (
                           <>
                             <div className="small">Text</div>
-                            <textarea className="textarea" value={(selectedStep as any).text} onChange={(e) => setStep(selectedStepIdx, { text: e.target.value })} />
+                            <textarea
+                              className="textarea"
+                              value={(selectedStep as any).text}
+                              onChange={(e) => setStep(selectedStepIdx, { text: e.target.value })}
+                            />
                           </>
                         )}
 
@@ -943,7 +1364,11 @@ export default function App() {
                         {selectedStep.type === "SET_VARIABLE" && (
                           <>
                             <div className="small">saveAs</div>
-                            <input className="input" value={(selectedStep as any).saveAs} onChange={(e) => setStep(selectedStepIdx, { saveAs: e.target.value })} />
+                            <input
+                              className="input"
+                              value={(selectedStep as any).saveAs}
+                              onChange={(e) => setStep(selectedStepIdx, { saveAs: e.target.value })}
+                            />
                             <div className="small" style={{ marginTop: 8 }}>
                               valueExpr
                             </div>
@@ -954,7 +1379,11 @@ export default function App() {
                         {selectedStep.type === "DEAL_DAMAGE" && (
                           <>
                             <div className="small">Damage Type</div>
-                            <select className="select" value={(selectedStep as any).damageType} onChange={(e) => setStep(selectedStepIdx, { damageType: e.target.value })}>
+                            <select
+                              className="select"
+                              value={(selectedStep as any).damageType}
+                              onChange={(e) => setStep(selectedStepIdx, { damageType: e.target.value })}
+                            >
                               {(blockRegistry.keys.DamageType as string[]).map((d) => (
                                 <option key={d} value={d}>
                                   {d}
@@ -965,9 +1394,6 @@ export default function App() {
                               Amount Expression
                             </div>
                             <ExpressionEditor value={(selectedStep as any).amountExpr} onChange={(amountExpr) => setStep(selectedStepIdx, { amountExpr })} />
-                            <div className="small" style={{ marginTop: 8 }}>
-                              Target (edit via Raw JSON below for now)
-                            </div>
                           </>
                         )}
 
@@ -975,16 +1401,17 @@ export default function App() {
                           <>
                             <div className="small">Amount Expression</div>
                             <ExpressionEditor value={(selectedStep as any).amountExpr} onChange={(amountExpr) => setStep(selectedStepIdx, { amountExpr })} />
-                            <div className="small" style={{ marginTop: 8 }}>
-                              Target (edit via Raw JSON below for now)
-                            </div>
                           </>
                         )}
 
                         {selectedStep.type === "APPLY_STATUS" && (
                           <>
                             <div className="small">Status</div>
-                            <select className="select" value={(selectedStep as any).status} onChange={(e) => setStep(selectedStepIdx, { status: e.target.value })}>
+                            <select
+                              className="select"
+                              value={(selectedStep as any).status}
+                              onChange={(e) => setStep(selectedStepIdx, { status: e.target.value })}
+                            >
                               {(blockRegistry.keys.StatusKey as string[]).map((s) => (
                                 <option key={s} value={s}>
                                   {s}
@@ -998,27 +1425,27 @@ export default function App() {
                               className="input"
                               type="number"
                               value={(selectedStep as any).duration?.turns ?? 1}
-                              onChange={(e) => setStep(selectedStepIdx, { duration: { turns: Math.max(1, Math.floor(Number(e.target.value))) } })}
+                              onChange={(e) =>
+                                setStep(selectedStepIdx, { duration: { turns: Math.max(1, Math.floor(Number(e.target.value) || 1)) } })
+                              }
                             />
-                            <div className="small" style={{ marginTop: 8 }}>
-                              Target (edit via Raw JSON below for now)
-                            </div>
                           </>
                         )}
 
                         {selectedStep.type === "REMOVE_STATUS" && (
                           <>
                             <div className="small">Status</div>
-                            <select className="select" value={(selectedStep as any).status} onChange={(e) => setStep(selectedStepIdx, { status: e.target.value })}>
+                            <select
+                              className="select"
+                              value={(selectedStep as any).status}
+                              onChange={(e) => setStep(selectedStepIdx, { status: e.target.value })}
+                            >
                               {(blockRegistry.keys.StatusKey as string[]).map((s) => (
                                 <option key={s} value={s}>
                                   {s}
                                 </option>
                               ))}
                             </select>
-                            <div className="small" style={{ marginTop: 8 }}>
-                              Target (edit via Raw JSON below for now)
-                            </div>
                           </>
                         )}
 
@@ -1029,22 +1456,21 @@ export default function App() {
                               className="input"
                               type="number"
                               value={(selectedStep as any).maxTiles ?? 1}
-                              onChange={(e) => setStep(selectedStepIdx, { maxTiles: Math.max(1, Math.floor(Number(e.target.value))) })}
+                              onChange={(e) =>
+                                setStep(selectedStepIdx, { maxTiles: Math.max(1, Math.floor(Number(e.target.value) || 1)) })
+                              }
                             />
-                            <div className="small" style={{ marginTop: 8 }}>
-                              Destination Mode
-                            </div>
-                            <div style={{ fontWeight: 700 }}>{(selectedStep as any).to?.mode ?? "TARGET_POSITION"}</div>
-                            <div className="small" style={{ marginTop: 8 }}>
-                              Target (edit via Raw JSON below for now)
-                            </div>
                           </>
                         )}
 
                         {selectedStep.type === "OPEN_REACTION_WINDOW" && (
                           <>
                             <div className="small">windowId</div>
-                            <input className="input" value={(selectedStep as any).windowId} onChange={(e) => setStep(selectedStepIdx, { windowId: e.target.value })} />
+                            <input
+                              className="input"
+                              value={(selectedStep as any).windowId}
+                              onChange={(e) => setStep(selectedStepIdx, { windowId: e.target.value })}
+                            />
                             <div className="small" style={{ marginTop: 8 }}>
                               timing
                             </div>
@@ -1055,7 +1481,11 @@ export default function App() {
                         {selectedStep.type === "OPPONENT_SAVE" && (
                           <>
                             <div className="small">Stat</div>
-                            <input className="input" value={(selectedStep as any).stat} onChange={(e) => setStep(selectedStepIdx, { stat: e.target.value })} />
+                            <input
+                              className="input"
+                              value={(selectedStep as any).stat}
+                              onChange={(e) => setStep(selectedStepIdx, { stat: e.target.value })}
+                            />
                             <div className="small" style={{ marginTop: 8 }}>
                               Difficulty
                             </div>
@@ -1063,13 +1493,12 @@ export default function App() {
                               className="input"
                               type="number"
                               value={(selectedStep as any).difficulty ?? 10}
-                              onChange={(e) => setStep(selectedStepIdx, { difficulty: Math.max(1, Math.floor(Number(e.target.value))) })}
+                              onChange={(e) =>
+                                setStep(selectedStepIdx, { difficulty: Math.max(1, Math.floor(Number(e.target.value) || 10)) })
+                              }
                             />
                             <div className="small" style={{ marginTop: 8 }}>
-                              Branch steps
-                            </div>
-                            <div className="small">
-                              MVP: edit <b>onFail</b> / <b>onSuccess</b> in Raw JSON below (next iteration adds nested step editors).
+                              MVP: edit <b>onFail</b> / <b>onSuccess</b> in Raw Step JSON below.
                             </div>
                           </>
                         )}
@@ -1077,12 +1506,12 @@ export default function App() {
                         {selectedStep.type === "IF_ELSE" && (
                           <>
                             <div className="small">Condition</div>
-                            <ConditionEditor value={(selectedStep as any).condition} onChange={(condition) => setStep(selectedStepIdx, { condition })} />
+                            <ConditionEditor
+                              value={(selectedStep as any).condition}
+                              onChange={(condition) => setStep(selectedStepIdx, { condition })}
+                            />
                             <div className="small" style={{ marginTop: 8 }}>
-                              Branch steps
-                            </div>
-                            <div className="small">
-                              MVP: edit <b>then</b> / <b>else</b> in Raw JSON below (next iteration adds nested step editors).
+                              MVP: edit <b>then</b> / <b>else</b> in Raw Step JSON below.
                             </div>
                           </>
                         )}
@@ -1090,7 +1519,7 @@ export default function App() {
                         {selectedStep.type === "UNKNOWN_STEP" && (
                           <div className="err">
                             <b>UNKNOWN_STEP</b>
-                            <div className="small">This step type isn’t in the BR-1.0 registry. Replace it or expand the registry.</div>
+                            <div className="small">This step type isn’t in the BR-1.0 registry.</div>
                           </div>
                         )}
                       </div>
@@ -1190,12 +1619,14 @@ export default function App() {
             <div className="small">Template</div>
             <select
               className="select"
-              value={card.presentation?.template ?? ""}
+              value={String((card as any).presentation?.template ?? "")}
               onChange={(e) =>
-                setCard({
-                  ...card,
-                  presentation: { ...(card.presentation ?? {}), template: (e.target.value || undefined) as any }
-                })
+                setCard(
+                  {
+                    ...card,
+                    presentation: { ...((card as any).presentation ?? {}), template: e.target.value || undefined }
+                  } as any
+                )
               }
             >
               <option value="">Auto</option>
@@ -1211,12 +1642,14 @@ export default function App() {
             <div className="small">Theme</div>
             <select
               className="select"
-              value={card.presentation?.theme ?? "BLUE"}
+              value={String((card as any).presentation?.theme ?? "BLUE")}
               onChange={(e) =>
-                setCard({
-                  ...card,
-                  presentation: { ...(card.presentation ?? {}), theme: e.target.value as any }
-                })
+                setCard(
+                  {
+                    ...card,
+                    presentation: { ...((card as any).presentation ?? {}), theme: e.target.value }
+                  } as any
+                )
               }
             >
               {["BLUE", "GREEN", "PURPLE", "ORANGE", "RED"].map((t) => (
