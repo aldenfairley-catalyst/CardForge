@@ -853,6 +853,7 @@ const [hexPickerByAbility, setHexPickerByAbility] = useState<Record<number, any>
 
                           setAbility({ targeting: next });
                         }}
+                        
                       >
                         {(blockRegistry.targeting.types as string[]).map((t) => (
                           <option key={t} value={t}>
@@ -883,6 +884,24 @@ const [hexPickerByAbility, setHexPickerByAbility] = useState<Record<number, any>
                           >
                             <option value="false">false</option>
                             <option value="true">true</option>
+                            {(ability.targeting as any)?.origin !== "ANYWHERE" && (ability.targeting?.type ?? "") !== "SELF" ? (
+  <HexTargetPicker
+    minRange={(ability.targeting as any)?.range?.min ?? 0}
+    maxRange={(ability.targeting as any)?.range?.max ?? (ability.targeting as any)?.range?.base ?? 0}
+    aoeRadius={ability.targeting?.type === "AREA_RADIUS" ? ((ability.targeting as any)?.area?.radius ?? 0) : 0}
+    includeCenter={
+      ability.targeting?.type === "AREA_RADIUS" ? Boolean((ability.targeting as any)?.area?.includeCenter ?? true) : true
+    }
+    lineOfSight={Boolean(ability.targeting?.lineOfSight)}
+    value={hexPickerByAbility[activeAbilityIdx]}
+    onChange={(next) => setHexPickerByAbility((p) => ({ ...p, [activeAbilityIdx]: next }))}
+  />
+) : (
+  <div className="small" style={{ marginTop: 8 }}>
+    Hex preview hidden for origin=ANYWHERE or SELF targeting.
+  </div>
+)}
+
                           </select>
                         </div>
                       </div>
