@@ -4,7 +4,8 @@ import type {
   AbilityComponent,
   Step,
   TargetRef,
-  Expression
+  Expression,
+  Condition
 } from "./types";
 
 export type ValidationSeverity = "ERROR" | "WARN" | "INFO";
@@ -16,13 +17,7 @@ export type ValidationIssue = {
   path?: string;
 };
 
-function issue(
-  out: ValidationIssue[],
-  severity: ValidationSeverity,
-  code: string,
-  message: string,
-  path?: string
-) {
+function issue(out: ValidationIssue[], severity: ValidationSeverity, code: string, message: string, path?: string) {
   out.push({ severity, code, message, path });
 }
 
@@ -34,78 +29,110 @@ function getAbilities(card: CardEntity) {
   return out;
 }
 
-function walkExpression(
-  expr: any,
-  ctx: { inForEach: boolean },
-  out: ValidationIssue[],
-  path: string
-) {
-  if (!expr || typeof expr !== "object") return;
-
-  // Validate any embedded TargetRef inside expressions (GET_STAT.from)
-  if (expr.type === "GET_STAT") {
-    const from = (expr as any).from as TargetRef | undefined;
-    if (from?.type === "ITERATION_TARGET" && !ctx.inForEach) {
-      issue(out, "ERROR", "ITERATION_TARGET_OUTSIDE_FOREACH", "ITERATION_TARGET can only be used inside FOR_EACH_TARGET.do", path + ".from");
-    }
-  }
-
-  // Recurse through expression fields
-  for (const k of Object.keys(expr)) {
-    const v = (expr as any)[k];
-    if (Array.isArray(v)) {
-      v.forEach((x, i) => walkExpression(x, ctx, out, `${path}.${k}[${i}]`));
-    } else if (v && typeof v === "object") {
-      walkExpression(v, ctx, out, `${path}.${k}`);
-    }
-  }
-}
-
-function checkTargetRef(
-  ref: any,
-  ctx: { inForEach: boolean },
-  out: ValidationIssue[],
-  path: string
-) {
+function checkTargetRef(ref: any, ctx: { inForEach: boolean }, out: ValidationIssue[], path: string) {
   if (!ref || typeof ref !== "object") return;
   if (ref.type === "ITERATION_TARGET" && !ctx.inForEach) {
     issue(out, "ERROR", "ITERATION_TARGET_OUTSIDE_FOREACH", "ITERATION_TARGET can only be used inside FOR_EACH_TARGET.do", path);
   }
+  // EQUIPPED_ITEM.of can itself reference ITERATION_TARGET etc.
+  if (ref.type === "EQUIPPED_ITEM" && ref.of) {
+    checkTargetRef(ref.of, ctx, out, `${path}.of`);
+  }
 }
 
-function walkSteps(
-  steps: Step[] | undefined,
-  ctx: { inForEach: boolean },
-  out: ValidationIssue[],
-  basePath: string
-) {
+function walkExpression(expr: any, ctx: { inForEach: boolean }, out: ValidationIssue[], path: string) {
+  if (!expr || typeof expr !== "object") return;
+
+  if (expr.type === "GET_STAT") {
+    const from = (expr as any).from as TargetRef | undefined;
+    if (from) checkTargetRef(from, ctx, out, `${path}.from`);
+  }
+
+  if (expr.type === "COUNT_ENTITIES_IN_RANGE") {
+    const center = (expr as any).center as TargetRef | undefined;
+    if (center) checkTargetRef(center, ctx, out, `${path}.center`);
+    if (typeof expr.range !== "number") {
+      issue(out, "WARN", "COUNT_RANGE_NOT_NUMBER", "COUNT_ENTITIES_IN_RANGE.range should be a number.", `${path}.range`);
+    }
+  }
+
+  for (const k of Object.keys(expr)) {
+    const v = (expr as any)[k];
+    if (Array.isArray(v)) v.forEach((x, i) => walkExpression(x, ctx, out, `${path}.${k}[${i}]`));
+    else if (v && typeof v === "object") walkExpression(v, ctx, out, `${path}.${k}`);
+  }
+}
+
+function walkCondition(cond: any, ctx: { inForEach: boolean }, out: ValidationIssue[], path: string) {
+  if (!cond || typeof cond !== "object") return;
+
+  if (cond.type === "NOT") walkCondition(cond.value, ctx, out, `${path}.value`);
+  if (cond.type === "AND" || cond.type === "OR") {
+    (cond.values ?? []).forEach((c: any, i: number) => walkCondition(c, ctx, out, `${path}.values[${i}]`));
+  }
+
+  if (cond.type === "COMPARE") {
+    walkExpression(cond.left, ctx, out, `${path}.left`);
+    walkExpression(cond.right, ctx, out, `${path}.right`);
+  }
+
+  if (cond.type === "HAS_STATUS" || cond.type === "HAS_TAG" || cond.type === "HAS_EQUIPPED_ITEM" || cond.type === "STATE_EQUALS") {
+    if (cond.target) checkTargetRef(cond.target, ctx, out, `${path}.target`);
+    if (cond.type === "STATE_EQUALS") {
+      if (!String(cond.key ?? "").trim()) issue(out, "ERROR", "STATE_EQUALS_KEY_MISSING", "STATE_EQUALS.key is required.", `${path}.key`);
+    }
+    if (cond.type === "HAS_EQUIPPED_ITEM" && !String(cond.itemId ?? "").trim()) {
+      issue(out, "ERROR", "HAS_EQUIPPED_ITEM_ID_MISSING", "HAS_EQUIPPED_ITEM.itemId is required.", `${path}.itemId`);
+    }
+  }
+}
+
+function walkSteps(steps: Step[] | undefined, ctx: { inForEach: boolean }, out: ValidationIssue[], basePath: string) {
   if (!steps) return;
 
   steps.forEach((s: any, i: number) => {
     const p = `${basePath}[${i}]`;
     if (!s || typeof s !== "object" || !s.type) return;
 
-    // TargetRef checks in common steps
-    if (s.type === "DEAL_DAMAGE" || s.type === "HEAL" || s.type === "APPLY_STATUS" || s.type === "REMOVE_STATUS" || s.type === "MOVE_ENTITY") {
+    // TargetRef checks
+    if (
+      s.type === "DEAL_DAMAGE" ||
+      s.type === "HEAL" ||
+      s.type === "APPLY_STATUS" ||
+      s.type === "REMOVE_STATUS" ||
+      s.type === "MOVE_ENTITY" ||
+      s.type === "SET_STATE" ||
+      s.type === "TOGGLE_STATE"
+    ) {
       checkTargetRef(s.target, ctx, out, `${p}.target`);
     }
 
     // Expression checks
-    if (s.type === "DEAL_DAMAGE") {
-      walkExpression(s.amountExpr as Expression, ctx, out, `${p}.amountExpr`);
+    if (s.type === "DEAL_DAMAGE") walkExpression(s.amountExpr, ctx, out, `${p}.amountExpr`);
+    if (s.type === "HEAL") walkExpression(s.amountExpr, ctx, out, `${p}.amountExpr`);
+    if (s.type === "SET_VARIABLE") walkExpression(s.valueExpr, ctx, out, `${p}.valueExpr`);
+    if (s.type === "SET_STATE" && s.valueExpr) walkExpression(s.valueExpr, ctx, out, `${p}.valueExpr`);
+
+    // New state steps basic shape
+    if (s.type === "SET_STATE") {
+      if (!String(s.key ?? "").trim()) issue(out, "ERROR", "SET_STATE_KEY_MISSING", "SET_STATE.key is required.", `${p}.key`);
+      const hasValue = typeof s.value !== "undefined";
+      const hasExpr = typeof s.valueExpr !== "undefined";
+      if (!hasValue && !hasExpr) {
+        issue(out, "ERROR", "SET_STATE_VALUE_MISSING", "SET_STATE requires value or valueExpr.", `${p}`);
+      }
     }
-    if (s.type === "HEAL") {
-      walkExpression(s.amountExpr as Expression, ctx, out, `${p}.amountExpr`);
-    }
-    if (s.type === "SET_VARIABLE") {
-      walkExpression(s.valueExpr as Expression, ctx, out, `${p}.valueExpr`);
+    if (s.type === "TOGGLE_STATE") {
+      if (!String(s.key ?? "").trim()) issue(out, "ERROR", "TOGGLE_STATE_KEY_MISSING", "TOGGLE_STATE.key is required.", `${p}.key`);
     }
 
-    // IF / ELSE recursion
+    // IF / ELSE recursion + validate condition tree
     if (s.type === "IF_ELSE") {
+      walkCondition(s.condition, ctx, out, `${p}.condition`);
       walkSteps(s.then, ctx, out, `${p}.then`);
       if (Array.isArray(s.elseIf)) {
         s.elseIf.forEach((br: any, bi: number) => {
+          walkCondition(br?.condition, ctx, out, `${p}.elseIf[${bi}].condition`);
           walkSteps(br?.then, ctx, out, `${p}.elseIf[${bi}].then`);
         });
       }
@@ -118,7 +145,7 @@ function walkSteps(
       walkSteps(s.onSuccess, ctx, out, `${p}.onSuccess`);
     }
 
-    // FOR_EACH_TARGET recursion (this is the rule gate for ITERATION_TARGET)
+    // FOR_EACH_TARGET recursion (gate for ITERATION_TARGET)
     if (s.type === "FOR_EACH_TARGET") {
       walkSteps(s.do, { inForEach: true }, out, `${p}.do`);
     }
@@ -128,7 +155,6 @@ function walkSteps(
 export function validateCard(card: CardEntity): ValidationIssue[] {
   const out: ValidationIssue[] = [];
 
-  // Basic shape checks (keep light; gameplay validation evolves later)
   if (!card) {
     issue(out, "ERROR", "CARD_MISSING", "Card is missing.");
     return out;
@@ -140,51 +166,43 @@ export function validateCard(card: CardEntity): ValidationIssue[] {
   if (!Array.isArray(card.components)) issue(out, "ERROR", "COMPONENTS_MISSING", "components[] is required.", "components");
 
   const abilities = getAbilities(card);
-  if (abilities.length === 0) {
-    issue(out, "ERROR", "NO_ABILITY", "At least one ABILITY component is required.", "components");
-  }
+  if (abilities.length === 0) issue(out, "ERROR", "NO_ABILITY", "At least one ABILITY component is required.", "components");
 
   for (const { ability, idx } of abilities) {
     const base = `components[${idx}]`;
 
-    // --- (1) validate targetingProfiles uniqueness ---
+    // targetingProfiles uniqueness
     const profiles = ability.targetingProfiles ?? [];
     if (profiles.length > 0) {
       const ids = profiles.map((p) => String((p as any)?.id ?? "")).filter(Boolean);
       const seen = new Set<string>();
       const dup = new Set<string>();
-      ids.forEach((id) => {
-        if (seen.has(id)) dup.add(id);
-        else seen.add(id);
-      });
-      dup.forEach((d) => {
-        issue(out, "ERROR", "DUPLICATE_TARGET_PROFILE_ID", `Duplicate targetingProfiles id: "${d}"`, `${base}.targetingProfiles`);
-      });
+      ids.forEach((id) => (seen.has(id) ? dup.add(id) : seen.add(id)));
+      dup.forEach((d) =>
+        issue(out, "ERROR", "DUPLICATE_TARGET_PROFILE_ID", `Duplicate targetingProfiles id: "${d}"`, `${base}.targetingProfiles`)
+      );
     }
 
     const profileIdSet = new Set((ability.targetingProfiles ?? []).map((p) => p.id));
 
-    // Collect target set definitions from SELECT_TARGETS
+    // Validate requirements condition tree
+    if (ability.requirements) {
+      walkCondition(ability.requirements, { inForEach: false }, out, `${base}.requirements`);
+    }
+
+    // Collect target set definitions (SELECT_TARGETS)
     const steps = ability.execution?.steps ?? [];
     const definedTargetSets = new Set<string>();
-    const selectTargetsBySaveAs = new Map<string, number>();
 
-    // Scan top-level steps for SELECT_TARGETS and validate (2)
     steps.forEach((s: any, si: number) => {
       if (!s || typeof s !== "object") return;
       if (s.type !== "SELECT_TARGETS") return;
 
       const p = `${base}.execution.steps[${si}]`;
 
-      // --- (2) validate SELECT_TARGETS.profileId exists ---
+      // validate SELECT_TARGETS.profileId exists
       if (!s.profileId || !profileIdSet.has(String(s.profileId))) {
-        issue(
-          out,
-          "ERROR",
-          "SELECT_TARGETS_PROFILE_NOT_FOUND",
-          `SELECT_TARGETS.profileId "${s.profileId}" not found in targetingProfiles.`,
-          `${p}.profileId`
-        );
+        issue(out, "ERROR", "SELECT_TARGETS_PROFILE_NOT_FOUND", `SELECT_TARGETS.profileId "${s.profileId}" not found in targetingProfiles.`, `${p}.profileId`);
       }
 
       const saveAs = String(s.saveAs ?? "").trim();
@@ -192,20 +210,17 @@ export function validateCard(card: CardEntity): ValidationIssue[] {
         issue(out, "ERROR", "SELECT_TARGETS_SAVEAS_MISSING", "SELECT_TARGETS.saveAs is required.", `${p}.saveAs`);
         return;
       }
-
       if (definedTargetSets.has(saveAs)) {
         issue(out, "ERROR", "DUPLICATE_TARGET_SET_SAVEAS", `Duplicate target set name "${saveAs}".`, `${p}.saveAs`);
       } else {
         definedTargetSets.add(saveAs);
-        selectTargetsBySaveAs.set(saveAs, si);
       }
     });
 
-    // Walk steps for recursion + ITERATION_TARGET checks (4)
+    // Walk for ITERATION_TARGET rules etc.
     walkSteps(steps as Step[], { inForEach: false }, out, `${base}.execution.steps`);
 
-    // Validate FOR_EACH_TARGET refs and nested ones (3)
-    // We validate all FOR_EACH_TARGET steps recursively by scanning again using a dedicated recursive function.
+    // validate FOR_EACH_TARGET.targetSet.ref exists
     const scanForEachRefs = (nested: Step[] | undefined, path: string) => {
       if (!nested) return;
       nested.forEach((s: any, i: number) => {
@@ -214,24 +229,15 @@ export function validateCard(card: CardEntity): ValidationIssue[] {
 
         if (s.type === "FOR_EACH_TARGET") {
           const ref = String(s.targetSet?.ref ?? "").trim();
-          // --- (3) validate FOR_EACH_TARGET.targetSet.ref exists ---
           if (!ref || !definedTargetSets.has(ref)) {
-            issue(
-              out,
-              "ERROR",
-              "FOREACH_TARGETSET_NOT_FOUND",
-              `FOR_EACH_TARGET.targetSet.ref "${ref}" was not defined by a SELECT_TARGETS.saveAs.`,
-              `${p}.targetSet.ref`
-            );
+            issue(out, "ERROR", "FOREACH_TARGETSET_NOT_FOUND", `FOR_EACH_TARGET.targetSet.ref "${ref}" was not defined by a SELECT_TARGETS.saveAs.`, `${p}.targetSet.ref`);
           }
           scanForEachRefs(s.do, `${p}.do`);
         }
 
         if (s.type === "IF_ELSE") {
           scanForEachRefs(s.then, `${p}.then`);
-          if (Array.isArray(s.elseIf)) {
-            s.elseIf.forEach((br: any, bi: number) => scanForEachRefs(br?.then, `${p}.elseIf[${bi}].then`));
-          }
+          if (Array.isArray(s.elseIf)) s.elseIf.forEach((br: any, bi: number) => scanForEachRefs(br?.then, `${p}.elseIf[${bi}].then`));
           scanForEachRefs(s.else, `${p}.else`);
         }
 
@@ -244,8 +250,6 @@ export function validateCard(card: CardEntity): ValidationIssue[] {
     scanForEachRefs(steps as Step[], `${base}.execution.steps`);
   }
 
-  if (out.length === 0) {
-    return [{ severity: "INFO", code: "OK", message: "No issues." }];
-  }
+  if (out.length === 0) return [{ severity: "INFO", code: "OK", message: "No issues." }];
   return out;
 }
