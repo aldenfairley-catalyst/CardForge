@@ -3,7 +3,16 @@ import React, { useEffect, useMemo, useState } from "react";
 import ReactFlow, { Background, Controls, MiniMap, Handle, Position } from "reactflow";
 import "reactflow/dist/style.css";
 
-import type { CardEntity, Step, AbilityComponent, TargetingProfile } from "./lib/types";
+import type {
+  CardEntity,
+  Step,
+  AbilityComponent,
+  TargetingProfile,
+  TargetRef,
+  StateSchema,
+  StateValue
+} from "./lib/types";
+
 import { makeDefaultCard, canonicalToGraph, abilitySummary } from "./lib/graph";
 import {
   saveCardJson,
@@ -36,6 +45,26 @@ function download(filename: string, text: string) {
   URL.revokeObjectURL(url);
 }
 
+function cardFileName(card: CardEntity, suffix: string) {
+  const safe = card.name.trim().length ? card.name.trim() : "card";
+  return `${safe.replace(/\s+/g, "_").toLowerCase()}_${suffix}.json`;
+}
+
+function findAbilityIndexes(card: CardEntity): number[] {
+  const out: number[] = [];
+  card.components.forEach((c: any, i) => {
+    if (c?.componentType === "ABILITY") out.push(i);
+  });
+  return out;
+}
+
+function clampInt(n: any, min: number, max?: number) {
+  const x = Math.floor(Number(n || 0));
+  const a = Math.max(min, x);
+  if (typeof max === "number") return Math.min(max, a);
+  return a;
+}
+
 function coerceUnknownSteps(card: any) {
   for (const comp of card.components ?? []) {
     if (comp?.componentType !== "ABILITY") continue;
@@ -47,6 +76,22 @@ function coerceUnknownSteps(card: any) {
     });
   }
   return card;
+}
+
+function safeParseJson(text: string) {
+  try {
+    return { ok: true as const, value: JSON.parse(text) };
+  } catch (e: any) {
+    return { ok: false as const, error: e?.message ?? String(e) };
+  }
+}
+
+function parseStateValue(raw: string): StateValue {
+  const s = String(raw ?? "").trim();
+  if (s === "true") return true;
+  if (s === "false") return false;
+  if (s !== "" && !Number.isNaN(Number(s)) && String(Number(s)) === s) return Number(s);
+  return s;
 }
 
 function Modal(props: {
@@ -97,7 +142,7 @@ function AbilityRootNode({ data, selected, card }: any) {
 
 function MetaNode({ data, selected, card }: any) {
   const ability = card.components[data.abilityIdx] as AbilityComponent | undefined;
-  const title = String(data.kind ?? "").toUpperCase().includes("COST") ? "COST" : "TARGETING";
+  const title = data.kind === "COST" ? "COST" : "TARGETING";
 
   const firstProfile = (ability as any)?.targetingProfiles?.[0];
   const legacy = (ability as any)?.targeting;
@@ -107,7 +152,10 @@ function MetaNode({ data, selected, card }: any) {
   const maxR = rangeObj.max ?? rangeObj.base ?? 0;
   const minR = rangeObj.min ?? 0;
 
-  const desc = title === "COST" ? `AP: ${ability?.cost?.ap ?? 0}` : `${type} • Range ${minR}-${maxR}`;
+  const desc =
+    title === "COST"
+      ? `AP: ${ability?.cost?.ap ?? 0}`
+      : `${type} • Range ${minR}-${maxR}`;
 
   return (
     <div className="node" style={{ borderColor: selected ? "rgba(99,179,255,.6)" : undefined }}>
@@ -162,28 +210,8 @@ function StepNode({ data, selected, card }: any) {
   );
 }
 
-function cardFileName(card: CardEntity, suffix: string) {
-  const safe = card.name.trim().length ? card.name.trim() : "card";
-  return `${safe.replace(/\s+/g, "_").toLowerCase()}_${suffix}.json`;
-}
-
-function findAbilityIndexes(card: CardEntity): number[] {
-  const out: number[] = [];
-  card.components.forEach((c: any, i) => {
-    if (c?.componentType === "ABILITY") out.push(i);
-  });
-  return out;
-}
-
-function clampInt(n: any, min: number, max?: number) {
-  const x = Math.floor(Number(n || 0));
-  const a = Math.max(min, x);
-  if (typeof max === "number") return Math.min(max, a);
-  return a;
-}
-
 export default function App() {
-  // History-backed card state (undo/redo)
+  // History-backed card state (Undo/Redo)
   const history = useHistoryState<CardEntity>(loadMigratedCardOrDefault(makeDefaultCard));
   const card = history.present;
   const setCard = history.set;
@@ -203,11 +231,22 @@ export default function App() {
   const [catalogText, setCatalogText] = useState(JSON.stringify(catalog, null, 2));
   const [catalogErr, setCatalogErr] = useState<string | null>(null);
 
-  // Hex picker UI state (per ability + profile)
+  // Targeting preview (hex) state
   const [hexPickerByAbility, setHexPickerByAbility] = useState<Record<number, Record<string, any>>>({});
 
-  // Target profile selection per ability
+  // Active targeting profile per ability
   const [activeProfileByAbility, setActiveProfileByAbility] = useState<Record<number, string>>({});
+
+  // Custom state schema editor (text + error)
+  const [stateSchemaText, setStateSchemaText] = useState<string>(() =>
+    JSON.stringify((card as any).stateSchema ?? {}, null, 2)
+  );
+  const [stateSchemaErr, setStateSchemaErr] = useState<string | null>(null);
+
+  // Ability requirements raw editor
+  const [reqRawOpen, setReqRawOpen] = useState(false);
+  const [reqRawText, setReqRawText] = useState("");
+  const [reqRawErr, setReqRawErr] = useState<string | null>(null);
 
   useEffect(() => {
     try {
@@ -216,6 +255,12 @@ export default function App() {
       // ignore
     }
   }, [catalog]);
+
+  useEffect(() => {
+    // keep schema editor synced with card (but don't spam updates while typing)
+    setStateSchemaText(JSON.stringify((card as any).stateSchema ?? {}, null, 2));
+    setStateSchemaErr(null);
+  }, [card.id]);
 
   // Multi-ability selection
   const abilityIndexes = useMemo(() => findAbilityIndexes(card), [card]);
@@ -381,6 +426,10 @@ export default function App() {
             targetSet: { ref: "primary" },
             do: [{ type: "SHOW_TEXT", text: "For each target..." }]
           } as any;
+        case "SET_STATE":
+          return { type: "SET_STATE", target: { type: "SELF" }, key: "loaded", value: false } as any;
+        case "TOGGLE_STATE":
+          return { type: "TOGGLE_STATE", target: { type: "SELF" }, key: "loaded" } as any;
         default:
           return { type: "UNKNOWN_STEP", raw: { type: stepType } } as any;
       }
@@ -409,7 +458,8 @@ export default function App() {
   function doImport() {
     setImportError(null);
     try {
-      const parsed = coerceUnknownSteps(JSON.parse(importText));
+      const parsed0 = coerceUnknownSteps(JSON.parse(importText));
+      const parsed = parsed0?.projectVersion === "FORGE-1.0" ? parsed0.card : parsed0;
       const incoming = migrateCard(parsed);
       setCard(incoming);
 
@@ -431,6 +481,7 @@ export default function App() {
       description: "",
       trigger: "ACTIVE_ACTION",
       cost: { ap: 1, tokens: {} } as any,
+      requirements: { type: "ALWAYS" } as any,
       targetingProfiles: [
         {
           id: "primary",
@@ -448,7 +499,6 @@ export default function App() {
     setCard({ ...card, components: [...card.components, newAbility as any] });
     setActiveAbilityIdx(card.components.length);
     setSelectedNodeId(null);
-
     setActiveProfileByAbility((m) => ({ ...m, [card.components.length]: "primary" }));
   }
 
@@ -471,11 +521,13 @@ export default function App() {
     return displayedNodes.find((n: any) => n.id === selectedNodeId) ?? null;
   }, [displayedNodes, selectedNodeId]);
 
-  const kindUpper = String(selectedNode?.data?.kind ?? "").toUpperCase();
-  const isCost = kindUpper.includes("COST");
-  const isTargeting = kindUpper.includes("TARGET");
-  const isAbilityRoot = kindUpper.includes("ABILITY");
-  const isStep = kindUpper.includes("STEP");
+  const selectedKindRaw = selectedNode?.data?.kind ?? null;
+  const selectedKind = String(selectedKindRaw ?? "").toUpperCase();
+
+  const isCost = selectedKind === "COST" || selectedKind.includes("COST");
+  const isTargeting = selectedKind === "TARGETING" || (selectedKind.includes("TARGET") && !selectedKind.includes("STEP"));
+  const isAbilityRoot = selectedKind === "ABILITY_ROOT" || selectedKind.includes("ABILITY");
+  const isStep = selectedKind === "STEP" || selectedKind.includes("STEP");
 
   const selectedStepIdx = isStep ? (selectedNode?.data?.stepIdx ?? null) : null;
   const selectedStep =
@@ -492,17 +544,15 @@ export default function App() {
     setAbility({ cost: { ...(ability.cost ?? {}), tokens } } as any);
   }
 
-  // Target profiles utilities
+  // Target profiles
   const profiles: TargetingProfile[] = (ability?.targetingProfiles ?? []) as any;
 
-  // Keep active profile valid
   useEffect(() => {
     if (!ability) return;
     if (!profiles.length) return;
 
     const current = activeProfileByAbility[activeAbilityIdx];
     if (current && profiles.some((p) => p.id === current)) return;
-
     setActiveProfileByAbility((m) => ({ ...m, [activeAbilityIdx]: profiles[0].id }));
   }, [activeAbilityIdx, ability, profiles.map((p) => p.id).join("|")]);
 
@@ -515,14 +565,12 @@ export default function App() {
 
   function initProfilesFromLegacy() {
     if (!ability) return;
-
     const legacy: any = (ability as any).targeting ?? {
       type: "SINGLE_TARGET",
       origin: "SOURCE",
       range: { min: 0, max: 4, base: 4 },
       lineOfSight: true
     };
-
     const range = legacy.range ?? {};
     const max = range.max ?? range.base ?? 4;
     const min = range.min ?? 0;
@@ -584,12 +632,10 @@ export default function App() {
     const newId = String(newIdRaw ?? "").trim();
     if (!newId) return;
     if (oldId === newId) return;
-    if (profiles.some((p) => p.id === newId)) return; // avoid collision
+    if (profiles.some((p) => p.id === newId)) return;
 
-    // Update profiles
     const nextProfiles = profiles.map((p) => {
       if (p.id !== oldId) {
-        // update relativeTo / constraints references if they used oldId
         const rp: any = { ...p };
         if (rp.relativeTo?.targetSetId === oldId) rp.relativeTo = { ...rp.relativeTo, targetSetId: newId };
         if (rp.constraints?.excludeTargetSet === oldId) rp.constraints = { ...rp.constraints, excludeTargetSet: newId };
@@ -599,7 +645,6 @@ export default function App() {
       return { ...p, id: newId };
     });
 
-    // Update steps referencing profileId in SELECT_TARGETS
     const steps = (ability?.execution?.steps ?? []).map((s: any) => {
       if (s?.type === "SELECT_TARGETS" && s.profileId === oldId) return { ...s, profileId: newId };
       return s;
@@ -609,7 +654,7 @@ export default function App() {
     setActiveProfileByAbility((m) => ({ ...m, [activeAbilityIdx]: newId }));
   }
 
-  // Helpers: available target sets from SELECT_TARGETS (top-level scan)
+  // Available target sets (saveAs from SELECT_TARGETS)
   const availableTargetSets = useMemo(() => {
     const steps = ability?.execution?.steps ?? [];
     const out: string[] = [];
@@ -630,6 +675,124 @@ export default function App() {
   const pLoS = Boolean(activeProfile?.lineOfSight);
 
   const showHexPicker = Boolean(activeProfile) && pOrigin !== "ANYWHERE" && pType !== "SELF";
+
+  // Card-level state schema keys (for dropdowns)
+  const stateSchema: StateSchema = ((card as any).stateSchema ?? {}) as any;
+  const stateKeys = useMemo(() => Object.keys(stateSchema), [stateSchemaText, card.id]);
+
+  function upsertStateSchemaFromText() {
+    const parsed = safeParseJson(stateSchemaText || "{}");
+    if (!parsed.ok) {
+      setStateSchemaErr(parsed.error);
+      return;
+    }
+    setStateSchemaErr(null);
+    setCard({ ...card, stateSchema: parsed.value });
+  }
+
+  function openReqRaw() {
+    setReqRawErr(null);
+    setReqRawText(JSON.stringify((ability as any)?.requirements ?? { type: "ALWAYS" }, null, 2));
+    setReqRawOpen(true);
+  }
+
+  function saveReqRaw() {
+    setReqRawErr(null);
+    const parsed = safeParseJson(reqRawText || "{}");
+    if (!parsed.ok) {
+      setReqRawErr(parsed.error);
+      return;
+    }
+    setAbility({ requirements: parsed.value } as any);
+    setReqRawOpen(false);
+  }
+
+  function buildTargetRefEditor(
+    label: string,
+    value: TargetRef,
+    onChange: (next: TargetRef) => void
+  ) {
+    const t = (value as any)?.type ?? "SELF";
+    const isEquippedItem = t === "EQUIPPED_ITEM";
+    const isTargetSet = t === "TARGET_SET";
+
+    const baseOptions = ["SELF", "TARGET", "TARGET_SET", "ITERATION_TARGET", "EQUIPPED_ITEM"];
+
+    return (
+      <div style={{ marginTop: 10 }}>
+        <div className="small">{label}</div>
+        <select
+          className="select"
+          value={t}
+          onChange={(e) => {
+            const nt = e.target.value;
+            if (nt === "EQUIPPED_ITEM") {
+              onChange({ type: "EQUIPPED_ITEM", itemId: "", of: { type: "SELF" } } as any);
+              return;
+            }
+            if (nt === "TARGET_SET") {
+              onChange({ type: "TARGET_SET", ref: availableTargetSets[0] ?? "primary" } as any);
+              return;
+            }
+            onChange({ type: nt } as any);
+          }}
+        >
+          {baseOptions.map((o) => (
+            <option key={o} value={o}>
+              {o}
+            </option>
+          ))}
+        </select>
+
+        {isTargetSet ? (
+          <div style={{ marginTop: 8 }}>
+            <div className="small">ref</div>
+            <select
+              className="select"
+              value={(value as any).ref ?? ""}
+              onChange={(e) => onChange({ type: "TARGET_SET", ref: e.target.value } as any)}
+            >
+              <option value="">(select)</option>
+              {availableTargetSets.map((s) => (
+                <option key={s} value={s}>
+                  {s}
+                </option>
+              ))}
+            </select>
+          </div>
+        ) : null}
+
+        {isEquippedItem ? (
+          <>
+            <div style={{ marginTop: 8 }}>
+              <div className="small">itemId</div>
+              <input
+                className="input"
+                value={(value as any).itemId ?? ""}
+                onChange={(e) => onChange({ ...(value as any), itemId: e.target.value } as any)}
+                placeholder="rifle_card_id"
+              />
+            </div>
+
+            <div style={{ marginTop: 8 }}>
+              <div className="small">of</div>
+              <select
+                className="select"
+                value={(value as any).of?.type ?? "SELF"}
+                onChange={(e) => onChange({ ...(value as any), of: { type: e.target.value } } as any)}
+              >
+                {["SELF", "TARGET", "ITERATION_TARGET"].map((o) => (
+                  <option key={o} value={o}>
+                    {o}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </>
+        ) : null}
+      </div>
+    );
+  }
 
   return (
     <div className="app">
@@ -739,7 +902,12 @@ export default function App() {
               <button className="btn btnPrimary" onClick={addAbility} style={{ flex: 1 }}>
                 + Add Ability
               </button>
-              <button className="btn btnDanger" onClick={removeActiveAbility} style={{ flex: 1 }} disabled={abilityIndexes.length <= 1}>
+              <button
+                className="btn btnDanger"
+                onClick={removeActiveAbility}
+                style={{ flex: 1 }}
+                disabled={abilityIndexes.length <= 1}
+              >
                 Remove
               </button>
             </div>
@@ -897,6 +1065,112 @@ export default function App() {
                 </select>
               </details>
 
+              <details style={{ marginTop: 10 }}>
+                <summary className="small" style={{ cursor: "pointer" }}>
+                  Card Art + Preview Settings
+                </summary>
+
+                <div className="small" style={{ marginTop: 8 }}>
+                  Upload Image (stored as Data URL)
+                </div>
+                <input
+                  className="input"
+                  type="file"
+                  accept="image/*"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (!file) return;
+                    const reader = new FileReader();
+                    reader.onload = () => {
+                      const dataUrl = String(reader.result);
+                      setCard({
+                        ...card,
+                        visuals: { ...(card.visuals ?? {}), cardImage: dataUrl }
+                      });
+                    };
+                    reader.readAsDataURL(file);
+                  }}
+                />
+                <div className="small" style={{ marginTop: 6 }}>
+                  Tip: Big images make JSON large. Later we’ll store URLs instead.
+                </div>
+
+                <div className="small" style={{ marginTop: 8 }}>
+                  Image Align
+                </div>
+                <select
+                  className="select"
+                  value={card.visuals?.imageAlign ?? "CENTER"}
+                  onChange={(e) => setCard({ ...card, visuals: { ...(card.visuals ?? {}), imageAlign: e.target.value as any } })}
+                >
+                  {["CENTER", "TOP", "BOTTOM", "LEFT", "RIGHT"].map((v) => (
+                    <option key={v} value={v}>
+                      {v}
+                    </option>
+                  ))}
+                </select>
+
+                <div className="small" style={{ marginTop: 8 }}>
+                  Image Fit
+                </div>
+                <select
+                  className="select"
+                  value={card.visuals?.imageFit ?? "COVER"}
+                  onChange={(e) => setCard({ ...card, visuals: { ...(card.visuals ?? {}), imageFit: e.target.value as any } })}
+                >
+                  {["COVER", "CONTAIN"].map((v) => (
+                    <option key={v} value={v}>
+                      {v}
+                    </option>
+                  ))}
+                </select>
+              </details>
+
+              <details style={{ marginTop: 10 }} open={false}>
+                <summary className="small" style={{ cursor: "pointer" }}>
+                  Custom State Schema (per instance)
+                </summary>
+
+                <div className="small" style={{ marginTop: 8 }}>
+                  Define per-instance state keys for this card. Example:
+                  <code style={{ marginLeft: 6 }}>
+                    {"{ \"loaded\": { \"type\": \"boolean\", \"default\": true } }"}
+                  </code>
+                </div>
+
+                {stateSchemaErr ? (
+                  <div className="err" style={{ marginTop: 8 }}>
+                    <b>Invalid JSON</b>
+                    <div className="small">{stateSchemaErr}</div>
+                  </div>
+                ) : null}
+
+                <textarea
+                  className="textarea"
+                  style={{ minHeight: 200, marginTop: 8 }}
+                  value={stateSchemaText}
+                  onChange={(e) => {
+                    setStateSchemaText(e.target.value);
+                    setStateSchemaErr(null);
+                  }}
+                />
+
+                <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+                  <button className="btn btnPrimary" onClick={upsertStateSchemaFromText}>
+                    Apply State Schema
+                  </button>
+                  <button
+                    className="btn"
+                    onClick={() => {
+                      setStateSchemaText(JSON.stringify((card as any).stateSchema ?? {}, null, 2));
+                      setStateSchemaErr(null);
+                    }}
+                  >
+                    Reset Text
+                  </button>
+                </div>
+              </details>
+
               <hr style={{ borderColor: "var(--border)", opacity: 0.5, margin: "12px 0" }} />
 
               {!ability ? (
@@ -915,7 +1189,11 @@ export default function App() {
                       <div className="small" style={{ marginTop: 8 }}>
                         Description
                       </div>
-                      <textarea className="textarea" value={ability.description ?? ""} onChange={(e) => setAbility({ description: e.target.value })} />
+                      <textarea
+                        className="textarea"
+                        value={ability.description ?? ""}
+                        onChange={(e) => setAbility({ description: e.target.value })}
+                      />
 
                       <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
                         <div style={{ flex: 1 }}>
@@ -942,6 +1220,58 @@ export default function App() {
                           />
                         </div>
                       </div>
+
+                      <details style={{ marginTop: 10 }} open={false}>
+                        <summary className="small" style={{ cursor: "pointer" }}>
+                          Activation Requirements
+                        </summary>
+
+                        <div className="small" style={{ marginTop: 8 }}>
+                          This condition must be true to use the ability (checked before costs).
+                        </div>
+
+                        <ConditionEditor
+                          value={(ability as any).requirements ?? { type: "ALWAYS" }}
+                          onChange={(requirements) => setAbility({ requirements } as any)}
+                        />
+
+                        <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+                          <button className="btn" onClick={openReqRaw}>
+                            Edit as Raw JSON
+                          </button>
+                          <button
+                            className="btn"
+                            onClick={() =>
+                              setAbility({
+                                requirements: {
+                                  type: "AND",
+                                  values: [
+                                    { type: "STATE_EQUALS", target: { type: "SELF" }, key: "loaded", value: true },
+                                    {
+                                      type: "COMPARE",
+                                      op: "EQ",
+                                      left: {
+                                        type: "COUNT_ENTITIES_IN_RANGE",
+                                        center: { type: "SELF" },
+                                        range: 4,
+                                        relation: "NON_ALLIED"
+                                      },
+                                      right: { type: "CONST_NUMBER", value: 0 }
+                                    }
+                                  ]
+                                } as any
+                              })
+                            }
+                            title="Example: loaded==true AND no non-allies within 4"
+                          >
+                            Insert “Safe to Fire” Example
+                          </button>
+                        </div>
+
+                        <div className="small" style={{ marginTop: 8 }}>
+                          Tip: “Safe to Fire” uses COUNT_ENTITIES_IN_RANGE and STATE_EQUALS.
+                        </div>
+                      </details>
                     </>
                   )}
 
@@ -1015,9 +1345,7 @@ export default function App() {
                       {!profiles.length ? (
                         <div className="err" style={{ marginTop: 8 }}>
                           <b>No targetingProfiles</b>
-                          <div className="small">
-                            Option A uses targetingProfiles. You can create them from legacy targeting or start fresh.
-                          </div>
+                          <div className="small">Option A uses targetingProfiles. Create them from legacy targeting or start fresh.</div>
                           <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
                             <button className="btn btnPrimary" onClick={initProfilesFromLegacy}>
                               Init from legacy targeting
@@ -1063,13 +1391,9 @@ export default function App() {
                               <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
                                 <div style={{ flex: 1 }}>
                                   <div className="small">Profile ID</div>
-                                  <input
-                                    className="input"
-                                    value={activeProfile.id}
-                                    onChange={(e) => renameProfile(activeProfile.id, e.target.value)}
-                                  />
+                                  <input className="input" value={activeProfile.id} onChange={(e) => renameProfile(activeProfile.id, e.target.value)} />
                                   <div className="small" style={{ marginTop: 6 }}>
-                                    (Renaming updates SELECT_TARGETS.profileId references)
+                                    Renaming updates SELECT_TARGETS.profileId references.
                                   </div>
                                 </div>
                                 <div style={{ flex: 1 }}>
@@ -1139,11 +1463,7 @@ export default function App() {
                                   <select
                                     className="select"
                                     value={activeProfile.relativeTo?.targetSetId ?? ""}
-                                    onChange={(e) =>
-                                      patchProfile(activeProfile.id, {
-                                        relativeTo: { targetSetId: e.target.value }
-                                      } as any)
-                                    }
+                                    onChange={(e) => patchProfile(activeProfile.id, { relativeTo: { targetSetId: e.target.value } } as any)}
                                   >
                                     {profiles
                                       .filter((p) => p.id !== activeProfile.id)
@@ -1153,9 +1473,6 @@ export default function App() {
                                         </option>
                                       ))}
                                   </select>
-                                  <div className="small" style={{ marginTop: 6 }}>
-                                    (Hex preview anchoring for RELATIVE profiles will be improved next.)
-                                  </div>
                                 </div>
                               ) : null}
 
@@ -1281,7 +1598,7 @@ export default function App() {
 
                                 <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
                                   <div style={{ flex: 1 }}>
-                                    <div className="small">Exclude Target Set (name)</div>
+                                    <div className="small">Exclude Target Set</div>
                                     <select
                                       className="select"
                                       value={String((activeProfile as any).constraints?.excludeTargetSet ?? "")}
@@ -1301,7 +1618,7 @@ export default function App() {
                                   </div>
 
                                   <div style={{ flex: 1 }}>
-                                    <div className="small">Must Be Adjacent To (set)</div>
+                                    <div className="small">Must Be Adjacent To</div>
                                     <select
                                       className="select"
                                       value={String((activeProfile as any).constraints?.mustBeAdjacentTo ?? "")}
@@ -1319,10 +1636,6 @@ export default function App() {
                                       ))}
                                     </select>
                                   </div>
-                                </div>
-
-                                <div className="small" style={{ marginTop: 8 }}>
-                                  (Constraints reference target sets by name — best practice is to keep saveAs == profileId.)
                                 </div>
                               </details>
 
@@ -1343,7 +1656,7 @@ export default function App() {
                                 />
                               ) : (
                                 <div className="small" style={{ marginTop: 10 }}>
-                                  Hex preview hidden for origin=ANYWHERE or type=SELF.
+                                  Preview hidden for origin=ANYWHERE or type=SELF.
                                 </div>
                               )}
                             </>
@@ -1376,7 +1689,7 @@ export default function App() {
                         </button>
                       </div>
 
-                      {/* New: SELECT_TARGETS editor */}
+                      {/* SELECT_TARGETS */}
                       {selectedStep.type === "SELECT_TARGETS" ? (
                         <div style={{ marginTop: 10 }}>
                           <div className="small">profileId</div>
@@ -1402,14 +1715,10 @@ export default function App() {
                             onChange={(e) => patchStep(selectedStepIdx, { saveAs: e.target.value })}
                             placeholder="e.g. primary"
                           />
-
-                          <div className="small" style={{ marginTop: 8 }}>
-                            Tip: keep saveAs == profileId (best practice)
-                          </div>
                         </div>
                       ) : null}
 
-                      {/* New: FOR_EACH_TARGET editor */}
+                      {/* FOR_EACH_TARGET */}
                       {selectedStep.type === "FOR_EACH_TARGET" ? (
                         <div style={{ marginTop: 10 }}>
                           <div className="small">targetSet.ref</div>
@@ -1437,7 +1746,128 @@ export default function App() {
                         </div>
                       ) : null}
 
-                      {/* Existing nested editors */}
+                      {/* SET_STATE */}
+                      {selectedStep.type === "SET_STATE" ? (
+                        <div style={{ marginTop: 10 }}>
+                          {buildTargetRefEditor("Target", (selectedStep as any).target ?? ({ type: "SELF" } as any), (t) =>
+                            patchStep(selectedStepIdx, { target: t })
+                          )}
+
+                          <div style={{ marginTop: 10 }}>
+                            <div className="small">key</div>
+                            <div style={{ display: "flex", gap: 8 }}>
+                              <input
+                                className="input"
+                                style={{ flex: 1 }}
+                                value={(selectedStep as any).key ?? ""}
+                                onChange={(e) => patchStep(selectedStepIdx, { key: e.target.value })}
+                                placeholder="loaded"
+                              />
+                              <select
+                                className="select"
+                                style={{ width: 180 }}
+                                value={stateKeys.includes((selectedStep as any).key ?? "") ? (selectedStep as any).key : ""}
+                                onChange={(e) => {
+                                  if (!e.target.value) return;
+                                  patchStep(selectedStepIdx, { key: e.target.value });
+                                }}
+                                title="Pick from card state schema keys"
+                              >
+                                <option value="">(pick key)</option>
+                                {stateKeys.map((k) => (
+                                  <option key={k} value={k}>
+                                    {k}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                          </div>
+
+                          <div style={{ marginTop: 10 }}>
+                            <div className="small">Set via</div>
+                            <select
+                              className="select"
+                              value={(selectedStep as any).valueExpr ? "EXPR" : "CONST"}
+                              onChange={(e) => {
+                                const mode = e.target.value;
+                                if (mode === "EXPR") {
+                                  patchStep(selectedStepIdx, { valueExpr: { type: "CONST_NUMBER", value: 1 }, value: undefined });
+                                } else {
+                                  patchStep(selectedStepIdx, { value: false, valueExpr: undefined });
+                                }
+                              }}
+                            >
+                              <option value="CONST">Constant</option>
+                              <option value="EXPR">Expression (number)</option>
+                            </select>
+                          </div>
+
+                          {(selectedStep as any).valueExpr ? (
+                            <div style={{ marginTop: 10 }}>
+                              <div className="small">valueExpr</div>
+                              <ExpressionEditor
+                                value={(selectedStep as any).valueExpr}
+                                onChange={(valueExpr) => patchStep(selectedStepIdx, { valueExpr })}
+                              />
+                            </div>
+                          ) : (
+                            <div style={{ marginTop: 10 }}>
+                              <div className="small">value</div>
+                              <input
+                                className="input"
+                                value={String((selectedStep as any).value ?? "")}
+                                onChange={(e) => patchStep(selectedStepIdx, { value: parseStateValue(e.target.value) })}
+                                placeholder="true / false / 0 / jammed"
+                              />
+                            </div>
+                          )}
+                        </div>
+                      ) : null}
+
+                      {/* TOGGLE_STATE */}
+                      {selectedStep.type === "TOGGLE_STATE" ? (
+                        <div style={{ marginTop: 10 }}>
+                          {buildTargetRefEditor("Target", (selectedStep as any).target ?? ({ type: "SELF" } as any), (t) =>
+                            patchStep(selectedStepIdx, { target: t })
+                          )}
+
+                          <div style={{ marginTop: 10 }}>
+                            <div className="small">key</div>
+                            <div style={{ display: "flex", gap: 8 }}>
+                              <input
+                                className="input"
+                                style={{ flex: 1 }}
+                                value={(selectedStep as any).key ?? ""}
+                                onChange={(e) => patchStep(selectedStepIdx, { key: e.target.value })}
+                                placeholder="loaded"
+                              />
+                              <select
+                                className="select"
+                                style={{ width: 180 }}
+                                value={stateKeys.includes((selectedStep as any).key ?? "") ? (selectedStep as any).key : ""}
+                                onChange={(e) => {
+                                  if (!e.target.value) return;
+                                  patchStep(selectedStepIdx, { key: e.target.value });
+                                }}
+                                title="Pick from card state schema keys"
+                              >
+                                <option value="">(pick key)</option>
+                                {stateKeys.map((k) => (
+                                  <option key={k} value={k}>
+                                    {k}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                          </div>
+
+                          <div className="small" style={{ marginTop: 8 }}>
+                            Note: Toggle assumes boolean state at runtime.
+                          </ <div>}
+                        </div>
+                      ) : null}
+
+                      {/* IF_ELSE / OPPONENT_SAVE use nested editor */}
                       {selectedStep.type === "IF_ELSE" || selectedStep.type === "OPPONENT_SAVE" ? (
                         <StepListEditor
                           title="Nested Step Editor"
@@ -1446,115 +1876,97 @@ export default function App() {
                         />
                       ) : null}
 
-                      {/* Base editors for other step types */}
-                      {selectedStep.type !== "IF_ELSE" &&
-                      selectedStep.type !== "OPPONENT_SAVE" &&
-                      selectedStep.type !== "SELECT_TARGETS" &&
-                      selectedStep.type !== "FOR_EACH_TARGET" ? (
+                      {/* Basic editors for common step types */}
+                      {selectedStep.type === "SHOW_TEXT" ? (
                         <div style={{ marginTop: 10 }}>
-                          {selectedStep.type === "SHOW_TEXT" ? (
-                            <>
-                              <div className="small">Text</div>
-                              <textarea
-                                className="textarea"
-                                value={(selectedStep as any).text ?? ""}
-                                onChange={(e) => patchStep(selectedStepIdx, { text: e.target.value })}
-                              />
-                            </>
-                          ) : null}
+                          <div className="small">Text</div>
+                          <textarea
+                            className="textarea"
+                            value={(selectedStep as any).text ?? ""}
+                            onChange={(e) => patchStep(selectedStepIdx, { text: e.target.value })}
+                          />
+                        </div>
+                      ) : null}
 
-                          {(selectedStep.type === "ROLL_D6" || selectedStep.type === "ROLL_D20") ? (
-                            <>
-                              <div className="small">saveAs</div>
-                              <input
-                                className="input"
-                                value={(selectedStep as any).saveAs ?? ""}
-                                onChange={(e) => patchStep(selectedStepIdx, { saveAs: e.target.value || undefined })}
-                              />
-                            </>
-                          ) : null}
+                      {selectedStep.type === "SET_VARIABLE" ? (
+                        <div style={{ marginTop: 10 }}>
+                          <div className="small">saveAs</div>
+                          <input
+                            className="input"
+                            value={(selectedStep as any).saveAs ?? ""}
+                            onChange={(e) => patchStep(selectedStepIdx, { saveAs: e.target.value })}
+                          />
+                          <div className="small" style={{ marginTop: 8 }}>
+                            valueExpr
+                          </div>
+                          <ExpressionEditor
+                            value={(selectedStep as any).valueExpr}
+                            onChange={(valueExpr) => patchStep(selectedStepIdx, { valueExpr })}
+                          />
+                        </div>
+                      ) : null}
 
-                          {selectedStep.type === "SET_VARIABLE" ? (
-                            <>
-                              <div className="small">saveAs</div>
-                              <input
-                                className="input"
-                                value={(selectedStep as any).saveAs ?? ""}
-                                onChange={(e) => patchStep(selectedStepIdx, { saveAs: e.target.value })}
-                              />
-                              <div className="small" style={{ marginTop: 8 }}>
-                                valueExpr
-                              </div>
-                              <ExpressionEditor
-                                value={(selectedStep as any).valueExpr}
-                                onChange={(valueExpr) => patchStep(selectedStepIdx, { valueExpr })}
-                              />
-                            </>
-                          ) : null}
+                      {selectedStep.type === "DEAL_DAMAGE" ? (
+                        <div style={{ marginTop: 10 }}>
+                          <div className="small">Damage Type</div>
+                          <select
+                            className="select"
+                            value={(selectedStep as any).damageType}
+                            onChange={(e) => patchStep(selectedStepIdx, { damageType: e.target.value })}
+                          >
+                            {(blockRegistry.keys.DamageType as string[]).map((d) => (
+                              <option key={d} value={d}>
+                                {d}
+                              </option>
+                            ))}
+                          </select>
+                          <div className="small" style={{ marginTop: 8 }}>
+                            Amount Expression
+                          </div>
+                          <ExpressionEditor
+                            value={(selectedStep as any).amountExpr}
+                            onChange={(amountExpr) => patchStep(selectedStepIdx, { amountExpr })}
+                          />
+                        </div>
+                      ) : null}
 
-                          {selectedStep.type === "DEAL_DAMAGE" ? (
-                            <>
-                              <div className="small">Damage Type</div>
-                              <select
-                                className="select"
-                                value={(selectedStep as any).damageType}
-                                onChange={(e) => patchStep(selectedStepIdx, { damageType: e.target.value })}
-                              >
-                                {(blockRegistry.keys.DamageType as string[]).map((d) => (
-                                  <option key={d} value={d}>
-                                    {d}
-                                  </option>
-                                ))}
-                              </select>
-                              <div className="small" style={{ marginTop: 8 }}>
-                                Amount Expression
-                              </div>
-                              <ExpressionEditor
-                                value={(selectedStep as any).amountExpr}
-                                onChange={(amountExpr) => patchStep(selectedStepIdx, { amountExpr })}
-                              />
-                            </>
-                          ) : null}
+                      {selectedStep.type === "HEAL" ? (
+                        <div style={{ marginTop: 10 }}>
+                          <div className="small">Amount Expression</div>
+                          <ExpressionEditor
+                            value={(selectedStep as any).amountExpr}
+                            onChange={(amountExpr) => patchStep(selectedStepIdx, { amountExpr })}
+                          />
+                        </div>
+                      ) : null}
 
-                          {selectedStep.type === "HEAL" ? (
-                            <>
-                              <div className="small">Amount Expression</div>
-                              <ExpressionEditor
-                                value={(selectedStep as any).amountExpr}
-                                onChange={(amountExpr) => patchStep(selectedStepIdx, { amountExpr })}
-                              />
-                            </>
-                          ) : null}
-
-                          {selectedStep.type === "APPLY_STATUS" ? (
-                            <>
-                              <div className="small">Status</div>
-                              <select
-                                className="select"
-                                value={(selectedStep as any).status}
-                                onChange={(e) => patchStep(selectedStepIdx, { status: e.target.value })}
-                              >
-                                {(blockRegistry.keys.StatusKey as string[]).map((s) => (
-                                  <option key={s} value={s}>
-                                    {s}
-                                  </option>
-                                ))}
-                              </select>
-                              <div className="small" style={{ marginTop: 8 }}>
-                                Duration (turns)
-                              </div>
-                              <input
-                                className="input"
-                                type="number"
-                                value={(selectedStep as any).duration?.turns ?? 1}
-                                onChange={(e) =>
-                                  patchStep(selectedStepIdx, {
-                                    duration: { turns: Math.max(1, Math.floor(Number(e.target.value) || 1)) }
-                                  })
-                                }
-                              />
-                            </>
-                          ) : null}
+                      {selectedStep.type === "APPLY_STATUS" ? (
+                        <div style={{ marginTop: 10 }}>
+                          <div className="small">Status</div>
+                          <select
+                            className="select"
+                            value={(selectedStep as any).status}
+                            onChange={(e) => patchStep(selectedStepIdx, { status: e.target.value })}
+                          >
+                            {(blockRegistry.keys.StatusKey as string[]).map((s) => (
+                              <option key={s} value={s}>
+                                {s}
+                              </option>
+                            ))}
+                          </select>
+                          <div className="small" style={{ marginTop: 8 }}>
+                            Duration (turns)
+                          </div>
+                          <input
+                            className="input"
+                            type="number"
+                            value={(selectedStep as any).duration?.turns ?? 1}
+                            onChange={(e) =>
+                              patchStep(selectedStepIdx, {
+                                duration: { turns: Math.max(1, Math.floor(Number(e.target.value) || 1)) }
+                              })
+                            }
+                          />
                         </div>
                       ) : null}
 
@@ -1562,7 +1974,7 @@ export default function App() {
                         <summary className="small" style={{ cursor: "pointer" }}>
                           Raw Step JSON
                         </summary>
-                        <pre>{JSON.stringify(selectedStep, null, 2)}</pre>
+                        <pre style={{ overflow: "auto", maxHeight: 280 }}>{JSON.stringify(selectedStep, null, 2)}</pre>
                       </details>
                     </>
                   ) : null}
@@ -1574,13 +1986,13 @@ export default function App() {
           <div className="panel" style={{ flex: "1 1 30%", minHeight: 0 }}>
             <div className="ph">
               <div>
-                <div className="h2">Preview</div>
+                <div className="h2">Preview JSON</div>
                 <div className="small">Card JSON (read-only)</div>
               </div>
               <span className="badge">{(card as any).schemaVersion}</span>
             </div>
-            <div className="pb">
-              <pre>{JSON.stringify(card, null, 2)}</pre>
+            <div className="pb" style={{ overflow: "auto", maxHeight: 320 }}>
+              <pre style={{ margin: 0 }}>{JSON.stringify(card, null, 2)}</pre>
             </div>
           </div>
 
@@ -1588,11 +2000,11 @@ export default function App() {
             <div className="ph">
               <div>
                 <div className="h2">Compile</div>
-                <div className="small">Schema + core invariants</div>
+                <div className="small">Schema + invariants</div>
               </div>
               <span className="badge">{errorCount} errors</span>
             </div>
-            <div className="pb">
+            <div className="pb" style={{ overflow: "auto" }}>
               {issues.some((i) => i.severity === "ERROR") ? (
                 issues
                   .filter((i) => i.severity === "ERROR")
@@ -1670,13 +2082,17 @@ export default function App() {
               className="btn btnPrimary"
               onClick={() => {
                 setCatalogErr(null);
+                const parsed = safeParseJson(catalogText);
+                if (!parsed.ok) {
+                  setCatalogErr(parsed.error);
+                  return;
+                }
                 try {
-                  const parsed = JSON.parse(catalogText);
-                  const normalized = normalizeCatalog(parsed);
+                  const normalized = normalizeCatalog(parsed.value);
                   setCatalog(normalized);
                   setCatalogOpen(false);
                 } catch (e: any) {
-                  setCatalogErr(e.message ?? String(e));
+                  setCatalogErr(e?.message ?? String(e));
                 }
               }}
             >
@@ -1695,6 +2111,29 @@ export default function App() {
           Edit JSON and Save (stored in localStorage).
         </div>
         <textarea className="textarea" style={{ minHeight: 320 }} value={catalogText} onChange={(e) => setCatalogText(e.target.value)} />
+      </Modal>
+
+      {/* Requirements raw modal */}
+      <Modal
+        open={reqRawOpen}
+        title="Edit Ability Requirements (Raw JSON)"
+        onClose={() => {
+          setReqRawOpen(false);
+          setReqRawErr(null);
+        }}
+        footer={
+          <button className="btn btnPrimary" onClick={saveReqRaw}>
+            Save
+          </button>
+        }
+      >
+        {reqRawErr ? (
+          <div className="err">
+            <b>JSON error</b>
+            <div className="small">{reqRawErr}</div>
+          </div>
+        ) : null}
+        <textarea className="textarea" style={{ minHeight: 300 }} value={reqRawText} onChange={(e) => setReqRawText(e.target.value)} />
       </Modal>
 
       {/* Card preview modal */}
