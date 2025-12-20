@@ -1,171 +1,273 @@
 // src/lib/types.ts
-// Core shared types for Captain Jawa Forge (CJ-1.0)
-// Keep these types aligned with src/lib/schemas.ts (Zod) and the builder UI.
+// Captain Jawa Digital – Core Types (CJ-1.1+)
+// Option A implementation: Target Profiles + Target Sets
+// Backwards compatible with legacy ability.targeting (single profile).
 
-export type SchemaVersion = "CJ-1.0";
+// ---------------------------
+// Core Card / Entity Types
+// ---------------------------
+
+export type SchemaVersion = "CJ-1.0" | "CJ-1.1" | string;
 
 export type CardType = "UNIT" | "ITEM" | "ENVIRONMENT" | "SPELL" | "TOKEN";
 
-/**
- * NOTE: Resources are token-like values stored on a card/unit.
- * We keep this as an open record so you can add more later without breaking types.
- * Common abbreviations used in the UI/preview:
- * UMB, AET, CRD, CHR, STR, RES, WIS, INT, SPD, AWR
- */
-export type Resources = Record<string, number>;
+export type EntityType = CardType; // alias (some files may use EntityType)
 
-export type Visuals = {
-  cardImage?: string; // URL or Data URL
-  tokenImage?: string;
-  model3d?: string;
-};
+export type IdString = string;
 
-export type Presentation = {
-  template?: "T1" | "T2" | "T3" | "T4" | "T5";
-  theme?: "BLUE" | "GREEN" | "PURPLE" | "ORANGE" | "RED";
-  /**
-   * CSS object-position format: "left top" | "center center" | "right bottom" etc.
-   * Used by CardPreview to shift the image framing.
-   */
-  imagePosition?: string;
-};
+// Long names + abbreviations support (for gradual migration)
+export type TokenKey =
+  | "UMB" // Umbra
+  | "AET" // Aether
+  | "CRD" // Coordination
+  | "CHR" // Charisma
+  | "STR" // Strength
+  | "RES" // Resilience
+  | "WIS" // Wisdom
+  | "INT" // Intelligence
+  | "SPD" // Speed
+  | "AWR"; // Awareness
 
-export type HpStat = { current?: number; max?: number };
-export type ApStat = { current?: number; max?: number };
+export type Resources = {
+  // Preferred abbreviations
+  UMB?: number;
+  AET?: number;
+  CRD?: number;
+  CHR?: number;
+  STR?: number;
+  RES?: number;
+  WIS?: number;
+  INT?: number;
+  SPD?: number;
+  AWR?: number;
 
-export type Stats = {
-  // Core unit stats
-  hp?: HpStat;
-  ap?: ApStat;
-  movement?: number; // MOVE
-  size?: number; // SIZE
+  // Legacy aliases (if any older cards / tools use these)
+  umbra?: number;
+  aether?: number;
+  coordination?: number;
+  charisma?: number;
+  strength?: number;
   resilience?: number;
-
-  // Optional extended stats (supported in schema; may be used later)
+  wisdom?: number;
+  intelligence?: number;
   speed?: number;
   awareness?: number;
-  intelligence?: number;
-  wisdom?: number;
-  strength?: number;
-  charisma?: number;
-  coordination?: number;
+};
+
+export type Gauge = {
+  current: number;
+  max: number;
+};
+
+export type UnitStats = {
+  hp?: Gauge;
+  ap?: Gauge; // Action Points per round
+  movement?: number; // MOVE per round
+  resilience?: number;
+  size?: number; // footprint abstraction (or later: "1x1", etc.)
+};
+
+export type CardVisuals = {
+  cardImage?: string; // URL or data URL (MVP)
+  tokenImage?: string;
+  model3d?: string;
+
+  // Preview-only / presentation hints (safe to ignore by server)
+  imageAlign?: "CENTER" | "TOP" | "BOTTOM" | "LEFT" | "RIGHT";
+  imageFit?: "COVER" | "CONTAIN"; // how to scale in preview frame
+};
+
+export type CardPresentation = {
+  template?: "T1" | "T2" | "T3" | "T4" | "T5";
+  theme?: "BLUE" | "GREEN" | "PURPLE" | "ORANGE" | "RED";
 };
 
 export type CardEntity = {
   schemaVersion: SchemaVersion;
-  id: string;
+  id: IdString;
   name: string;
   type: CardType;
 
-  // Identity and taxonomy
-  faction?: string;
-  subType?: string[]; // "types" e.g. HUMAN, JAWA, UNDEAD...
-  attributes?: string[]; // e.g. FIRE, STEEL...
+  // Identity / classification
+  faction?: string; // from Catalog
+  subType?: string[]; // unit types etc (from Catalog)
+  attributes?: string[]; // elemental/material etc (from Catalog)
   tags?: string[];
 
-  visuals?: Visuals;
-  stats?: Stats;
-  resources?: Resources;
-  presentation?: Presentation;
+  visuals?: CardVisuals;
+  presentation?: CardPresentation;
 
-  // Component Entity System style
+  // Unit-centric stats (still allowed on non-units; validator can enforce later)
+  stats?: UnitStats;
+
+  // Unit token pool or card token value (depending on design)
+  resources?: Resources;
+
+  // Component-Entity-System payload
   components: Component[];
 };
 
-/* -------------------- Components -------------------- */
+// ---------------------------
+// Components
+// ---------------------------
 
-export type Component = AbilityComponent | UnknownComponent;
+export type Component =
+  | AbilityComponent
+  | ItemComponent
+  | StatsComponent
+  | UnknownComponent;
 
 export type UnknownComponent = {
-  // Allows forward compatibility; other component types can exist.
-  componentType?: string;
+  componentType: string;
   [k: string]: any;
 };
 
-export type Trigger =
+export type StatsComponent = {
+  componentType: "STATS";
+  stats: UnitStats;
+};
+
+export type ItemComponent = {
+  componentType: "ITEM";
+  // placeholder for future equip rules, slots, etc.
+  slots?: string[];
+  hands?: number;
+  restrictions?: {
+    allowedFactions?: string[];
+    allowedTypes?: string[];
+  };
+};
+
+export type AbilityTrigger =
   | "ACTIVE_ACTION"
   | "PASSIVE_AURA"
   | "REACTION"
+  | "ON_DEATH"
   | "ON_EQUIP"
   | "ON_DRAW"
-  | "ON_PLAY"
-  | "ON_DEATH"
-  | (string & {}); // allow future triggers
-
-export type Cooldown = { turns: number };
-
-export type TokenCosts = Record<string, number>;
+  | "ON_PLAY";
 
 export type AbilityCost = {
   ap?: number;
+  tokens?: Partial<Record<TokenKey, number>>;
   requiredEquippedItemIds?: string[];
-  cooldown?: Cooldown;
-  /**
-   * Token costs paid to use the ability.
-   * Keys should be resource abbreviations (e.g., "UMB", "AET", "STR", etc.)
-   */
-  tokens?: TokenCosts;
-};
-
-export type TargetingType =
-  | "SELF"
-  | "SINGLE_TARGET"
-  | "AREA_RADIUS"
-  | "CONE"
-  | "LINE"
-  | (string & {}); // allow future targeting types
-
-export type TargetingOrigin = "SOURCE" | "ANYWHERE" | (string & {});
-
-export type TargetingRange = {
-  base?: number; // legacy/simple range
-  min?: number; // optional min range (donut / dead-zone)
-  max?: number; // optional max range
-};
-
-export type TargetingArea = {
-  radius: number;
-  includeCenter?: boolean;
-};
-
-export type Targeting = {
-  type: TargetingType;
-  origin?: TargetingOrigin; // SOURCE shows grid; ANYWHERE hides grid
-  range?: TargetingRange;
-  lineOfSight?: boolean;
-  area?: TargetingArea;
+  cooldown?: { turns: number };
 };
 
 export type AbilityExecution = {
   steps: Step[];
 };
 
+// ---------------------------
+// Option A: Target Profiles + Target Sets
+// ---------------------------
+
+export type TargetingType =
+  | "SELF"
+  | "SINGLE_TARGET"
+  | "MULTI_TARGET"
+  | "AREA_RADIUS"
+  | "LINE" // future
+  | "CONE"; // future
+
+export type TargetingOrigin =
+  | "SOURCE"
+  | "ANYWHERE"
+  | "RELATIVE_TO_TARGET_SET";
+
+export type RangeSpec = {
+  min?: number;
+  max?: number;
+
+  // legacy field (older cards): treat as max/base
+  base?: number;
+};
+
+export type AreaSpec = {
+  radius: number;
+  includeCenter?: boolean;
+};
+
+export type TargetingConstraints = {
+  excludeSelf?: boolean;
+
+  // Exclude all targets that are already in another named target set
+  excludeTargetSet?: string;
+
+  // Require target to be adjacent (range 1) to every/any target in that set
+  mustBeAdjacentTo?: string;
+
+  // Future-friendly extension points
+  requiredTags?: string[];
+  forbiddenTags?: string[];
+};
+
+export type TargetingProfile = {
+  id: string; // e.g. "primary", "secondary"
+  label?: string; // display name
+
+  type: TargetingType;
+  origin: TargetingOrigin;
+
+  // Used when origin is RELATIVE_TO_TARGET_SET
+  relativeTo?: {
+    targetSetId: string; // references another profile id OR a prior saveAs target set (validator decides)
+  };
+
+  range?: RangeSpec;
+  lineOfSight?: boolean;
+
+  // MULTI_TARGET
+  maxTargets?: number;
+  optional?: boolean;
+
+  // AREA_RADIUS
+  area?: AreaSpec;
+
+  constraints?: TargetingConstraints;
+};
+
+// Legacy targeting (single profile) – still supported for older cards
+export type LegacyTargeting = {
+  type: TargetingType;
+  origin?: Exclude<TargetingOrigin, "RELATIVE_TO_TARGET_SET">; // legacy didn’t support relative profiles
+  range?: RangeSpec;
+  lineOfSight?: boolean;
+  area?: AreaSpec;
+};
+
 export type AbilityComponent = {
   componentType: "ABILITY";
   name: string;
   description?: string;
-  trigger: Trigger;
+  trigger: AbilityTrigger;
+
   cost?: AbilityCost;
-  targeting?: Targeting;
-  execution?: AbilityExecution;
+
+  // Option A: multiple selectable profiles
+  targetingProfiles?: TargetingProfile[];
+
+  // Legacy single targeting (kept for compatibility + easy authoring early)
+  targeting?: LegacyTargeting;
+
+  execution: AbilityExecution;
 };
 
-/* -------------------- Entity References -------------------- */
+// ---------------------------
+// Expressions (for amounts, formulas, etc.)
+// ---------------------------
 
-export type EntityRef =
-  | { type: "SELF" }
-  | { type: "TARGET" }
-  | { type: "SOURCE" }
-  | {
-      type: "ENTITY_WITH_TAG";
-      tag: string;
-      selection: {
-        mode: "NEAREST_TO_SELF";
-        tieBreak: "LOWEST_ENTITY_ID";
-      };
-    };
-
-/* -------------------- Expressions -------------------- */
+export type Expression =
+  | { type: "CONST_NUMBER"; value: number }
+  | { type: "VAR"; name: string } // variables saved by ROLL / SET_VARIABLE etc.
+  | { type: "GET_STAT"; stat: StatKey; from?: TargetRef }
+  | { type: "ADD"; left: Expression; right: Expression }
+  | { type: "SUB"; left: Expression; right: Expression }
+  | { type: "MUL"; left: Expression; right: Expression }
+  | { type: "DIV"; left: Expression; right: Expression }
+  | { type: "MIN"; values: Expression[] }
+  | { type: "MAX"; values: Expression[] }
+  | { type: "CLAMP"; value: Expression; min: Expression; max: Expression };
 
 export type StatKey =
   | "HP"
@@ -175,121 +277,177 @@ export type StatKey =
   | "RESILIENCE"
   | "SPEED"
   | "AWARENESS"
-  | "INTELLIGENCE"
-  | "WISDOM"
-  | "STRENGTH"
   | "CHARISMA"
   | "COORDINATION"
-  | (string & {});
+  | "INTELLIGENCE"
+  | "WISDOM"
+  | "STRENGTH";
 
-export type Expr =
-  | { type: "CONST_NUMBER"; value: number }
-  | { type: "SAVED_VALUE"; key: string }
-  | { type: "READ_STAT"; entity: EntityRef; stat: StatKey }
-  | { type: "ADD" | "SUBTRACT" | "MULTIPLY" | "DIVIDE" | "MIN" | "MAX"; a: Expr; b: Expr };
-
-/* -------------------- Conditions -------------------- */
-
-export type CompareOp = ">" | ">=" | "==" | "!=" | "<=" | "<";
+// ---------------------------
+// Conditions
+// ---------------------------
 
 export type Condition =
   | { type: "ALWAYS" }
-  | { type: "NOT"; condition: Condition }
-  | { type: "AND" | "OR"; conditions: Condition[] }
-  | { type: "COMPARE_NUMBERS"; lhs: Expr; op: CompareOp; rhs: Expr }
-  | { type: "HAS_TAG"; entity: EntityRef; tag: string }
-  | {
-      type: "COUNT_UNITS_ON_BOARD";
-      targetTag: string;
-      min: number;
-      faction?: "ANY" | "ALLY" | "ENEMY";
-    };
+  | { type: "NOT"; value: Condition }
+  | { type: "AND"; values: Condition[] }
+  | { type: "OR"; values: Condition[] }
+  | { type: "COMPARE"; op: CompareOp; left: Expression; right: Expression }
+  | { type: "HAS_STATUS"; target?: TargetRef; status: StatusKey }
+  | { type: "HAS_TAG"; target?: TargetRef; tag: string };
 
-/* -------------------- Steps -------------------- */
+export type CompareOp = "EQ" | "NEQ" | "GT" | "GTE" | "LT" | "LTE";
 
-export type DamageType = "PHYSICAL" | "FIRE" | "ICE" | "POISON" | "LIGHTNING" | "ARCANE" | (string & {});
-export type StatusKey = "SLOWED" | "STUNNED" | "BURNING" | "FROZEN" | "POISONED" | (string & {});
+// ---------------------------
+// Target references used by steps
+// ---------------------------
 
-export type RollD6Step = { type: "ROLL_D6"; saveAs?: string };
-export type RollD20Step = { type: "ROLL_D20"; saveAs?: string };
+export type TargetRef =
+  | { type: "SELF" }
+  | { type: "TARGET" } // legacy “the chosen target” (older cards)
+  | { type: "TARGET_SET"; ref: string } // ref is saveAs from SELECT_TARGETS
+  | { type: "ITERATION_TARGET" }; // only valid inside FOR_EACH_TARGET.do
 
-export type SetVariableStep = { type: "SET_VARIABLE"; saveAs: string; valueExpr: Expr };
+// ---------------------------
+// Steps
+// ---------------------------
 
-export type OpponentSaveStep = {
-  type: "OPPONENT_SAVE";
-  stat: string;
-  difficulty: number;
-  onFail: Step[];
-  onSuccess: Step[];
-};
+export type DamageType =
+  | "PHYSICAL"
+  | "FIRE"
+  | "ICE"
+  | "POISON"
+  | "LIGHTNING"
+  | "ARCANE"
+  | "NECROTIC";
 
-export type DealDamageStep = {
-  type: "DEAL_DAMAGE";
-  target: EntityRef;
-  amountExpr: Expr;
-  damageType: DamageType;
-};
-
-export type HealStep = {
-  type: "HEAL";
-  target: EntityRef;
-  amountExpr: Expr;
-};
-
-export type ApplyStatusStep = {
-  type: "APPLY_STATUS";
-  target: EntityRef;
-  status: StatusKey;
-  duration: { turns: number };
-};
-
-export type RemoveStatusStep = {
-  type: "REMOVE_STATUS";
-  target: EntityRef;
-  status: StatusKey;
-};
-
-export type MoveEntityStep = {
-  type: "MOVE_ENTITY";
-  target: EntityRef;
-  to: { mode: "TARGET_POSITION" };
-  maxTiles: number;
-};
-
-export type ShowTextStep = { type: "SHOW_TEXT"; text: string };
-
-export type IfElseBranch = { condition: Condition; then: Step[] };
-
-/**
- * UPDATED: IF_ELSE now supports elseIf[] chains.
- */
-export type IfElseStep = {
-  type: "IF_ELSE";
-  condition: Condition;
-  then: Step[];
-  elseIf?: IfElseBranch[];
-  else: Step[];
-};
-
-export type OpenReactionWindowStep = {
-  type: "OPEN_REACTION_WINDOW";
-  timing: "BEFORE_DAMAGE";
-  windowId: string;
-};
-
-export type UnknownStep = { type: "UNKNOWN_STEP"; raw: any };
+export type StatusKey =
+  | "STUNNED"
+  | "SLOWED"
+  | "BURNING"
+  | "POISONED"
+  | "BLEEDING"
+  | "ROOTED"
+  | "WEAKENED"
+  | "SHIELDED";
 
 export type Step =
-  | RollD6Step
-  | RollD20Step
+  | ShowTextStep
+  | RollStep
   | SetVariableStep
-  | OpponentSaveStep
   | DealDamageStep
   | HealStep
   | ApplyStatusStep
   | RemoveStatusStep
   | MoveEntityStep
-  | ShowTextStep
-  | IfElseStep
   | OpenReactionWindowStep
+  | OpponentSaveStep
+  | IfElseStep
+  | SelectTargetsStep
+  | ForEachTargetStep
   | UnknownStep;
+
+export type ShowTextStep = {
+  type: "SHOW_TEXT";
+  text: string;
+};
+
+export type RollStep =
+  | { type: "ROLL_D6"; saveAs?: string }
+  | { type: "ROLL_D20"; saveAs?: string };
+
+export type SetVariableStep = {
+  type: "SET_VARIABLE";
+  saveAs: string;
+  valueExpr: Expression;
+};
+
+export type DealDamageStep = {
+  type: "DEAL_DAMAGE";
+  target: TargetRef;
+  amountExpr: Expression;
+  damageType: DamageType;
+};
+
+export type HealStep = {
+  type: "HEAL";
+  target: TargetRef;
+  amountExpr: Expression;
+};
+
+export type ApplyStatusStep = {
+  type: "APPLY_STATUS";
+  target: TargetRef;
+  status: StatusKey;
+  duration?: { turns: number };
+};
+
+export type RemoveStatusStep = {
+  type: "REMOVE_STATUS";
+  target: TargetRef;
+  status: StatusKey;
+};
+
+export type MoveEntityStep = {
+  type: "MOVE_ENTITY";
+  target: TargetRef;
+  to: { mode: "TARGET_POSITION" | "RELATIVE" | "ABSOLUTE"; dq?: number; dr?: number; x?: number; y?: number };
+  maxTiles?: number;
+};
+
+export type OpenReactionWindowStep = {
+  type: "OPEN_REACTION_WINDOW";
+  timing: "BEFORE_DAMAGE" | "AFTER_DAMAGE" | "BEFORE_MOVE" | "AFTER_MOVE" | string;
+  windowId: string;
+};
+
+export type OpponentSaveStep = {
+  type: "OPPONENT_SAVE";
+  stat: StatKey | string;
+  difficulty: number;
+  onFail: Step[];
+  onSuccess: Step[];
+};
+
+// IF / ELSE with optional elseIf ladder
+export type IfElseStep = {
+  type: "IF_ELSE";
+  condition: Condition;
+  then: Step[];
+  elseIf?: Array<{
+    condition: Condition;
+    then: Step[];
+  }>;
+  else?: Step[];
+};
+
+// Option A: Explicit targeting selection step
+export type SelectTargetsStep = {
+  type: "SELECT_TARGETS";
+  profileId: string; // references AbilityComponent.targetingProfiles[].id
+  saveAs: string; // the target set name for later steps
+};
+
+// Option A: Iterate a target set
+export type ForEachTargetStep = {
+  type: "FOR_EACH_TARGET";
+  targetSet: { ref: string }; // references saveAs from SELECT_TARGETS
+  do: Step[];
+};
+
+export type UnknownStep = {
+  type: "UNKNOWN_STEP";
+  raw: any;
+};
+
+// ---------------------------
+// Utility helpers (optional)
+// ---------------------------
+
+export type AbilityLike = AbilityComponent;
+
+export type CardProject = {
+  projectVersion: "FORGE-1.0" | string;
+  card: CardEntity;
+  ui?: any;
+};
