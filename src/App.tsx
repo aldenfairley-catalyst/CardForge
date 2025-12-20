@@ -574,6 +574,28 @@ export default function App() {
                 <summary className="small" style={{ cursor: "pointer" }}>
                   Card Art + Identity
                 </summary>
+<div className="small" style={{ marginTop: 8 }}>Upload Image (stored as Data URL)</div>
+<input
+  className="input"
+  type="file"
+  accept="image/*"
+  onChange={(e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = String(reader.result);
+      setCard({
+        ...card,
+        visuals: { ...(card.visuals ?? {}), cardImage: dataUrl }
+      });
+    };
+    reader.readAsDataURL(file);
+  }}
+/>
+<div className="small" style={{ marginTop: 6 }}>
+  Tip: Big images make JSON large. If you hit localStorage limits, use a smaller image.
+</div>
 
                 <div className="small" style={{ marginTop: 8 }}>
                   Card Image URL
