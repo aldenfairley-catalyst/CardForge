@@ -1,0 +1,54 @@
+{
+  "exportVersion": "BREX-1.0",
+  "registryVersion": "BR-1.0",
+  "cardSchemaVersion": "CJ-1.0",
+  "triggers": [
+    "ACTIVE_ACTION",
+    "PASSIVE_AURA",
+    "REACTION",
+    "ON_DEATH",
+    "ON_SPAWN",
+    "ON_TURN_START",
+    "ON_TURN_END"
+  ],
+  "keys": {
+    "DamageType": ["PHYSICAL", "FIRE", "ICE", "DARK", "LIGHT"],
+    "StatusKey": ["STUNNED", "SLOWED", "POISONED", "BURNING", "FRIGHTENED", "WEAKENED"],
+    "StatKey": [
+      "HP_CURRENT",
+      "HP_MAX",
+      "AP_CURRENT",
+      "AP_MAX",
+      "MOVEMENT",
+      "RESILIENCE",
+      "SIZE",
+      "SPEED",
+      "AWARENESS",
+      "INTELLIGENCE",
+      "WISDOM",
+      "STRENGTH",
+      "CHARISMA",
+      "COORDINATION"
+    ]
+  },
+  "targeting": {
+    "types": ["SELF", "SINGLE_TARGET", "AREA_RADIUS"],
+    "rangeModifierOperations": ["ADD", "SUBTRACT"]
+  },
+  "steps": {
+    "types": [
+      "ROLL_D6",
+      "ROLL_D20",
+      "SET_VARIABLE",
+      "OPPONENT_SAVE",
+      "DEAL_DAMAGE",
+      "HEAL",
+      "APPLY_STATUS",
+      "REMOVE_STATUS",
+      "MOVE_ENTITY",
+      "SHOW_TEXT",
+      "IF_ELSE",
+      "OPEN_REACTION_WINDOW"
+    ]
+  }
+}
