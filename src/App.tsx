@@ -2,7 +2,6 @@ import React, { useEffect, useMemo, useState } from "react";
 import ReactFlow, { Background, Controls, MiniMap, Handle, Position } from "reactflow";
 import "reactflow/dist/style.css";
 
-import { v4 as uuidv4 } from "uuid";
 import type { CardEntity, Step, AbilityComponent } from "./lib/types";
 import { makeDefaultCard, canonicalToGraph, abilitySummary } from "./lib/graph";
 import { loadCardJson, saveCardJson, clearSaved } from "./lib/storage";
@@ -11,6 +10,7 @@ import { blockRegistry, isStepTypeAllowed } from "./lib/registry";
 
 import { ExpressionEditor } from "./components/ExpressionEditor";
 import { ConditionEditor } from "./components/ConditionEditor";
+import { CardPreview } from "./components/CardPreview";
 
 function download(filename: string, text: string) {
   const blob = new Blob([text], { type: "application/json" });
@@ -55,9 +55,7 @@ function Modal(props: {
         <div className="pb">
           {props.children}
           {props.footer ? (
-            <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 10 }}>
-              {props.footer}
-            </div>
+            <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 10 }}>{props.footer}</div>
           ) : null}
         </div>
       </div>
@@ -176,11 +174,13 @@ export default function App() {
   const [importText, setImportText] = useState("");
   const [importError, setImportError] = useState<string | null>(null);
 
+  const [previewOpen, setPreviewOpen] = useState(false);
+
   // Multi-ability: choose which ability we are editing in the canvas/palette/inspector
   const abilityIndexes = useMemo(() => findAbilityIndexes(card), [card]);
   const [activeAbilityIdx, setActiveAbilityIdx] = useState<number>(() => {
-    const idx = findAbilityIndexes(makeDefaultCard())[0] ?? 0;
-    return idx;
+    const idxs = findAbilityIndexes(makeDefaultCard());
+    return idxs[0] ?? 0;
   });
 
   // Keep activeAbilityIdx valid if card changes
@@ -195,13 +195,12 @@ export default function App() {
   }, [card]);
 
   const { nodes, edges } = useMemo(() => {
-    // Build graph for ONLY the active ability (for now). This keeps the canvas clear.
-    // canonicalToGraph expects the first ABILITY; we can temporarily reorder for view:
+    // Render only the active ability graph. canonicalToGraph renders "first ability";
+    // so we temporarily swap active ability into the first-ability slot for view.
     const comps = card.components.slice();
     const firstAbilityIdx = comps.findIndex((c: any) => c?.componentType === "ABILITY");
     if (firstAbilityIdx < 0 || activeAbilityIdx === firstAbilityIdx) return canonicalToGraph(card);
 
-    // swap active ability into the first ability position for graph rendering
     const tmp = comps[firstAbilityIdx];
     comps[firstAbilityIdx] = comps[activeAbilityIdx];
     comps[activeAbilityIdx] = tmp;
@@ -209,8 +208,6 @@ export default function App() {
     const viewCard = { ...card, components: comps } as CardEntity;
     const g = canonicalToGraph(viewCard);
 
-    // Patch data.abilityIdx back to the true index of the ability in the real card.
-    // Nodes created for "abilityIdx 0" now correspond to activeAbilityIdx.
     const patchedNodes = g.nodes.map((n: any) => {
       if (typeof n?.data?.abilityIdx !== "number") return n;
       return { ...n, data: { ...n.data, abilityIdx: activeAbilityIdx } };
@@ -293,21 +290,21 @@ export default function App() {
             target: { type: "TARGET" },
             amountExpr: { type: "CONST_NUMBER", value: 10 },
             damageType: "PHYSICAL"
-          };
+          } as any;
         case "HEAL":
           return {
             type: "HEAL",
             target: { type: "SELF" },
             amountExpr: { type: "CONST_NUMBER", value: 10 }
-          };
+          } as any;
         case "SET_VARIABLE":
-          return { type: "SET_VARIABLE", saveAs: "var", valueExpr: { type: "CONST_NUMBER", value: 1 } };
+          return { type: "SET_VARIABLE", saveAs: "var", valueExpr: { type: "CONST_NUMBER", value: 1 } } as any;
         case "APPLY_STATUS":
-          return { type: "APPLY_STATUS", target: { type: "TARGET" }, status: "SLOWED", duration: { turns: 1 } };
+          return { type: "APPLY_STATUS", target: { type: "TARGET" }, status: "SLOWED", duration: { turns: 1 } } as any;
         case "REMOVE_STATUS":
-          return { type: "REMOVE_STATUS", target: { type: "SELF" }, status: "STUNNED" };
+          return { type: "REMOVE_STATUS", target: { type: "SELF" }, status: "STUNNED" } as any;
         case "MOVE_ENTITY":
-          return { type: "MOVE_ENTITY", target: { type: "SELF" }, to: { mode: "TARGET_POSITION" }, maxTiles: 5 };
+          return { type: "MOVE_ENTITY", target: { type: "SELF" }, to: { mode: "TARGET_POSITION" }, maxTiles: 5 } as any;
         case "OPPONENT_SAVE":
           return {
             type: "OPPONENT_SAVE",
@@ -315,14 +312,14 @@ export default function App() {
             difficulty: 13,
             onFail: [{ type: "SHOW_TEXT", text: "Fail" }],
             onSuccess: [{ type: "SHOW_TEXT", text: "Success" }]
-          };
+          } as any;
         case "IF_ELSE":
           return {
             type: "IF_ELSE",
             condition: { type: "ALWAYS" },
             then: [{ type: "SHOW_TEXT", text: "Then" }],
             else: [{ type: "SHOW_TEXT", text: "Else" }]
-          };
+          } as any;
         default:
           return { type: "UNKNOWN_STEP", raw: { type: stepType } } as any;
       }
@@ -356,7 +353,6 @@ export default function App() {
       if (!incoming || incoming.schemaVersion !== "CJ-1.0") throw new Error("Expected CJ-1.0 card JSON (or FORGE-1.0 project).");
 
       setCard(incoming);
-
       const idxs = findAbilityIndexes(incoming);
       setActiveAbilityIdx(idxs[0] ?? 0);
 
@@ -379,7 +375,6 @@ export default function App() {
       execution: { steps: [{ type: "SHOW_TEXT", text: "Do something!" }] }
     };
     setCard({ ...card, components: [...card.components, newAbility as any] });
-    // active ability becomes this new one
     setActiveAbilityIdx(card.components.length);
     setSelected(null);
   }
@@ -390,8 +385,9 @@ export default function App() {
     if (idxs.length <= 1) return; // keep at least one
     const nextComponents = card.components.slice();
     nextComponents.splice(activeAbilityIdx, 1);
-    setCard({ ...card, components: nextComponents });
-    const nextIdxs = findAbilityIndexes({ ...card, components: nextComponents });
+    const nextCard = { ...card, components: nextComponents } as CardEntity;
+    setCard(nextCard);
+    const nextIdxs = findAbilityIndexes(nextCard);
     setActiveAbilityIdx(nextIdxs[0] ?? 0);
     setSelected(null);
   }
@@ -411,7 +407,11 @@ export default function App() {
           Captain Jawa Forge <span className="badge">MVP+</span>
           <span className="badge">{errorCount === 0 ? "OK" : `${errorCount} errors`}</span>
         </div>
+
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <button className="btn" onClick={() => setPreviewOpen(true)}>
+            Preview Card
+          </button>
           <button className="btn" onClick={() => setImportOpen(true)}>
             Import JSON
           </button>
@@ -459,6 +459,7 @@ export default function App() {
             </div>
             <span className="badge">{blockRegistry.steps.types.length}</span>
           </div>
+
           <div className="pb">
             <div className="small" style={{ marginBottom: 8 }}>
               Ability + steps
@@ -536,7 +537,7 @@ export default function App() {
           </div>
         </div>
 
-        {/* Inspector + Preview + Compile */}
+        {/* Inspector + Preview JSON + Compile */}
         <div style={{ display: "flex", flexDirection: "column", gap: 12, minHeight: 0 }}>
           <div className="panel">
             <div className="ph">
@@ -546,6 +547,7 @@ export default function App() {
               </div>
               <span className="badge">CJ-1.0</span>
             </div>
+
             <div className="pb">
               <div className="small">Card Name</div>
               <input className="input" value={card.name} onChange={(e) => setCard({ ...card, name: e.target.value })} />
@@ -567,6 +569,142 @@ export default function App() {
                 </div>
               </div>
 
+              {/* Card preview-relevant fields */}
+              <details style={{ marginTop: 10 }}>
+                <summary className="small" style={{ cursor: "pointer" }}>
+                  Card Art + Identity
+                </summary>
+
+                <div className="small" style={{ marginTop: 8 }}>
+                  Card Image URL
+                </div>
+                <input
+                  className="input"
+                  value={card.visuals?.cardImage ?? ""}
+                  onChange={(e) =>
+                    setCard({
+                      ...card,
+                      visuals: { ...(card.visuals ?? {}), cardImage: e.target.value || undefined }
+                    })
+                  }
+                  placeholder="https://..."
+                />
+
+                <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+                  <div style={{ flex: 1 }}>
+                    <div className="small">Faction (Units)</div>
+                    <input className="input" value={card.faction ?? ""} onChange={(e) => setCard({ ...card, faction: e.target.value || undefined })} />
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <div className="small">Types (comma)</div>
+                    <input
+                      className="input"
+                      value={(card.subType ?? []).join(", ")}
+                      onChange={(e) => setCard({ ...card, subType: e.target.value.split(",").map((s) => s.trim()).filter(Boolean) })}
+                      placeholder="HUMAN, JAWA..."
+                    />
+                  </div>
+                </div>
+
+                <div className="small" style={{ marginTop: 8 }}>
+                  Attributes (comma)
+                </div>
+                <input
+                  className="input"
+                  value={(card.attributes ?? []).join(", ")}
+                  onChange={(e) => setCard({ ...card, attributes: e.target.value.split(",").map((s) => s.trim()).filter(Boolean) })}
+                  placeholder="FIRE, STEEL..."
+                />
+
+                <div className="small" style={{ marginTop: 8 }}>
+                  Resources (Umbra / Aether / Strength)
+                </div>
+                <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
+                  <input
+                    className="input"
+                    type="number"
+                    value={card.resources?.umbra ?? 0}
+                    onChange={(e) =>
+                      setCard({
+                        ...card,
+                        resources: { ...(card.resources ?? {}), umbra: Number(e.target.value) }
+                      })
+                    }
+                    title="Umbra"
+                  />
+                  <input
+                    className="input"
+                    type="number"
+                    value={card.resources?.aether ?? 0}
+                    onChange={(e) =>
+                      setCard({
+                        ...card,
+                        resources: { ...(card.resources ?? {}), aether: Number(e.target.value) }
+                      })
+                    }
+                    title="Aether"
+                  />
+                  <input
+                    className="input"
+                    type="number"
+                    value={card.resources?.strength ?? 0}
+                    onChange={(e) =>
+                      setCard({
+                        ...card,
+                        resources: { ...(card.resources ?? {}), strength: Number(e.target.value) }
+                      })
+                    }
+                    title="Strength"
+                  />
+                </div>
+
+                <div className="small" style={{ marginTop: 8 }}>
+                  Presentation (optional)
+                </div>
+                <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
+                  <select
+                    className="select"
+                    value={card.presentation?.template ?? ""}
+                    onChange={(e) =>
+                      setCard({
+                        ...card,
+                        presentation: { ...(card.presentation ?? {}), template: (e.target.value || undefined) as any }
+                      })
+                    }
+                    title="Template"
+                  >
+                    <option value="">Auto</option>
+                    <option value="T1">T1</option>
+                    <option value="T2">T2</option>
+                    <option value="T3">T3</option>
+                    <option value="T4">T4</option>
+                    <option value="T5">T5</option>
+                  </select>
+
+                  <select
+                    className="select"
+                    value={card.presentation?.theme ?? "BLUE"}
+                    onChange={(e) =>
+                      setCard({
+                        ...card,
+                        presentation: { ...(card.presentation ?? {}), theme: e.target.value as any }
+                      })
+                    }
+                    title="Theme"
+                  >
+                    {["BLUE", "GREEN", "PURPLE", "ORANGE", "RED"].map((t) => (
+                      <option key={t} value={t}>
+                        {t}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <button className="btn btnPrimary" style={{ marginTop: 10 }} onClick={() => setPreviewOpen(true)}>
+                  Open Preview
+                </button>
+              </details>
+
               <hr style={{ borderColor: "var(--border)", opacity: 0.5, margin: "12px 0" }} />
 
               {!ability ? (
@@ -581,6 +719,7 @@ export default function App() {
                     <>
                       <div className="small">Ability Name</div>
                       <input className="input" value={ability.name} onChange={(e) => setAbility({ name: e.target.value })} />
+
                       <div className="small" style={{ marginTop: 8 }}>
                         Description
                       </div>
@@ -748,11 +887,7 @@ export default function App() {
                         {selectedStep.type === "SHOW_TEXT" && (
                           <>
                             <div className="small">Text</div>
-                            <textarea
-                              className="textarea"
-                              value={(selectedStep as any).text}
-                              onChange={(e) => setStep(selectedStepIdx, { text: e.target.value })}
-                            />
+                            <textarea className="textarea" value={(selectedStep as any).text} onChange={(e) => setStep(selectedStepIdx, { text: e.target.value })} />
                           </>
                         )}
 
@@ -771,18 +906,11 @@ export default function App() {
                         {selectedStep.type === "SET_VARIABLE" && (
                           <>
                             <div className="small">saveAs</div>
-                            <input
-                              className="input"
-                              value={(selectedStep as any).saveAs}
-                              onChange={(e) => setStep(selectedStepIdx, { saveAs: e.target.value })}
-                            />
+                            <input className="input" value={(selectedStep as any).saveAs} onChange={(e) => setStep(selectedStepIdx, { saveAs: e.target.value })} />
                             <div className="small" style={{ marginTop: 8 }}>
                               valueExpr
                             </div>
-                            <ExpressionEditor
-                              value={(selectedStep as any).valueExpr}
-                              onChange={(valueExpr) => setStep(selectedStepIdx, { valueExpr })}
-                            />
+                            <ExpressionEditor value={(selectedStep as any).valueExpr} onChange={(valueExpr) => setStep(selectedStepIdx, { valueExpr })} />
                           </>
                         )}
 
@@ -799,12 +927,9 @@ export default function App() {
                             <div className="small" style={{ marginTop: 8 }}>
                               Amount Expression
                             </div>
-                            <ExpressionEditor
-                              value={(selectedStep as any).amountExpr}
-                              onChange={(amountExpr) => setStep(selectedStepIdx, { amountExpr })}
-                            />
+                            <ExpressionEditor value={(selectedStep as any).amountExpr} onChange={(amountExpr) => setStep(selectedStepIdx, { amountExpr })} />
                             <div className="small" style={{ marginTop: 8 }}>
-                              Target (edit via Raw JSON for now)
+                              Target (edit via Raw JSON below for now)
                             </div>
                           </>
                         )}
@@ -814,7 +939,7 @@ export default function App() {
                             <div className="small">Amount Expression</div>
                             <ExpressionEditor value={(selectedStep as any).amountExpr} onChange={(amountExpr) => setStep(selectedStepIdx, { amountExpr })} />
                             <div className="small" style={{ marginTop: 8 }}>
-                              Target (edit via Raw JSON for now)
+                              Target (edit via Raw JSON below for now)
                             </div>
                           </>
                         )}
@@ -839,7 +964,7 @@ export default function App() {
                               onChange={(e) => setStep(selectedStepIdx, { duration: { turns: Math.max(1, Math.floor(Number(e.target.value))) } })}
                             />
                             <div className="small" style={{ marginTop: 8 }}>
-                              Target (edit via Raw JSON for now)
+                              Target (edit via Raw JSON below for now)
                             </div>
                           </>
                         )}
@@ -855,7 +980,7 @@ export default function App() {
                               ))}
                             </select>
                             <div className="small" style={{ marginTop: 8 }}>
-                              Target (edit via Raw JSON for now)
+                              Target (edit via Raw JSON below for now)
                             </div>
                           </>
                         )}
@@ -874,7 +999,7 @@ export default function App() {
                             </div>
                             <div style={{ fontWeight: 700 }}>{(selectedStep as any).to?.mode ?? "TARGET_POSITION"}</div>
                             <div className="small" style={{ marginTop: 8 }}>
-                              Target (edit via Raw JSON for now)
+                              Target (edit via Raw JSON below for now)
                             </div>
                           </>
                         )}
@@ -993,6 +1118,7 @@ export default function App() {
         </div>
       </div>
 
+      {/* Import modal */}
       <Modal
         open={importOpen}
         title="Import CJ-1.0 Card JSON (or FORGE-1.0 project)"
@@ -1016,6 +1142,54 @@ export default function App() {
           </div>
         ) : null}
         <textarea className="textarea" style={{ minHeight: 260 }} value={importText} onChange={(e) => setImportText(e.target.value)} />
+      </Modal>
+
+      {/* Card preview modal */}
+      <Modal open={previewOpen} title="Card Preview" onClose={() => setPreviewOpen(false)}>
+        <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 10 }}>
+          <div style={{ flex: "1 1 180px" }}>
+            <div className="small">Template</div>
+            <select
+              className="select"
+              value={card.presentation?.template ?? ""}
+              onChange={(e) =>
+                setCard({
+                  ...card,
+                  presentation: { ...(card.presentation ?? {}), template: (e.target.value || undefined) as any }
+                })
+              }
+            >
+              <option value="">Auto</option>
+              <option value="T1">T1 (Unit)</option>
+              <option value="T2">T2 (Item)</option>
+              <option value="T3">T3 (Spell)</option>
+              <option value="T4">T4 (Environment)</option>
+              <option value="T5">T5 (Token)</option>
+            </select>
+          </div>
+
+          <div style={{ flex: "1 1 180px" }}>
+            <div className="small">Theme</div>
+            <select
+              className="select"
+              value={card.presentation?.theme ?? "BLUE"}
+              onChange={(e) =>
+                setCard({
+                  ...card,
+                  presentation: { ...(card.presentation ?? {}), theme: e.target.value as any }
+                })
+              }
+            >
+              {["BLUE", "GREEN", "PURPLE", "ORANGE", "RED"].map((t) => (
+                <option key={t} value={t}>
+                  {t}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        <CardPreview card={card} />
       </Modal>
     </div>
   );
