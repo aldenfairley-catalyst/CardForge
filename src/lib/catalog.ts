@@ -10,17 +10,9 @@ export type Catalog = {
 
 export const CatalogZ = z.object({
   version: z.literal("CAT-1.0"),
-  factions: z
-    .array(
-      z.object({
-        id: z.string().min(1),
-        name: z.string().min(1),
-        abbr: z.string().min(1).max(4)
-      })
-    )
-    .default([]),
-  unitTypes: z.array(z.string().min(1)).default([]),
-  attributes: z.array(z.string().min(1)).default([])
+  factions: z.array(z.object({ id: z.string(), name: z.string(), abbr: z.string() })),
+  unitTypes: z.array(z.string()),
+  attributes: z.array(z.string())
 });
 
 export const DEFAULT_CATALOG: Catalog = {
@@ -32,28 +24,10 @@ export const DEFAULT_CATALOG: Catalog = {
     { id: "UNALIGNED", name: "Unaligned", abbr: "UNA" }
   ],
   unitTypes: [
-    "BEAST",
-    "UNDEAD",
-    "HUMAN",
-    "JAWA",
-    "GHOST",
-    "SPECTRAL",
-    "ELEMENTAL",
-    "CONSTRUCT",
-    "MACHINE",
-    "DRAGON",
-    "PIRATE",
-    "SOLDIER",
-    "MAGE",
-    "SPIRIT",
-    "PLANT",
-    "AQUATIC",
-    "INSECTOID",
-    "REPTILIAN",
-    "AVIAN",
-    "GIANT"
+    "BEAST","UNDEAD","HUMAN","JAWA","GHOST","SPECTRAL","ELEMENTAL","CONSTRUCT","MACHINE","DRAGON",
+    "PIRATE","SOLDIER","MAGE","SPIRIT","PLANT","AQUATIC","INSECTOID","REPTILIAN","AVIAN","GIANT"
   ],
-  attributes: ["EARTH", "FIRE", "AIR", "WATER", "WOOD", "STEEL", "LIGHT", "DARK", "ICE", "LIGHTNING", "POISON", "ARCANE"]
+  attributes: ["EARTH","FIRE","AIR","WATER","WOOD","STEEL","LIGHT","DARK","ICE","LIGHTNING","POISON","ARCANE"]
 };
 
 export function normalizeList(xs: string[]) {
@@ -70,15 +44,15 @@ export function normalizeList(xs: string[]) {
   return out;
 }
 
-export function normalizeCatalog(cat: Catalog): Catalog {
+export function normalizeCatalog(cat: any): Catalog {
   const parsed = CatalogZ.safeParse(cat);
-  const base = parsed.success ? parsed.data : DEFAULT_CATALOG;
+  const base: Catalog = parsed.success ? parsed.data : DEFAULT_CATALOG;
 
   const factions = (base.factions ?? [])
     .map((f) => ({
       id: String(f.id).trim().toUpperCase(),
       name: String(f.name).trim(),
-      abbr: String(f.abbr).trim().toUpperCase()
+      abbr: String(f.abbr).trim().toUpperCase().slice(0, 4)
     }))
     .filter((f) => f.id && f.name && f.abbr)
     .sort((a, b) => a.name.localeCompare(b.name));
