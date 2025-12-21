@@ -11,6 +11,8 @@ function computeBase() {
 
 export default defineConfig({
   base: computeBase(),
+  // Store Vite's cache in a project-local folder to avoid node_modules permissions issues
+  cacheDir: ".vite",
   plugins: [react()],
   server: {
     proxy: {
