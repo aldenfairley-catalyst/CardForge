@@ -1,7 +1,9 @@
 // src/lib/schemas.ts
 import type { CardEntity, AbilityComponent, Step } from "./types";
+import { blockRegistry, isStepTypeAllowed } from "./registry";
 
 export type ValidationSeverity = "ERROR" | "WARN";
+
 export type ValidationIssue = {
   severity: ValidationSeverity;
   code: string;
@@ -9,264 +11,238 @@ export type ValidationIssue = {
   path?: string;
 };
 
-const KNOWN_CARD_SCHEMA_VERSIONS = ["CJ-1.0", "CJ-1.1", "CJ-1.2"] as const;
+const ALLOWED_SCHEMA = new Set(["CJ-1.0", "CJ-1.1", "CJ-1.2"]);
+const ALLOWED_CARD_TYPES = new Set(["UNIT", "ITEM", "ENVIRONMENT", "SPELL", "TOKEN"]);
 
-function isKnownSchemaVersion(v: any): v is (typeof KNOWN_CARD_SCHEMA_VERSIONS)[number] {
-  return typeof v === "string" && (KNOWN_CARD_SCHEMA_VERSIONS as readonly string[]).includes(v);
+function push(
+  issues: ValidationIssue[],
+  severity: ValidationSeverity,
+  code: string,
+  message: string,
+  path?: string
+) {
+  issues.push({ severity, code, message, path });
 }
 
-function isCJ1x(v: any) {
-  return typeof v === "string" && /^CJ-1\.\d+$/.test(v);
+function isObj(x: any) {
+  return x && typeof x === "object" && !Array.isArray(x);
 }
 
-function add(out: ValidationIssue[], severity: ValidationSeverity, code: string, message: string, path?: string) {
-  out.push({ severity, code, message, path });
-}
-
-function isAbilityComponent(c: any): c is AbilityComponent {
-  return c && c.componentType === "ABILITY";
-}
-
-/** Collect all nested step arrays in a step (for traversal) */
-function getNestedStepLists(step: any): Step[][] {
-  const lists: any[] = [];
-
-  // Common nested patterns used in this project
-  if (step?.type === "IF_ELSE") {
-    if (Array.isArray(step.then)) lists.push(step.then);
-    if (Array.isArray(step.else)) lists.push(step.else);
-    if (Array.isArray(step.elseIf)) {
-      for (const br of step.elseIf) {
-        if (Array.isArray(br?.then)) lists.push(br.then);
-      }
-    }
-  }
-
-  if (step?.type === "OPPONENT_SAVE") {
-    if (Array.isArray(step.onFail)) lists.push(step.onFail);
-    if (Array.isArray(step.onSuccess)) lists.push(step.onSuccess);
-  }
-
-  if (step?.type === "FOR_EACH_TARGET") {
-    if (Array.isArray(step.do)) lists.push(step.do);
-  }
-
-  if (step?.type === "PROPERTY_CONTEST") {
-    if (Array.isArray(step.onWin)) lists.push(step.onWin);
-    if (Array.isArray(step.onLose)) lists.push(step.onLose);
-  }
-
-  if (step?.type === "REGISTER_INTERRUPTS") {
-    if (Array.isArray(step.onInterrupt)) lists.push(step.onInterrupt);
-  }
-
-  return lists as Step[][];
-}
-
-/** Recursively detect an ITERATION_TARGET reference anywhere inside an object */
-function containsIterationTarget(obj: any): boolean {
-  if (!obj) return false;
-  if (typeof obj !== "object") return false;
-
-  // our convention: { type: "ITERATION_TARGET" }
-  if (obj.type === "ITERATION_TARGET") return true;
-
-  for (const k of Object.keys(obj)) {
-    if (containsIterationTarget(obj[k])) return true;
+function containsIterationTarget(x: any): boolean {
+  if (!x) return false;
+  if (Array.isArray(x)) return x.some(containsIterationTarget);
+  if (isObj(x)) {
+    if (x.type === "ITERATION_TARGET") return true;
+    return Object.values(x).some(containsIterationTarget);
   }
   return false;
 }
 
-/** Collect saveAs keys produced by steps (including nested) */
-function collectSaveAs(steps: Step[]): Set<string> {
-  const out = new Set<string>();
+type WalkCtx = {
+  inForEachTarget: boolean;
+  outputs: Set<string>;
+  abilityProfiles: Set<string>;
+  path: string;
+};
 
-  const walk = (arr: Step[]) => {
-    for (const s of arr) {
-      if (s && typeof (s as any).saveAs === "string" && (s as any).saveAs.trim()) {
-        out.add((s as any).saveAs.trim());
-      }
-      const nested = getNestedStepLists(s as any);
-      for (const n of nested) walk(n);
-    }
-  };
+function walkSteps(steps: any[], issues: ValidationIssue[], ctx: WalkCtx) {
+  if (!Array.isArray(steps)) return;
 
-  walk(steps);
-  return out;
-}
-
-/** Traverse all steps with context (inForEachTarget) to validate scoping */
-function walkStepsWithContext(
-  steps: Step[],
-  fn: (step: Step, ctx: { inForEachTarget: boolean }, indexPath: string) => void,
-  ctx: { inForEachTarget: boolean },
-  basePath: string
-) {
   for (let i = 0; i < steps.length; i++) {
-    const s = steps[i];
-    const here = `${basePath}[${i}]`;
-    fn(s, ctx, here);
+    const s = steps[i] as any;
+    const stepPath = `${ctx.path}[${i}]`;
 
-    if ((s as any)?.type === "FOR_EACH_TARGET") {
-      const nested = (s as any).do;
-      if (Array.isArray(nested)) {
-        walkStepsWithContext(nested, fn, { inForEachTarget: true }, `${here}.do`);
-      }
+    if (!isObj(s) || typeof s.type !== "string") {
+      push(issues, "ERROR", "STEP_SHAPE", "Step must be an object with a string 'type'.", stepPath);
       continue;
     }
 
-    const nestedLists = getNestedStepLists(s as any);
-    // For IF/ELSE etc, the context is inherited
-    for (const lst of nestedLists) {
-      // But avoid double-walking FOR_EACH_TARGET.do, handled above
-      if ((s as any)?.type === "FOR_EACH_TARGET") continue;
-      walkStepsWithContext(lst, fn, ctx, `${here}._nested`);
+    // Known step type?
+    if (!isStepTypeAllowed(s.type)) {
+      push(
+        issues,
+        "ERROR",
+        "UNKNOWN_STEP_TYPE",
+        `Step type '${s.type}' is not in blockRegistry.steps.types.`,
+        `${stepPath}.type`
+      );
+    }
+
+    // Track outputs
+    if (typeof s.saveAs === "string" && s.saveAs.trim()) ctx.outputs.add(s.saveAs.trim());
+
+    // Specific invariants
+    if (s.type === "SELECT_TARGETS") {
+      if (typeof s.profileId !== "string" || !s.profileId.trim()) {
+        push(issues, "ERROR", "SELECT_TARGETS_PROFILE", "SELECT_TARGETS.profileId is required.", `${stepPath}.profileId`);
+      } else if (!ctx.abilityProfiles.has(s.profileId.trim())) {
+        push(
+          issues,
+          "ERROR",
+          "SELECT_TARGETS_PROFILE_MISSING",
+          `SELECT_TARGETS.profileId '${s.profileId}' does not exist in ability.targetingProfiles[].id`,
+          `${stepPath}.profileId`
+        );
+      }
+      if (typeof s.saveAs !== "string" || !s.saveAs.trim()) {
+        push(issues, "ERROR", "SELECT_TARGETS_SAVEAS", "SELECT_TARGETS.saveAs is required.", `${stepPath}.saveAs`);
+      }
+    }
+
+    if (s.type === "FOR_EACH_TARGET") {
+      const ref = s?.targetSet?.ref;
+      if (typeof ref !== "string" || !ref.trim()) {
+        push(issues, "ERROR", "FOR_EACH_TARGET_REF", "FOR_EACH_TARGET.targetSet.ref is required.", `${stepPath}.targetSet.ref`);
+      } else if (!ctx.outputs.has(ref.trim())) {
+        push(
+          issues,
+          "WARN",
+          "FOR_EACH_TARGET_REF_UNKNOWN",
+          `FOR_EACH_TARGET.targetSet.ref '${ref}' does not match any prior saveAs output in this execution.`,
+          `${stepPath}.targetSet.ref`
+        );
+      }
+
+      // Nested context
+      const nestedCtx: WalkCtx = { ...ctx, inForEachTarget: true, path: `${stepPath}.do` };
+      walkSteps(s.do ?? [], issues, nestedCtx);
+      continue;
+    }
+
+    // ITERATION_TARGET only valid inside FOR_EACH_TARGET "do"
+    if (!ctx.inForEachTarget && containsIterationTarget(s)) {
+      push(
+        issues,
+        "ERROR",
+        "ITERATION_TARGET_OUTSIDE_LOOP",
+        "ITERATION_TARGET can only be used inside FOR_EACH_TARGET.do steps.",
+        stepPath
+      );
+    }
+
+    // IF/ELSE nesting
+    if (s.type === "IF_ELSE") {
+      const nestedThen: WalkCtx = { ...ctx, path: `${stepPath}.then` };
+      walkSteps(s.then ?? [], issues, nestedThen);
+
+      const elseIfArr = Array.isArray(s.elseIf) ? s.elseIf : [];
+      for (let j = 0; j < elseIfArr.length; j++) {
+        const branch = elseIfArr[j];
+        const nestedEi: WalkCtx = { ...ctx, path: `${stepPath}.elseIf[${j}].then` };
+        walkSteps(branch?.then ?? [], issues, nestedEi);
+      }
+
+      const nestedElse: WalkCtx = { ...ctx, path: `${stepPath}.else` };
+      walkSteps(s.else ?? [], issues, nestedElse);
+    }
+
+    // OPPONENT_SAVE nesting
+    if (s.type === "OPPONENT_SAVE") {
+      const nestedFail: WalkCtx = { ...ctx, path: `${stepPath}.onFail` };
+      walkSteps(s.onFail ?? [], issues, nestedFail);
+
+      const nestedSucc: WalkCtx = { ...ctx, path: `${stepPath}.onSuccess` };
+      walkSteps(s.onSuccess ?? [], issues, nestedSucc);
+    }
+
+    // PROPERTY_CONTEST nesting
+    if (s.type === "PROPERTY_CONTEST") {
+      const nestedWin: WalkCtx = { ...ctx, path: `${stepPath}.onWin` };
+      walkSteps(s.onWin ?? [], issues, nestedWin);
+
+      const nestedLose: WalkCtx = { ...ctx, path: `${stepPath}.onLose` };
+      walkSteps(s.onLose ?? [], issues, nestedLose);
+    }
+
+    // REGISTER_INTERRUPTS nesting
+    if (s.type === "REGISTER_INTERRUPTS") {
+      const nestedInt: WalkCtx = { ...ctx, path: `${stepPath}.onInterrupt` };
+      walkSteps(s.onInterrupt ?? [], issues, nestedInt);
     }
   }
 }
 
-export function validateCard(card: CardEntity): ValidationIssue[] {
+export function validateCard(card: any): ValidationIssue[] {
   const issues: ValidationIssue[] = [];
 
-  // ---- Schema version check ----
-  const v: any = (card as any)?.schemaVersion;
+  if (!isObj(card)) {
+    push(issues, "ERROR", "CARD_SHAPE", "Card must be an object.");
+    return issues;
+  }
 
-  if (!v || typeof v !== "string") {
-    add(issues, "ERROR", "SCHEMA_VERSION", "schemaVersion is required", "schemaVersion");
-  } else if (isKnownSchemaVersion(v)) {
-    // OK
-  } else if (isCJ1x(v)) {
-    // Future-proof: allow CJ-1.x but warn if unknown minor
-    add(
-      issues,
-      "WARN",
-      "SCHEMA_VERSION_UNKNOWN_MINOR",
-      `schemaVersion ${v} is CJ-1.x but not in known list (${KNOWN_CARD_SCHEMA_VERSIONS.join(", ")}). Consider adding a migration/validator update.`,
-      "schemaVersion"
-    );
-  } else {
-    add(
+  if (typeof card.schemaVersion !== "string" || !ALLOWED_SCHEMA.has(card.schemaVersion)) {
+    push(
       issues,
       "ERROR",
       "SCHEMA_VERSION",
-      `schemaVersion must be ${KNOWN_CARD_SCHEMA_VERSIONS.join(" or ")}`,
+      "schemaVersion must be CJ-1.0, CJ-1.1, or CJ-1.2",
       "schemaVersion"
     );
   }
 
-  // ---- Basic shape ----
-  if (!(card as any)?.id) add(issues, "ERROR", "ID_REQUIRED", "id is required", "id");
-  if (!(card as any)?.name) add(issues, "ERROR", "NAME_REQUIRED", "name is required", "name");
-  if (!(card as any)?.type) add(issues, "ERROR", "TYPE_REQUIRED", "type is required", "type");
-  if (!Array.isArray((card as any)?.components)) add(issues, "ERROR", "COMPONENTS_REQUIRED", "components[] is required", "components");
-
-  const comps: any[] = Array.isArray((card as any)?.components) ? (card as any).components : [];
-  const abilityComps = comps.filter(isAbilityComponent);
-
-  if (abilityComps.length === 0) {
-    add(issues, "WARN", "NO_ABILITIES", "No ABILITY components found. This may be valid for some cards, but most gameplay cards need at least one.", "components");
+  if (typeof card.id !== "string" || !card.id.trim()) {
+    push(issues, "ERROR", "CARD_ID", "id must be a non-empty string", "id");
   }
 
-  // ---- Ability-level validations ----
-  for (let ai = 0; ai < abilityComps.length; ai++) {
-    const ability = abilityComps[ai];
-    const aPath = `components[${comps.indexOf(ability)}]`;
-
-    // targetingProfiles uniqueness
-    const profiles = Array.isArray((ability as any).targetingProfiles) ? (ability as any).targetingProfiles : [];
-    const seen = new Set<string>();
-    for (let pi = 0; pi < profiles.length; pi++) {
-      const id = profiles[pi]?.id;
-      if (!id || typeof id !== "string") {
-        add(issues, "ERROR", "TARGET_PROFILE_ID", "targetingProfiles[].id is required", `${aPath}.targetingProfiles[${pi}].id`);
-        continue;
-      }
-      if (seen.has(id)) {
-        add(issues, "ERROR", "TARGET_PROFILE_DUP", `Duplicate targetingProfiles id "${id}"`, `${aPath}.targetingProfiles[${pi}].id`);
-      }
-      seen.add(id);
-    }
-
-    // Step validations
-    const steps: Step[] = Array.isArray((ability as any)?.execution?.steps) ? ((ability as any).execution.steps as Step[]) : [];
-
-    // Unknown step warnings
-    for (let si = 0; si < steps.length; si++) {
-      if ((steps[si] as any)?.type === "UNKNOWN_STEP") {
-        add(issues, "WARN", "UNKNOWN_STEP", "This step is UNKNOWN_STEP. It will not execute unless registry/engine supports it.", `${aPath}.execution.steps[${si}]`);
-      }
-    }
-
-    // Validate SELECT_TARGETS.profileId exists
-    walkStepsWithContext(
-      steps,
-      (s, _ctx, path) => {
-        if ((s as any)?.type === "SELECT_TARGETS") {
-          const pid = (s as any)?.profileId;
-          if (!pid || typeof pid !== "string") {
-            add(issues, "ERROR", "SELECT_TARGETS_PROFILE", "SELECT_TARGETS.profileId is required", `${aPath}.execution.steps${path}.profileId`);
-            return;
-          }
-          const ok = profiles.some((p: any) => p?.id === pid);
-          if (!ok) {
-            add(
-              issues,
-              "ERROR",
-              "SELECT_TARGETS_PROFILE_MISSING",
-              `SELECT_TARGETS.profileId "${pid}" does not match any targetingProfiles[].id`,
-              `${aPath}.execution.steps${path}.profileId`
-            );
-          }
-        }
-      },
-      { inForEachTarget: false },
-      ""
-    );
-
-    // Validate FOR_EACH_TARGET.targetSet.ref exists
-    const allSaveAs = collectSaveAs(steps);
-    walkStepsWithContext(
-      steps,
-      (s, _ctx, path) => {
-        if ((s as any)?.type === "FOR_EACH_TARGET") {
-          const ref = (s as any)?.targetSet?.ref;
-          if (!ref || typeof ref !== "string") {
-            add(issues, "ERROR", "FOR_EACH_TARGET_REF", "FOR_EACH_TARGET.targetSet.ref is required", `${aPath}.execution.steps${path}.targetSet.ref`);
-            return;
-          }
-          if (!allSaveAs.has(ref)) {
-            add(
-              issues,
-              "ERROR",
-              "FOR_EACH_TARGET_REF_MISSING",
-              `FOR_EACH_TARGET.targetSet.ref "${ref}" does not match any step.saveAs in this ability`,
-              `${aPath}.execution.steps${path}.targetSet.ref`
-            );
-          }
-        }
-      },
-      { inForEachTarget: false },
-      ""
-    );
-
-    // Validate ITERATION_TARGET only inside FOR_EACH_TARGET.do
-    walkStepsWithContext(
-      steps,
-      (s, ctx, path) => {
-        if (!ctx.inForEachTarget && containsIterationTarget(s)) {
-          add(
-            issues,
-            "ERROR",
-            "ITERATION_TARGET_SCOPE",
-            "ITERATION_TARGET can only be used inside FOR_EACH_TARGET.do (iterator scope).",
-            `${aPath}.execution.steps${path}`
-          );
-        }
-      },
-      { inForEachTarget: false },
-      ""
-    );
+  if (typeof card.name !== "string" || !card.name.trim()) {
+    push(issues, "ERROR", "CARD_NAME", "name must be a non-empty string", "name");
   }
 
+  if (typeof card.type !== "string" || !ALLOWED_CARD_TYPES.has(card.type)) {
+    push(issues, "ERROR", "CARD_TYPE", "type must be one of UNIT/ITEM/ENVIRONMENT/SPELL/TOKEN", "type");
+  }
+
+  if (!Array.isArray(card.components)) {
+    push(issues, "ERROR", "COMPONENTS", "components must be an array", "components");
+    return issues;
+  }
+
+  // Validate ability components + step invariants
+  for (let ci = 0; ci < card.components.length; ci++) {
+    const comp = card.components[ci] as any;
+    if (!isObj(comp)) continue;
+
+    if (comp.componentType === "ABILITY") {
+      const ability = comp as AbilityComponent;
+      const basePath = `components[${ci}]`;
+
+      if (typeof ability.name !== "string" || !ability.name.trim()) {
+        push(issues, "ERROR", "ABILITY_NAME", "Ability.name is required.", `${basePath}.name`);
+      }
+
+      // profiles unique
+      const profiles = Array.isArray((ability as any).targetingProfiles) ? (ability as any).targetingProfiles : [];
+      const seen = new Set<string>();
+      for (let pi = 0; pi < profiles.length; pi++) {
+        const p = profiles[pi];
+        const id = String(p?.id ?? "");
+        if (!id.trim()) {
+          push(issues, "ERROR", "PROFILE_ID", "targetingProfiles[].id is required.", `${basePath}.targetingProfiles[${pi}].id`);
+          continue;
+        }
+        if (seen.has(id)) {
+          push(issues, "ERROR", "PROFILE_ID_DUP", `Duplicate targetingProfiles id '${id}'.`, `${basePath}.targetingProfiles[${pi}].id`);
+        }
+        seen.add(id);
+      }
+
+      const execSteps = (ability as any).execution?.steps;
+      if (execSteps && !Array.isArray(execSteps)) {
+        push(issues, "ERROR", "STEPS_SHAPE", "execution.steps must be an array", `${basePath}.execution.steps`);
+      }
+
+      const ctx = {
+        inForEachTarget: false,
+        outputs: new Set<string>(),
+        abilityProfiles: seen,
+        path: `${basePath}.execution.steps`
+      };
+      walkSteps(execSteps ?? [], issues, ctx);
+    }
+  }
+
+  if (issues.length === 0) {
+    issues.push({ severity: "WARN", code: "OK", message: "No issues." });
+  }
   return issues;
 }
