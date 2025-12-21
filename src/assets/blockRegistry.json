@@ -1,5 +1,5 @@
 {
-  "schemaVersion": "BR-1.2",
+  "schemaVersion": "BR-1.3",
   "steps": {
     "types": [
       "SHOW_TEXT",

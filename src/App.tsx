@@ -20,7 +20,13 @@ import type {
 import { makeDefaultCard, canonicalToGraph, abilitySummary } from "./lib/graph";
 import { loadCardJson, saveCardJson, clearSaved } from "./lib/storage";
 import { validateCard, type ValidationIssue } from "./lib/schemas";
-import { blockRegistry, getStepGroups, isStepTypeAllowed } from "./lib/registry";
+import {
+  blockRegistry,
+  blockRegistryCacheBustingUrl,
+  blockRegistryVersion,
+  getStepGroups,
+  isStepTypeAllowed
+} from "./lib/registry";
 
 import { ExpressionEditor } from "./components/ExpressionEditor";
 import { ConditionEditor } from "./components/ConditionEditor";
@@ -36,7 +42,8 @@ import {
   saveLibrary,
   setLibrarySource,
   upsertAbility,
-  upsertStep
+  upsertStep,
+  type ActionLibrary
 } from "./lib/repository";
 
 type AppMode = "FORGE" | "LIBRARY" | "DECKS" | "SCENARIOS";
@@ -51,25 +58,84 @@ function download(filename: string, text: string) {
   URL.revokeObjectURL(url);
 }
 
+const BLOCK_REGISTRY_VERSION_KEY = "cj_block_registry_version";
+
+function coerceStepType(step: any) {
+  if (step?.type === "UNKNOWN_STEP" && step?.raw?.type && isStepTypeAllowed(step.raw.type)) {
+    return { ...step.raw };
+  }
+  if (!step?.type) return { type: "UNKNOWN_STEP", raw: step };
+  if (!isStepTypeAllowed(step.type)) return { type: "UNKNOWN_STEP", raw: step };
+  return step;
+}
+
+function coerceStepTree(step: any): Step {
+  const base = coerceStepType(step);
+  if (!base || typeof base !== "object") return base as Step;
+
+  switch (base.type) {
+    case "IF_ELSE":
+      return {
+        ...base,
+        then: coerceStepList(base.then),
+        elseIf: Array.isArray(base.elseIf)
+          ? base.elseIf.map((branch: any) => ({ ...branch, then: coerceStepList(branch.then) }))
+          : base.elseIf,
+        else: coerceStepList(base.else)
+      };
+    case "OPPONENT_SAVE":
+      return { ...base, onFail: coerceStepList(base.onFail), onSuccess: coerceStepList(base.onSuccess) };
+    case "FOR_EACH_TARGET":
+      return { ...base, do: coerceStepList(base.do) };
+    case "REGISTER_INTERRUPTS":
+      return { ...base, onInterrupt: coerceStepList(base.onInterrupt) };
+    case "PROPERTY_CONTEST":
+      return { ...base, onWin: coerceStepList(base.onWin), onLose: coerceStepList(base.onLose) };
+    default:
+      return base as Step;
+  }
+}
+
+function coerceStepList(maybeSteps: any): Step[] {
+  if (!Array.isArray(maybeSteps)) return [];
+  return maybeSteps.map((s) => coerceStepTree(s));
+}
+
 // Un-UNKNOWN recovery:
 // If a step was previously coerced into UNKNOWN_STEP, but registry now knows it,
-// restore it from raw.
+// restore it from raw. Also re-run nested branches (IF_ELSE, interrupts, contests).
 function coerceUnknownSteps(card: any) {
-  for (const comp of card.components ?? []) {
-    if (comp?.componentType !== "ABILITY") continue;
-    if (!comp.execution?.steps) continue;
+  if (!card) return card;
+  const components = Array.isArray(card?.components)
+    ? card.components.map((comp: any) => {
+        if (comp?.componentType !== "ABILITY") return comp;
+        if (!comp.execution) return comp;
+        return { ...comp, execution: { ...comp.execution, steps: coerceStepList(comp.execution.steps) } };
+      })
+    : card?.components;
 
-    comp.execution.steps = comp.execution.steps.map((s: any) => {
-      // Recover if possible
-      if (s?.type === "UNKNOWN_STEP" && s?.raw?.type && isStepTypeAllowed(s.raw.type)) {
-        return s.raw;
-      }
-      if (!s?.type) return { type: "UNKNOWN_STEP", raw: s };
-      if (!isStepTypeAllowed(s.type)) return { type: "UNKNOWN_STEP", raw: s };
-      return s;
-    });
-  }
-  return card;
+  return { ...card, components };
+}
+
+function coerceLibrary(lib: ActionLibrary): ActionLibrary {
+  if (!lib) return lib;
+  return {
+    ...lib,
+    abilities: Array.isArray(lib.abilities)
+      ? lib.abilities.map((entry) => ({
+          ...entry,
+          ability: entry.ability?.execution
+            ? { ...entry.ability, execution: { ...entry.ability.execution, steps: coerceStepList(entry.ability.execution.steps) } }
+            : entry.ability
+        }))
+      : [],
+    steps: Array.isArray(lib.steps)
+      ? lib.steps.map((entry) => ({
+          ...entry,
+          step: coerceStepTree(entry.step)
+        }))
+      : []
+  };
 }
 
 function Modal(props: {
@@ -230,6 +296,29 @@ export default function App() {
   const [library, setLibrary] = useState(() => loadLibrary());
   const [libraryError, setLibraryError] = useState<string | null>(null);
   const [libraryUrl, setLibraryUrl] = useState(() => getLibrarySource().url ?? "");
+
+  // Registry upgrades: reload cached cards/libraries and prefetch cache-busted registry asset
+  useEffect(() => {
+    const lastVersion = localStorage.getItem(BLOCK_REGISTRY_VERSION_KEY);
+    if (lastVersion === blockRegistryVersion) return;
+
+    localStorage.setItem(BLOCK_REGISTRY_VERSION_KEY, blockRegistryVersion);
+    setCard((prev) => coerceUnknownSteps(prev));
+    setLibrary((prev) => coerceLibrary(prev));
+  }, []);
+
+  useEffect(() => {
+    const linkId = "cj-block-registry-prefetch";
+    let link = document.getElementById(linkId) as HTMLLinkElement | null;
+    if (!link) {
+      link = document.createElement("link");
+      link.id = linkId;
+      link.rel = "prefetch";
+      link.as = "fetch";
+      document.head.appendChild(link);
+    }
+    link.href = blockRegistryCacheBustingUrl;
+  }, []);
 
   // AI Image modal
   const [aiImgOpen, setAiImgOpen] = useState(false);
