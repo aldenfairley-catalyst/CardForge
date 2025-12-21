@@ -122,16 +122,16 @@ export function DeckBuilder() {
   }
 
   // drag & drop
-  function onDragStartCard(e: React.DragEvent, cardId: string) {
+  function onDragStartCard(e: any, cardId: string) {
     e.dataTransfer.setData("text/cj-card-id", cardId);
     e.dataTransfer.effectAllowed = "copy";
   }
-  function onDropToDeck(e: React.DragEvent) {
+  function onDropToDeck(e: any) {
     e.preventDefault();
     const id = e.dataTransfer.getData("text/cj-card-id");
     if (id) addCardToDeck(id);
   }
-  function onDragOverDeck(e: React.DragEvent) {
+  function onDragOverDeck(e: any) {
     e.preventDefault();
     e.dataTransfer.dropEffect = "copy";
   }

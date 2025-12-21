@@ -10,8 +10,10 @@ type Props = {
 const exprTypes = ["CONST_NUMBER","SAVED_VALUE","READ_STAT","ADD","SUBTRACT","MULTIPLY","DIVIDE","MIN","MAX"] as const;
 type ExprType = typeof exprTypes[number];
 
-function isBinary(t: Expression["type"]) {
-  return ["ADD","SUBTRACT","MULTIPLY","DIVIDE","MIN","MAX"].includes(t);
+type BinaryExpr = Extract<Expression, { a: Expression; b: Expression }>;
+
+function isBinary(expr: Expression): expr is BinaryExpr {
+  return ["ADD","SUBTRACT","MULTIPLY","DIVIDE","MIN","MAX"].includes(expr.type as string);
 }
 
 export function ExpressionEditor({ value, onChange }: Props) {
@@ -23,10 +25,10 @@ export function ExpressionEditor({ value, onChange }: Props) {
 
     // binary ops
     return onChange({
-      type: t as any,
+      type: t,
       a: { type: "CONST_NUMBER", value: 1 },
       b: { type: "CONST_NUMBER", value: 1 }
-    } as any);
+    });
   }
 
   return (
@@ -81,15 +83,15 @@ export function ExpressionEditor({ value, onChange }: Props) {
           </>
         )}
 
-        {isBinary(value.type) && (
+        {isBinary(value) && (
           <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 10 }}>
             <div>
               <div className="small">A</div>
-              <ExpressionEditor value={value.a} onChange={(a) => onChange({ ...value, a } as any)} />
+              <ExpressionEditor value={value.a} onChange={(a) => onChange({ ...value, a })} />
             </div>
             <div>
               <div className="small">B</div>
-              <ExpressionEditor value={value.b} onChange={(b) => onChange({ ...value, b } as any)} />
+              <ExpressionEditor value={value.b} onChange={(b) => onChange({ ...value, b })} />
             </div>
           </div>
         )}

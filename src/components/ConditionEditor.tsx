@@ -8,6 +8,14 @@ type Props = { value: Condition; onChange: (next: Condition) => void };
 const conditionTypes = ["ALWAYS","NOT","AND","OR","COMPARE_NUMBERS","HAS_TAG","COUNT_UNITS_ON_BOARD"] as const;
 type ConditionType = typeof conditionTypes[number];
 
+function isAndCondition(cond: Condition): cond is Extract<Condition, { type: "AND" }> {
+  return cond.type === "AND";
+}
+
+function isOrCondition(cond: Condition): cond is Extract<Condition, { type: "OR" }> {
+  return cond.type === "OR";
+}
+
 export function ConditionEditor({ value, onChange }: Props) {
   function setType(t: ConditionType) {
     if (t === "ALWAYS") return onChange({ type: "ALWAYS" });
@@ -46,31 +54,31 @@ export function ConditionEditor({ value, onChange }: Props) {
           <>
             <div className="small">Conditions</div>
             <div style={{ display:"grid", gap: 10 }}>
-              {(value.type === "AND"
+              {(isAndCondition(value)
                 ? value.all ?? (value as any).conditions ?? []
-                : value.any ?? (value as any).conditions ?? []
-              ).map((c: Condition, idx: number) => (
+                : (value as Extract<Condition, { type: "OR" }>).any ?? (value as any).conditions ?? []
+              ).map((c, idx) => (
                 <div key={idx}>
                   <ConditionEditor
                     value={c}
                     onChange={(next) => {
-                      const conditions = (value.type === "AND"
+                      const conditions = (isAndCondition(value)
                         ? value.all ?? (value as any).conditions ?? []
-                        : value.any ?? (value as any).conditions ?? []
+                        : (value as Extract<Condition, { type: "OR" }>).any ?? (value as any).conditions ?? []
                       ).slice();
                       conditions[idx] = next;
-                      if (value.type === "AND") onChange({ ...value, all: conditions });
+                      if (isAndCondition(value)) onChange({ ...value, all: conditions });
                       else onChange({ ...value, any: conditions });
                     }}
                   />
                   <button className="btn btnDanger" style={{ marginTop: 6 }} onClick={() => {
-                    const conditions = (value.type === "AND"
+                    const conditions = (isAndCondition(value)
                       ? value.all ?? (value as any).conditions ?? []
-                      : value.any ?? (value as any).conditions ?? []
+                      : (value as Extract<Condition, { type: "OR" }>).any ?? (value as any).conditions ?? []
                     ).slice();
                     conditions.splice(idx, 1);
                     const next = conditions.length ? conditions : [{ type:"ALWAYS" }];
-                    if (value.type === "AND") onChange({ ...value, all: next });
+                    if (isAndCondition(value)) onChange({ ...value, all: next });
                     else onChange({ ...value, any: next });
                   }}>
                     Remove
@@ -80,11 +88,11 @@ export function ConditionEditor({ value, onChange }: Props) {
               <button
                 className="btn"
                 onClick={() => {
-                  const conditions = value.type === "AND"
+                  const conditions = isAndCondition(value)
                     ? value.all ?? (value as any).conditions ?? []
-                    : value.any ?? (value as any).conditions ?? [];
+                    : (value as Extract<Condition, { type: "OR" }>).any ?? (value as any).conditions ?? [];
                   const next = [...conditions, { type:"ALWAYS" }];
-                  if (value.type === "AND") onChange({ ...value, all: next });
+                  if (isAndCondition(value)) onChange({ ...value, all: next });
                   else onChange({ ...value, any: next });
                 }}
               >
