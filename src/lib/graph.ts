@@ -16,7 +16,16 @@ export function makeDefaultCard(): CardEntity {
         description: "",
         trigger: "ACTIVE_ACTION",
         cost: { ap: 1 },
-        targeting: { type: "SINGLE_TARGET", range: { base: 4 }, lineOfSight: true },
+        targetingProfiles: [
+          {
+            id: "default",
+            label: "Default",
+            type: "SINGLE_TARGET",
+            origin: "SOURCE",
+            range: { base: 4, min: 1, max: 4 },
+            lineOfSight: true
+          }
+        ],
         execution: { steps: [{ type: "SHOW_TEXT", text: "Do something!" }] }
       }
     ]
@@ -25,7 +34,8 @@ export function makeDefaultCard(): CardEntity {
 
 export function abilitySummary(a: AbilityComponent) {
   const cost = a.cost?.ap != null ? `${a.cost.ap} AP` : "";
-  const targ = a.targeting?.type ? `Target: ${a.targeting.type}` : "Target: —";
+  const primaryProfile = a.targetingProfiles?.[0];
+  const targ = primaryProfile?.type ? `Target: ${primaryProfile.type}` : "Target: —";
   const count = a.execution?.steps?.length ?? 0;
   return [cost, targ, `${count} steps`].filter(Boolean).join(" • ");
 }

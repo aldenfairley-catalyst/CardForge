@@ -1,5 +1,5 @@
 import React from "react";
-import type { Condition, Expr, EntityRef } from "../lib/types";
+import type { Condition, Expression, EntityRef } from "../lib/types";
 import { ExpressionEditor } from "./ExpressionEditor";
 import { EntityRefEditor } from "./EntityRefEditor";
 
@@ -11,9 +11,9 @@ type ConditionType = typeof conditionTypes[number];
 export function ConditionEditor({ value, onChange }: Props) {
   function setType(t: ConditionType) {
     if (t === "ALWAYS") return onChange({ type: "ALWAYS" });
-    if (t === "NOT") return onChange({ type: "NOT", condition: { type: "ALWAYS" } });
-    if (t === "AND") return onChange({ type: "AND", conditions: [{ type: "ALWAYS" }] });
-    if (t === "OR") return onChange({ type: "OR", conditions: [{ type: "ALWAYS" }] });
+    if (t === "NOT") return onChange({ type: "NOT", cond: { type: "ALWAYS" } });
+    if (t === "AND") return onChange({ type: "AND", all: [{ type: "ALWAYS" }] });
+    if (t === "OR") return onChange({ type: "OR", any: [{ type: "ALWAYS" }] });
     if (t === "COMPARE_NUMBERS") return onChange({
       type:"COMPARE_NUMBERS",
       lhs:{ type:"CONST_NUMBER", value: 1 },
@@ -35,7 +35,10 @@ export function ConditionEditor({ value, onChange }: Props) {
         {value.type === "NOT" && (
           <>
             <div className="small">Inner</div>
-            <ConditionEditor value={value.condition} onChange={(condition)=>onChange({ ...value, condition })} />
+            <ConditionEditor
+              value={value.cond ?? (value as any).condition ?? { type: "ALWAYS" }}
+              onChange={(cond) => onChange({ ...value, cond })}
+            />
           </>
         )}
 
@@ -43,26 +46,48 @@ export function ConditionEditor({ value, onChange }: Props) {
           <>
             <div className="small">Conditions</div>
             <div style={{ display:"grid", gap: 10 }}>
-              {value.conditions.map((c, idx) => (
+              {(value.type === "AND"
+                ? value.all ?? (value as any).conditions ?? []
+                : value.any ?? (value as any).conditions ?? []
+              ).map((c: Condition, idx: number) => (
                 <div key={idx}>
                   <ConditionEditor
                     value={c}
-                    onChange={(next)=> {
-                      const conditions = value.conditions.slice();
+                    onChange={(next) => {
+                      const conditions = (value.type === "AND"
+                        ? value.all ?? (value as any).conditions ?? []
+                        : value.any ?? (value as any).conditions ?? []
+                      ).slice();
                       conditions[idx] = next;
-                      onChange({ ...value, conditions } as any);
+                      if (value.type === "AND") onChange({ ...value, all: conditions });
+                      else onChange({ ...value, any: conditions });
                     }}
                   />
                   <button className="btn btnDanger" style={{ marginTop: 6 }} onClick={() => {
-                    const conditions = value.conditions.slice();
+                    const conditions = (value.type === "AND"
+                      ? value.all ?? (value as any).conditions ?? []
+                      : value.any ?? (value as any).conditions ?? []
+                    ).slice();
                     conditions.splice(idx, 1);
-                    onChange({ ...value, conditions: conditions.length ? conditions : [{ type:"ALWAYS" }] } as any);
+                    const next = conditions.length ? conditions : [{ type:"ALWAYS" }];
+                    if (value.type === "AND") onChange({ ...value, all: next });
+                    else onChange({ ...value, any: next });
                   }}>
                     Remove
                   </button>
                 </div>
               ))}
-              <button className="btn" onClick={() => onChange({ ...value, conditions: [...value.conditions, { type:"ALWAYS" }] } as any)}>
+              <button
+                className="btn"
+                onClick={() => {
+                  const conditions = value.type === "AND"
+                    ? value.all ?? (value as any).conditions ?? []
+                    : value.any ?? (value as any).conditions ?? [];
+                  const next = [...conditions, { type:"ALWAYS" }];
+                  if (value.type === "AND") onChange({ ...value, all: next });
+                  else onChange({ ...value, any: next });
+                }}
+              >
                 + Add Condition
               </button>
             </div>
@@ -72,13 +97,13 @@ export function ConditionEditor({ value, onChange }: Props) {
         {value.type === "COMPARE_NUMBERS" && (
           <>
             <div className="small">LHS</div>
-            <ExpressionEditor value={value.lhs as Expr} onChange={(lhs)=>onChange({ ...value, lhs } as any)} />
+            <ExpressionEditor value={value.lhs as Expression} onChange={(lhs)=>onChange({ ...value, lhs } as any)} />
             <div className="small" style={{ marginTop: 8 }}>Operator</div>
             <select className="select" value={value.op} onChange={(e)=>onChange({ ...value, op: e.target.value as any } as any)}>
               {[" >",">=","==","!=","<=","<"].map(op => <option key={op} value={op}>{op}</option>)}
             </select>
             <div className="small" style={{ marginTop: 8 }}>RHS</div>
-            <ExpressionEditor value={value.rhs as Expr} onChange={(rhs)=>onChange({ ...value, rhs } as any)} />
+            <ExpressionEditor value={value.rhs as Expression} onChange={(rhs)=>onChange({ ...value, rhs } as any)} />
           </>
         )}
 
