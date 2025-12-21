@@ -11,5 +11,13 @@ function computeBase() {
 
 export default defineConfig({
   base: computeBase(),
-  plugins: [react()]
+  plugins: [react()],
+  server: {
+    proxy: {
+      "/api": {
+        target: "http://localhost:8787",
+        changeOrigin: true
+      }
+    }
+  }
 });
