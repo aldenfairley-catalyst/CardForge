@@ -1,12 +1,21 @@
-import React, { useEffect, useMemo, useState } from "react";
-import ReactFlow, { Background, Controls, MiniMap, Handle, Position } from "reactflow";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import ReactFlow, { Background, Controls, MiniMap, Handle, Position, type Node } from "reactflow";
 import "reactflow/dist/style.css";
 
 import { CardLibraryManager } from "./features/library/CardLibraryManager";
 import { DeckBuilder } from "./features/decks/DeckBuilder";
 import { ScenarioBuilder } from "./features/scenarios/ScenarioBuilder";
 
-import type { CardEntity, Step, AbilityComponent, ZoneKey, DistanceMetric } from "./lib/types";
+import type {
+  CardEntity,
+  Step,
+  AbilityComponent,
+  ZoneKey,
+  DistanceMetric,
+  DamageType,
+  StatusKey
+} from "./lib/types";
+
 import { makeDefaultCard, canonicalToGraph, abilitySummary } from "./lib/graph";
 import { loadCardJson, saveCardJson, clearSaved } from "./lib/storage";
 import { validateCard, type ValidationIssue } from "./lib/schemas";
@@ -29,35 +38,10 @@ import {
   upsertStep
 } from "./lib/repository";
 
-import {
-  defaultCatalog,
-  loadCatalog,
-  saveCatalog as persistCatalog,
-  upsertFaction,
-  deleteFaction,
-  upsertUnit,
-  deleteUnit,
-  upsertTemplate,
-  deleteTemplate,
-  type Catalog
-} from "./lib/catalog";
-
-import { requestAiImage, type AiImageProvider } from "./lib/aiImage";
-
-type ViewKey = "FORGE" | "CATALOG" | "LIBRARY" | "DECKS" | "SCENARIOS";
+type AppMode = "FORGE" | "LIBRARY" | "DECKS" | "SCENARIOS";
 
 function download(filename: string, text: string) {
   const blob = new Blob([text], { type: "application/json" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  a.click();
-  URL.revokeObjectURL(url);
-}
-
-function downloadText(filename: string, text: string, mime = "text/plain") {
-  const blob = new Blob([text], { type: mime });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
@@ -198,199 +182,17 @@ function findAbilityIndexes(card: CardEntity): number[] {
   return out;
 }
 
-function fileToDataUrl(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const r = new FileReader();
-    r.onload = () => resolve(String(r.result));
-    r.onerror = () => reject(new Error("Failed to read file."));
-    r.readAsDataURL(file);
-  });
-}
-
-function CatalogView({
-  catalog,
-  setCatalog
-}: {
-  catalog: Catalog;
-  setCatalog: React.Dispatch<React.SetStateAction<Catalog>>;
-}) {
-  const [f, setF] = useState({ id: "", name: "", symbolUrl: "", templateId: "" });
-  const [u, setU] = useState({ id: "", name: "", factionId: "", cardId: "" });
-  const [t, setT] = useState({ id: "", name: "" });
-
-  return (
-    <div className="panel" style={{ margin: 12 }}>
-      <div className="ph">
-        <div>
-          <div className="h2">Catalog</div>
-          <div className="small">Factions • Units • Templates (local)</div>
-        </div>
-        <span className="badge">{catalog.schemaVersion}</span>
-      </div>
-
-      <div className="pb" style={{ display: "grid", gap: 12, gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))" }}>
-        {/* Factions */}
-        <div className="panel">
-          <div className="ph">
-            <div className="h2">Factions</div>
-            <span className="badge">{catalog.factions.length}</span>
-          </div>
-          <div className="pb">
-            <div className="small">Add / Update</div>
-            <input className="input" placeholder="id (EMERALD_TIDE)" value={f.id} onChange={(e) => setF({ ...f, id: e.target.value })} />
-            <input className="input" placeholder="name (Emerald Tide)" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} style={{ marginTop: 6 }} />
-            <input className="input" placeholder="symbolUrl (/icons/emerald.svg)" value={f.symbolUrl} onChange={(e) => setF({ ...f, symbolUrl: e.target.value })} style={{ marginTop: 6 }} />
-            <input className="input" placeholder="templateId (optional)" value={f.templateId} onChange={(e) => setF({ ...f, templateId: e.target.value })} style={{ marginTop: 6 }} />
-            <button
-              className="btn btnPrimary"
-              style={{ marginTop: 8 }}
-              onClick={() => {
-                setCatalog((c) => upsertFaction(c, { id: f.id, name: f.name, symbolUrl: f.symbolUrl || undefined, templateId: f.templateId || undefined }));
-                setF({ id: "", name: "", symbolUrl: "", templateId: "" });
-              }}
-              disabled={!f.id.trim() || !f.name.trim()}
-            >
-              Save Faction
-            </button>
-
-            <hr style={{ borderColor: "var(--border)", opacity: 0.5, margin: "12px 0" }} />
-
-            {catalog.factions.length === 0 ? <div className="small">No factions yet.</div> : null}
-            {catalog.factions.map((x) => (
-              <div key={x.id} className="item" style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
-                <div>
-                  <b>{x.name}</b> <span className="small">{x.id}</span>
-                  {x.symbolUrl ? <div className="small">{x.symbolUrl}</div> : null}
-                </div>
-                <button className="btn btnDanger" onClick={() => setCatalog((c) => deleteFaction(c, x.id))}>
-                  Delete
-                </button>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Units */}
-        <div className="panel">
-          <div className="ph">
-            <div className="h2">Units</div>
-            <span className="badge">{catalog.units.length}</span>
-          </div>
-          <div className="pb">
-            <div className="small">Add / Update</div>
-            <input className="input" placeholder="id (THE_FISHERMAN)" value={u.id} onChange={(e) => setU({ ...u, id: e.target.value })} />
-            <input className="input" placeholder="name (The Fisherman)" value={u.name} onChange={(e) => setU({ ...u, name: e.target.value })} style={{ marginTop: 6 }} />
-            <select className="select" value={u.factionId} onChange={(e) => setU({ ...u, factionId: e.target.value })} style={{ marginTop: 6 }}>
-              <option value="">(no faction)</option>
-              {catalog.factions.map((fx) => (
-                <option key={fx.id} value={fx.id}>
-                  {fx.name} ({fx.id})
-                </option>
-              ))}
-            </select>
-            <input className="input" placeholder="cardId (optional link to UNIT card)" value={u.cardId} onChange={(e) => setU({ ...u, cardId: e.target.value })} style={{ marginTop: 6 }} />
-            <button
-              className="btn btnPrimary"
-              style={{ marginTop: 8 }}
-              onClick={() => {
-                setCatalog((c) => upsertUnit(c, { id: u.id, name: u.name, factionId: u.factionId || undefined, cardId: u.cardId || undefined }));
-                setU({ id: "", name: "", factionId: "", cardId: "" });
-              }}
-              disabled={!u.id.trim() || !u.name.trim()}
-            >
-              Save Unit
-            </button>
-
-            <hr style={{ borderColor: "var(--border)", opacity: 0.5, margin: "12px 0" }} />
-
-            {catalog.units.length === 0 ? <div className="small">No units yet.</div> : null}
-            {catalog.units.map((x) => (
-              <div key={x.id} className="item" style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
-                <div>
-                  <b>{x.name}</b> <span className="small">{x.id}</span>
-                  {x.factionId ? <div className="small">faction: {x.factionId}</div> : null}
-                  {x.cardId ? <div className="small">cardId: {x.cardId}</div> : null}
-                </div>
-                <button className="btn btnDanger" onClick={() => setCatalog((c) => deleteUnit(c, x.id))}>
-                  Delete
-                </button>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Templates */}
-        <div className="panel">
-          <div className="ph">
-            <div className="h2">Templates</div>
-            <span className="badge">{catalog.templates.length}</span>
-          </div>
-          <div className="pb">
-            <div className="small">Add / Update</div>
-            <input className="input" placeholder="id (EMERALD_UNIT)" value={t.id} onChange={(e) => setT({ ...t, id: e.target.value })} />
-            <input className="input" placeholder="name (Emerald Unit Template)" value={t.name} onChange={(e) => setT({ ...t, name: e.target.value })} style={{ marginTop: 6 }} />
-            <button
-              className="btn btnPrimary"
-              style={{ marginTop: 8 }}
-              onClick={() => {
-                setCatalog((c) => upsertTemplate(c, { id: t.id, name: t.name }));
-                setT({ id: "", name: "" });
-              }}
-              disabled={!t.id.trim() || !t.name.trim()}
-            >
-              Save Template
-            </button>
-
-            <hr style={{ borderColor: "var(--border)", opacity: 0.5, margin: "12px 0" }} />
-
-            {catalog.templates.length === 0 ? <div className="small">No templates yet.</div> : null}
-            {catalog.templates.map((x) => (
-              <div key={x.id} className="item" style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
-                <div>
-                  <b>{x.name}</b> <span className="small">{x.id}</span>
-                </div>
-                <button className="btn btnDanger" onClick={() => setCatalog((c) => deleteTemplate(c, x.id))}>
-                  Delete
-                </button>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      <hr style={{ borderColor: "var(--border)", opacity: 0.5, margin: "12px 0" }} />
-
-      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-        <button className="btn" onClick={() => download("cj_catalog.json", JSON.stringify(catalog, null, 2))}>
-          Export Catalog JSON
-        </button>
-        <button
-          className="btn"
-          onClick={() => {
-            setCatalog(defaultCatalog());
-          }}
-        >
-          Reset Catalog (local)
-        </button>
-      </div>
-    </div>
-  );
+function safeJsonParse(text: string) {
+  try {
+    return { ok: true as const, value: JSON.parse(text) };
+  } catch (e: any) {
+    return { ok: false as const, error: e?.message ?? String(e) };
+  }
 }
 
 export default function App() {
-  // ---------- global view ----------
-  const [view, setView] = useState<ViewKey>(() => (localStorage.getItem("CJ_VIEW") as ViewKey) || "FORGE");
-  useEffect(() => {
-    localStorage.setItem("CJ_VIEW", view);
-  }, [view]);
+  const [mode, setMode] = useState<AppMode>("FORGE");
 
-  // ---------- catalog ----------
-  const [catalog, setCatalog] = useState<Catalog>(() => loadCatalog());
-  useEffect(() => {
-    persistCatalog(catalog);
-  }, [catalog]);
-
-  // ---------- card ----------
   const [card, setCard] = useState<CardEntity>(() => {
     const saved = loadCardJson();
     if (saved) {
@@ -404,8 +206,6 @@ export default function App() {
   });
 
   const [issues, setIssues] = useState<ValidationIssue[]>([]);
-
-  // We store selected node id to preserve selection through re-renders.
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
 
   const [importOpen, setImportOpen] = useState(false);
@@ -420,17 +220,6 @@ export default function App() {
   const [libraryError, setLibraryError] = useState<string | null>(null);
   const [libraryUrl, setLibraryUrl] = useState(() => getLibrarySource().url ?? "");
 
-  // Builder AI Image Generator
-  const [imgOpen, setImgOpen] = useState(false);
-  const [imgProvider, setImgProvider] = useState<AiImageProvider>("OPENAI");
-  const [imgSystem, setImgSystem] = useState(
-    "You are an expert fantasy card illustrator. Generate a single, high-quality illustration that matches the request. No text, no frames, no watermarks."
-  );
-  const [imgPrompt, setImgPrompt] = useState("");
-  const [imgRefs, setImgRefs] = useState<Array<{ name: string; dataUrl: string }>>([]);
-  const [imgBusy, setImgBusy] = useState(false);
-  const [imgErr, setImgErr] = useState<string | null>(null);
-
   // Multi-ability
   const abilityIndexes = useMemo(() => findAbilityIndexes(card), [card]);
   const [activeAbilityIdx, setActiveAbilityIdx] = useState<number>(() => {
@@ -438,6 +227,10 @@ export default function App() {
     return idxs[0] ?? 0;
   });
 
+  // Target Profile editor state
+  const [activeProfileId, setActiveProfileId] = useState<string>("default");
+
+  // Keep activeAbilityIdx valid
   useEffect(() => {
     if (!abilityIndexes.length) return;
     if (!abilityIndexes.includes(activeAbilityIdx)) setActiveAbilityIdx(abilityIndexes[0]);
@@ -452,47 +245,6 @@ export default function App() {
     saveLibrary(library);
   }, [library]);
 
-  const { nodes, edges } = useMemo(() => {
-    const comps = card.components.slice();
-    const firstAbilityIdx = comps.findIndex((c: any) => c?.componentType === "ABILITY");
-    if (firstAbilityIdx < 0 || activeAbilityIdx === firstAbilityIdx) return canonicalToGraph(card);
-
-    const tmp = comps[firstAbilityIdx];
-    comps[firstAbilityIdx] = comps[activeAbilityIdx];
-    comps[activeAbilityIdx] = tmp;
-
-    const viewCard = { ...card, components: comps } as CardEntity;
-    const g = canonicalToGraph(viewCard);
-
-    const patchedNodes = g.nodes.map((n: any) => {
-      if (typeof n?.data?.abilityIdx !== "number") return n;
-      return { ...n, data: { ...n.data, abilityIdx: activeAbilityIdx } };
-    });
-
-    return { nodes: patchedNodes, edges: g.edges };
-  }, [card, activeAbilityIdx]);
-
-  const nodesWithSelection = useMemo(
-    () => nodes.map((n: any) => ({ ...n, selected: selectedNodeId ? n.id === selectedNodeId : false })),
-    [nodes, selectedNodeId]
-  );
-
-  const selectedNode = useMemo(() => (selectedNodeId ? nodes.find((n: any) => n.id === selectedNodeId) : null), [nodes, selectedNodeId]);
-  const selectedInfo = selectedNode?.data ?? null;
-  const selectedKind = selectedInfo?.kind ?? null;
-
-  const errorCount = issues.filter((i) => i.severity === "ERROR").length;
-
-  const nodeTypes = useMemo(
-    () => ({
-      abilityRoot: (p: any) => <AbilityRootNode {...p} card={card} />,
-      meta: (p: any) => <MetaNode {...p} card={card} />,
-      exec: (p: any) => <ExecNode {...p} card={card} />,
-      step: (p: any) => <StepNode {...p} card={card} />
-    }),
-    [card]
-  );
-
   function getAbilityByIndex(idx: number) {
     const ability = card.components[idx] as any;
     if (!ability || ability.componentType !== "ABILITY") return null;
@@ -500,6 +252,14 @@ export default function App() {
   }
 
   const ability = getAbilityByIndex(activeAbilityIdx);
+
+  // keep activeProfileId valid for current ability
+  useEffect(() => {
+    const profiles = ability?.targetingProfiles ?? [];
+    if (!profiles.length) return;
+    const exists = profiles.some((p) => p.id === activeProfileId);
+    if (!exists) setActiveProfileId(profiles[0].id);
+  }, [ability, activeProfileId]);
 
   function setAbility(patch: Partial<AbilityComponent>) {
     if (!ability) return;
@@ -521,7 +281,7 @@ export default function App() {
     const steps = (ability.execution?.steps ?? []).slice();
     steps.splice(stepIdx, 1);
     setAbility({ execution: { steps } } as any);
-    setSelectedNodeId(null);
+    // keep selection stable: if you deleted the selected step, selection may become invalid
   }
 
   function moveStep(stepIdx: number, dir: -1 | 1) {
@@ -542,53 +302,131 @@ export default function App() {
     const mk = (): Step => {
       switch (stepType) {
         case "SHOW_TEXT":
-          return { type: "SHOW_TEXT", text: "..." };
+          return { type: "SHOW_TEXT", text: "..." } as any;
+
         case "ROLL_D6":
-          return { type: "ROLL_D6", saveAs: "d6" };
+          return { type: "ROLL_D6", saveAs: "d6" } as any;
+
         case "ROLL_D20":
-          return { type: "ROLL_D20", saveAs: "d20" };
+          return { type: "ROLL_D20", saveAs: "d20" } as any;
+
         case "SET_VARIABLE":
           return { type: "SET_VARIABLE", saveAs: "var", valueExpr: { type: "CONST_NUMBER", value: 1 } } as any;
+
         case "IF_ELSE":
           return { type: "IF_ELSE", condition: { type: "ALWAYS" }, then: [], elseIf: [], else: [] } as any;
+
         case "SELECT_TARGETS":
-          return { type: "SELECT_TARGETS", profileId: ability.targetingProfiles?.[0]?.id ?? "profile", saveAs: "targets" } as any;
+          return {
+            type: "SELECT_TARGETS",
+            profileId: ability.targetingProfiles?.[0]?.id ?? "default",
+            saveAs: "targets"
+          } as any;
+
         case "FOR_EACH_TARGET":
           return { type: "FOR_EACH_TARGET", targetSet: { ref: "targets" }, do: [{ type: "SHOW_TEXT", text: "Per target..." }] } as any;
+
         case "DEAL_DAMAGE":
-          return { type: "DEAL_DAMAGE", target: { type: "ITERATION_TARGET" }, amountExpr: { type: "CONST_NUMBER", value: 10 }, damageType: "PHYSICAL" } as any;
+          return {
+            type: "DEAL_DAMAGE",
+            target: { type: "ITERATION_TARGET" },
+            amountExpr: { type: "CONST_NUMBER", value: 10 },
+            damageType: "PHYSICAL"
+          } as any;
+
         case "HEAL":
           return { type: "HEAL", target: { type: "SELF" }, amountExpr: { type: "CONST_NUMBER", value: 10 } } as any;
+
         case "APPLY_STATUS":
           return { type: "APPLY_STATUS", target: { type: "ITERATION_TARGET" }, status: "SLOWED", duration: { turns: 1 } } as any;
+
         case "REMOVE_STATUS":
           return { type: "REMOVE_STATUS", target: { type: "SELF" }, status: "STUNNED" } as any;
+
         case "MOVE_ENTITY":
           return { type: "MOVE_ENTITY", target: { type: "SELF" }, to: { mode: "TARGET_POSITION" }, maxTiles: 4 } as any;
+
         case "MOVE_WITH_PATH_CAPTURE":
           return { type: "MOVE_WITH_PATH_CAPTURE", target: { type: "SELF" }, maxTiles: 4, savePassedEnemiesAs: "passedEnemies", ignoreReactions: true } as any;
+
         case "OPEN_REACTION_WINDOW":
           return { type: "OPEN_REACTION_WINDOW", timing: "BEFORE_DAMAGE", windowId: "pre_damage" } as any;
+
         case "OPPONENT_SAVE":
           return { type: "OPPONENT_SAVE", stat: "SPEED", difficulty: 13, onFail: [], onSuccess: [] } as any;
+
         case "CALC_DISTANCE":
           return { type: "CALC_DISTANCE", metric: "HEX", from: { type: "SELF" }, to: { type: "ITERATION_TARGET" }, saveAs: "distance" } as any;
+
         case "DRAW_CARDS":
           return { type: "DRAW_CARDS", from: "ACTOR_ACTION_DECK", to: "ACTOR_ACTION_HAND", count: 1, faceUp: false, saveAs: "drawn" } as any;
+
         case "MOVE_CARDS":
           return { type: "MOVE_CARDS", from: "ACTOR_ACTION_HAND", to: "ACTOR_ACTION_DISCARD", selector: { topN: 1 } } as any;
+
         case "SHUFFLE_ZONE":
           return { type: "SHUFFLE_ZONE", zone: "ACTOR_ACTION_DECK" } as any;
+
         case "PUT_ON_TOP_ORDERED":
           return { type: "PUT_ON_TOP_ORDERED", zone: "ACTOR_ACTION_DECK", cardsRef: "drawn" } as any;
+
         case "END_TURN_IMMEDIATELY":
           return { type: "END_TURN_IMMEDIATELY" } as any;
+
+        // ---- NEW: Entity State steps ----
+        case "SET_ENTITY_STATE":
+          return { type: "SET_ENTITY_STATE", entity: { type: "SELF" }, key: "loaded", value: true } as any;
+
+        case "TOGGLE_ENTITY_STATE":
+          return { type: "TOGGLE_ENTITY_STATE", entity: { type: "SELF" }, key: "loaded" } as any;
+
+        case "CLEAR_ENTITY_STATE":
+          return { type: "CLEAR_ENTITY_STATE", entity: { type: "SELF" }, key: "loaded" } as any;
+
+        // ---- NEW: Entity Query / TargetSet steps ----
+        case "FIND_ENTITIES":
+          return {
+            type: "FIND_ENTITIES",
+            selector: { scope: "BOARD", filters: { tagsAny: [], tagsAll: [] } },
+            saveAs: "found"
+          } as any;
+
+        case "COUNT_ENTITIES":
+          return { type: "COUNT_ENTITIES", targetSet: { ref: "found" }, saveAs: "foundCount" } as any;
+
+        case "FILTER_TARGET_SET":
+          return { type: "FILTER_TARGET_SET", source: { ref: "found" }, filter: { tagsAny: [], tagsAll: [] }, saveAs: "filtered" } as any;
+
+        // ---- NEW: Spawn / Despawn ----
+        case "SPAWN_ENTITY":
+          return { type: "SPAWN_ENTITY", cardId: "token_smoke", owner: "SCENARIO", at: { mode: "TARGET_POSITION" }, saveAs: "spawned" } as any;
+
+        case "DESPAWN_ENTITY":
+          return { type: "DESPAWN_ENTITY", target: { type: "ITERATION_TARGET" } } as any;
+
+        // ---- NEW: Deck/Scenario zone utilities ----
+        case "EMPTY_HAND":
+          return { type: "EMPTY_HAND", handZone: "ACTOR_ACTION_HAND", to: "ACTOR_ACTION_DISCARD" } as any;
+
+        case "ADD_CARDS_TO_DECK":
+          return { type: "ADD_CARDS_TO_DECK", deckZone: "ACTOR_ACTION_DECK", cardIds: ["some_card_id"], countEach: 1, shuffleIn: true } as any;
+
+        case "REMOVE_CARDS_FROM_DECK":
+          return { type: "REMOVE_CARDS_FROM_DECK", deckZone: "ACTOR_ACTION_DECK", cardIds: ["some_card_id"], countEach: 1, to: "SCENARIO_EXILE" } as any;
+
+        case "SWAP_DECK":
+          return { type: "SWAP_DECK", actor: "ACTOR", slot: "ACTION", newDeckId: "deck_id", policy: { onSwap: "DISCARD_HAND" } } as any;
+
+        // ---- UI / Subsystems / Integrations (existing) ----
         case "OPEN_UI_FLOW":
           return { type: "OPEN_UI_FLOW", flowId: "CUSTOM", payload: { note: "open mini-flow UI" }, saveAs: "uiResult" } as any;
+
         case "REQUEST_PLAYER_CHOICE":
           return { type: "REQUEST_PLAYER_CHOICE", prompt: "Choose one:", choices: [{ id: "a", label: "A" }, { id: "b", label: "B" }], saveAs: "choice" } as any;
+
         case "REGISTER_INTERRUPTS":
           return { type: "REGISTER_INTERRUPTS", scope: "UNTIL_TURN_END", events: ["ON_MOVE"], onInterrupt: [{ type: "SHOW_TEXT", text: "Interrupted!" }] } as any;
+
         case "PROPERTY_CONTEST":
           return {
             type: "PROPERTY_CONTEST",
@@ -599,10 +437,13 @@ export default function App() {
             onWin: [{ type: "SHOW_TEXT", text: "Win branch" }],
             onLose: [{ type: "SHOW_TEXT", text: "Lose branch" }]
           } as any;
+
         case "WEBHOOK_CALL":
           return { type: "WEBHOOK_CALL", url: "http://localhost:3000/hook", method: "POST", eventName: "event", payload: { hello: "world" } } as any;
+
         case "EMIT_EVENT":
           return { type: "EMIT_EVENT", eventName: "MY_EVENT", payload: { note: "internal event bus" } } as any;
+
         case "AI_REQUEST":
           return {
             type: "AI_REQUEST",
@@ -612,6 +453,7 @@ export default function App() {
             outputJsonSchema: { type: "object", properties: { damage: { type: "number" }, note: { type: "string" } }, required: ["damage"] },
             saveAs: "aiResult"
           } as any;
+
         default:
           return { type: "UNKNOWN_STEP", raw: { type: stepType } } as any;
       }
@@ -622,7 +464,8 @@ export default function App() {
   }
 
   function exportCardJson() {
-    download(cardFileName(card, "CJ-1.2"), JSON.stringify(card, null, 2));
+    // keep suffix stable; schemaVersion is stored in card.schemaVersion
+    download(cardFileName(card, card.schemaVersion), JSON.stringify(card, null, 2));
   }
 
   function doImport() {
@@ -630,13 +473,13 @@ export default function App() {
     try {
       const parsed = coerceUnknownSteps(JSON.parse(importText));
       const incoming: CardEntity = parsed?.projectVersion === "FORGE-1.0" ? parsed.card : parsed;
-      if (!incoming || (incoming.schemaVersion !== "CJ-1.0" && incoming.schemaVersion !== "CJ-1.1" && (incoming as any).schemaVersion !== "CJ-1.2")) {
-        throw new Error("Expected CJ-1.0 / CJ-1.1 / CJ-1.2 card JSON (or FORGE-1.0 project).");
+      if (!incoming?.schemaVersion || typeof incoming.schemaVersion !== "string") {
+        throw new Error("Expected CJ card JSON with schemaVersion.");
       }
+      // validator now handles CJ-1.0/1.1/1.2; we don't hard-block here
       setCard(incoming);
       const idxs = findAbilityIndexes(incoming);
       setActiveAbilityIdx(idxs[0] ?? 0);
-      setSelectedNodeId(null);
       setImportOpen(false);
       setImportText("");
     } catch (e: any) {
@@ -650,7 +493,7 @@ export default function App() {
       name: "New Ability",
       description: "",
       trigger: "ACTIVE_ACTION",
-      cost: { ap: 1, tokens: {} as any },
+      cost: { ap: 1, tokens: {} },
       targetingProfiles: [
         {
           id: "default",
@@ -660,13 +503,13 @@ export default function App() {
           range: { base: 4, min: 1, max: 4 },
           lineOfSight: true,
           los: { mode: "HEX_RAYCAST", required: true, blockers: [{ policy: "BLOCK_ALL", tags: ["BARRIER"] }] }
-        }
+        } as any
       ],
-      execution: { steps: [{ type: "SHOW_TEXT", text: "Do something!" }] }
+      execution: { steps: [{ type: "SHOW_TEXT", text: "Do something!" } as any] }
     };
     setCard({ ...card, components: [...card.components, newAbility as any] });
     setActiveAbilityIdx(card.components.length);
-    setSelectedNodeId(null);
+    // keep selection stable: do not force clear unless you want
   }
 
   function removeActiveAbility() {
@@ -682,11 +525,6 @@ export default function App() {
     setSelectedNodeId(null);
   }
 
-  // Selected step
-  const selectedStepIdx = selectedKind === "STEP" ? selectedInfo?.stepIdx : null;
-  const selectedStep =
-    selectedStepIdx != null && ability?.execution?.steps ? (ability.execution.steps[selectedStepIdx] as Step) : null;
-
   // ---------- Action Library helpers ----------
   function saveActiveAbilityToLibrary() {
     if (!ability) return;
@@ -695,10 +533,9 @@ export default function App() {
     setLibrary(next);
   }
 
-  function saveSelectedStepToLibrary() {
-    if (!selectedStep) return;
-    const id = `${card.id}::step::${selectedStep.type}::${Date.now()}`;
-    const next = upsertStep(library, { id, name: selectedStep.type, step: selectedStep });
+  function saveSelectedStepToLibrary(selectedStep: Step) {
+    const id = `${card.id}::step::${(selectedStep as any).type}::${Date.now()}`;
+    const next = upsertStep(library, { id, name: (selectedStep as any).type, step: selectedStep });
     setLibrary(next);
   }
 
@@ -719,90 +556,198 @@ export default function App() {
     }
   }
 
-  async function runImageGen() {
-    setImgErr(null);
-    setImgBusy(true);
-    try {
-      // Default card-art size; adjust if you have a template definition.
-      const width = 1024;
-      const height = 1536;
-
-      const prompt =
-        imgPrompt.trim().length > 0
-          ? imgPrompt.trim()
-          : `Illustration for a fantasy card named "${card.name}". No text. Cinematic lighting. High detail.`;
-
-      const res = await requestAiImage({
-        provider: imgProvider,
-        width,
-        height,
-        systemPrompt: imgSystem,
-        userPrompt: prompt,
-        referenceImages: imgRefs.length ? imgRefs : undefined
-      });
-
-      const url = res.url || res.dataUrl;
-      if (!url) throw new Error("AI image response missing url/dataUrl.");
-
-      setCard({ ...card, visuals: { ...(card.visuals ?? {}), cardImage: url } });
-      setImgOpen(false);
-      setImgRefs([]);
-    } catch (e: any) {
-      setImgErr(e.message ?? String(e));
-    } finally {
-      setImgBusy(false);
+  // --- ReactFlow graph (with persistent selection) ---
+  const { nodes, edges } = useMemo(() => {
+    const comps = card.components.slice();
+    const firstAbilityIdx = comps.findIndex((c: any) => c?.componentType === "ABILITY");
+    if (firstAbilityIdx < 0 || activeAbilityIdx === firstAbilityIdx) {
+      const g = canonicalToGraph(card);
+      const patched = g.nodes.map((n: any) => ({ ...n, selected: selectedNodeId === n.id }));
+      return { nodes: patched, edges: g.edges };
     }
+
+    const tmp = comps[firstAbilityIdx];
+    comps[firstAbilityIdx] = comps[activeAbilityIdx];
+    comps[activeAbilityIdx] = tmp;
+
+    const viewCard = { ...card, components: comps } as CardEntity;
+    const g = canonicalToGraph(viewCard);
+
+    const patchedNodes = g.nodes.map((n: any) => {
+      const next = { ...n, selected: selectedNodeId === n.id };
+      if (typeof next?.data?.abilityIdx === "number") {
+        next.data = { ...next.data, abilityIdx: activeAbilityIdx };
+      }
+      return next;
+    });
+
+    return { nodes: patchedNodes, edges: g.edges };
+  }, [card, activeAbilityIdx, selectedNodeId]);
+
+  // clear selection if node no longer exists
+  useEffect(() => {
+    if (!selectedNodeId) return;
+    if (!nodes.some((n: any) => n.id === selectedNodeId)) setSelectedNodeId(null);
+  }, [nodes, selectedNodeId]);
+
+  const errorCount = issues.filter((i) => i.severity === "ERROR").length;
+
+  const nodeTypes = useMemo(
+    () => ({
+      abilityRoot: (p: any) => <AbilityRootNode {...p} card={card} />,
+      meta: (p: any) => <MetaNode {...p} card={card} />,
+      exec: (p: any) => <ExecNode {...p} card={card} />,
+      step: (p: any) => <StepNode {...p} card={card} />
+    }),
+    [card]
+  );
+
+  // derive selected node data from id (stable)
+  const selectedNode = useMemo(() => {
+    if (!selectedNodeId) return null;
+    return (nodes as any[]).find((n) => n.id === selectedNodeId) ?? null;
+  }, [nodes, selectedNodeId]);
+
+  const selectedInfo = (selectedNode as any)?.data ?? null;
+  const selectedKind = selectedInfo?.kind ?? null;
+
+  const selectedStepIdx = selectedKind === "STEP" ? selectedInfo.stepIdx : null;
+  const selectedStep =
+    selectedStepIdx != null && ability?.execution?.steps ? (ability.execution.steps[selectedStepIdx] as Step) : null;
+
+  // ---- Target profile editing helpers ----
+  const profiles = ability?.targetingProfiles ?? [];
+  const activeProfile = profiles.find((p: any) => p.id === activeProfileId) ?? profiles[0];
+
+  function setProfiles(nextProfiles: any[]) {
+    setAbility({ targetingProfiles: nextProfiles } as any);
   }
 
-  // Small helpers for restriction editing (stored as any until types updated)
-  const restrictions = ((card as any).restrictions ?? {}) as any;
-  const usableByUnitIds: string[] = Array.isArray(restrictions.usableByUnitIds) ? restrictions.usableByUnitIds : [];
+  function ensureUniqueProfileId(base: string) {
+    const existing = new Set((profiles ?? []).map((p: any) => p.id));
+    if (!existing.has(base)) return base;
+    let i = 2;
+    while (existing.has(`${base}_${i}`)) i++;
+    return `${base}_${i}`;
+  }
 
+  function addProfile() {
+    const id = ensureUniqueProfileId("profile");
+    const next = [
+      ...(profiles ?? []),
+      {
+        id,
+        label: "New Profile",
+        type: "SINGLE_TARGET",
+        origin: "SOURCE",
+        range: { base: 4, min: 1, max: 4 },
+        lineOfSight: true,
+        los: { mode: "HEX_RAYCAST", required: true, blockers: [{ policy: "BLOCK_ALL", tags: ["BARRIER"] }] }
+      }
+    ];
+    setProfiles(next);
+    setActiveProfileId(id);
+  }
+
+  function removeProfile(id: string) {
+    if (!profiles?.length) return;
+    if (profiles.length <= 1) return;
+    const next = profiles.filter((p: any) => p.id !== id);
+    setProfiles(next);
+    setActiveProfileId(next[0]?.id ?? "default");
+  }
+
+  // ---- Render non-FORGE modes ----
+  if (mode !== "FORGE") {
+    return (
+      <div className="app">
+        <div className="topbar">
+          <div className="brand">
+            <span style={{ width: 10, height: 10, borderRadius: 999, background: "var(--accent)" }} />
+            Captain Jawa Forge <span className="badge">{card.schemaVersion}</span>
+          </div>
+
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <button className={`btn ${mode === "FORGE" ? "btnPrimary" : ""}`} onClick={() => setMode("FORGE")}>
+              Forge
+            </button>
+            <button className={`btn ${mode === "LIBRARY" ? "btnPrimary" : ""}`} onClick={() => setMode("LIBRARY")}>
+              Library
+            </button>
+            <button className={`btn ${mode === "DECKS" ? "btnPrimary" : ""}`} onClick={() => setMode("DECKS")}>
+              Decks
+            </button>
+            <button className={`btn ${mode === "SCENARIOS" ? "btnPrimary" : ""}`} onClick={() => setMode("SCENARIOS")}>
+              Scenarios
+            </button>
+          </div>
+        </div>
+
+        <div style={{ padding: 12 }}>
+          <div className="panel">
+            <div className="ph">
+              <div className="h2">
+                {mode === "LIBRARY" ? "Card Library" : mode === "DECKS" ? "Deck Builder" : "Scenario Builder"}
+              </div>
+              <span className="badge">MVP</span>
+            </div>
+            <div className="pb">
+              {mode === "LIBRARY" ? <CardLibraryManager /> : null}
+              {mode === "DECKS" ? <DeckBuilder /> : null}
+              {mode === "SCENARIOS" ? <ScenarioBuilder /> : null}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ---- FORGE UI ----
   return (
     <div className="app">
       <div className="topbar">
         <div className="brand">
           <span style={{ width: 10, height: 10, borderRadius: 999, background: "var(--accent)" }} />
-          Captain Jawa Forge <span className="badge">CJ</span>
+          Captain Jawa Forge <span className="badge">{card.schemaVersion}</span>
           <span className="badge">{errorCount === 0 ? "OK" : `${errorCount} errors`}</span>
         </div>
 
-        {/* View tabs */}
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-          {(["FORGE", "CATALOG", "LIBRARY", "DECKS", "SCENARIOS"] as ViewKey[]).map((k) => (
-            <button
-              key={k}
-              className={view === k ? "btn btnPrimary" : "btn"}
-              onClick={() => setView(k)}
-              title={k}
-            >
-              {k}
-            </button>
-          ))}
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <button className={`btn ${mode === "FORGE" ? "btnPrimary" : ""}`} onClick={() => setMode("FORGE")}>
+            Forge
+          </button>
+          <button className={`btn ${mode === "LIBRARY" ? "btnPrimary" : ""}`} onClick={() => setMode("LIBRARY")}>
+            Library
+          </button>
+          <button className={`btn ${mode === "DECKS" ? "btnPrimary" : ""}`} onClick={() => setMode("DECKS")}>
+            Decks
+          </button>
+          <button className={`btn ${mode === "SCENARIOS" ? "btnPrimary" : ""}`} onClick={() => setMode("SCENARIOS")}>
+            Scenarios
+          </button>
 
-          <span style={{ width: 1, height: 22, background: "var(--border)", opacity: 0.6, margin: "0 6px" }} />
+          <span style={{ width: 1, background: "var(--border)", opacity: 0.6, margin: "0 6px" }} />
 
-          <button className="btn" onClick={() => setPreviewOpen(true)} disabled={view !== "FORGE"}>
+          <button className="btn" onClick={() => setPreviewOpen(true)}>
             Preview Card
           </button>
-          <button className="btn" onClick={() => setLibraryOpen(true)} disabled={view !== "FORGE"}>
+          <button className="btn" onClick={() => setLibraryOpen(true)}>
             Action Library
           </button>
-          <button className="btn" onClick={() => setImportOpen(true)} disabled={view !== "FORGE"}>
+          <button className="btn" onClick={() => setImportOpen(true)}>
             Import JSON
           </button>
-          <button className="btn" onClick={exportCardJson} disabled={view !== "FORGE"}>
+          <button className="btn" onClick={exportCardJson}>
             Export Card JSON
           </button>
-          <button className="btn btnPrimary" onClick={addAbility} disabled={view !== "FORGE"}>
+          <button className="btn btnPrimary" onClick={addAbility}>
             + Add Ability
           </button>
-          <button className="btn btnDanger" onClick={removeActiveAbility} disabled={view !== "FORGE" || abilityIndexes.length <= 1}>
+          <button className="btn btnDanger" onClick={removeActiveAbility} disabled={abilityIndexes.length <= 1}>
             Remove Ability
           </button>
           <button
             className="btn"
-            disabled={view !== "FORGE"}
             onClick={() => {
               const fresh = makeDefaultCard();
               setCard(fresh);
@@ -815,7 +760,6 @@ export default function App() {
           </button>
           <button
             className="btn btnDanger"
-            disabled={view !== "FORGE"}
             onClick={() => {
               clearSaved();
               const fresh = makeDefaultCard();
@@ -830,706 +774,1350 @@ export default function App() {
         </div>
       </div>
 
-      {/* Non-forge views */}
-      {view !== "FORGE" ? (
-        <>
-          {view === "CATALOG" ? <CatalogView catalog={catalog} setCatalog={setCatalog} /> : null}
-          {view === "LIBRARY" ? (
-            <div style={{ margin: 12 }}>
-              <CardLibraryManager />
+      <div className="grid">
+        {/* Palette */}
+        <div className="panel">
+          <div className="ph">
+            <div>
+              <div className="h2">Palette</div>
+              <div className="small">Grouped steps (accordion)</div>
             </div>
-          ) : null}
-          {view === "DECKS" ? (
-            <div style={{ margin: 12 }}>
-              <DeckBuilder />
+            <span className="badge">{blockRegistry.steps.types.length}</span>
+          </div>
+
+          <div className="pb">
+            <div className="small">Active Ability</div>
+            <select
+              className="select"
+              value={String(activeAbilityIdx)}
+              onChange={(e) => {
+                setActiveAbilityIdx(Number(e.target.value));
+              }}
+            >
+              {abilityIndexes.map((idx) => {
+                const a = card.components[idx] as any;
+                return (
+                  <option key={idx} value={idx}>
+                    {a?.name ?? "Ability"} ({a?.trigger ?? "—"})
+                  </option>
+                );
+              })}
+            </select>
+
+            <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+              <button className="btn btnPrimary" style={{ flex: 1 }} onClick={saveActiveAbilityToLibrary}>
+                Save Ability → Library
+              </button>
+              <button
+                className="btn"
+                style={{ flex: 1 }}
+                onClick={() => selectedStep && saveSelectedStepToLibrary(selectedStep)}
+                disabled={!selectedStep}
+              >
+                Save Step → Library
+              </button>
             </div>
-          ) : null}
-          {view === "SCENARIOS" ? (
-            <div style={{ margin: 12 }}>
-              <ScenarioBuilder />
+
+            <hr style={{ borderColor: "var(--border)", opacity: 0.5, margin: "12px 0" }} />
+
+            {getStepGroups().map((g) => (
+              <details key={g.id} open={g.id === "core"} style={{ marginBottom: 10 }}>
+                <summary className="small" style={{ cursor: "pointer", fontWeight: 900 }}>
+                  {g.label}
+                </summary>
+                <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 8 }}>
+                  {g.types.map((t) => (
+                    <div key={t} className="item" onClick={() => addStep(t)}>
+                      <b>{t}</b> <span className="small">step</span>
+                    </div>
+                  ))}
+                </div>
+              </details>
+            ))}
+          </div>
+        </div>
+
+        {/* Canvas */}
+        <div className="panel">
+          <div className="ph">
+            <div>
+              <div className="h2">Logic Canvas</div>
+              <div className="small">Click nodes to edit on the right.</div>
             </div>
-          ) : null}
-        </>
-      ) : (
-        <div className="grid">
-          {/* Palette */}
+            <span className="badge">React Flow</span>
+          </div>
+
+          <div className="rfWrap">
+            <ReactFlow
+              nodes={nodes}
+              edges={edges}
+              nodeTypes={nodeTypes}
+              fitView
+              proOptions={{ hideAttribution: true }}
+              onNodeClick={(_, n) => setSelectedNodeId(n.id)}
+              onPaneClick={() => setSelectedNodeId(null)}
+            >
+              <Background />
+              <Controls position="bottom-right" />
+              <MiniMap pannable zoomable />
+            </ReactFlow>
+          </div>
+        </div>
+
+        {/* Inspector + JSON + Compile */}
+        <div style={{ display: "flex", flexDirection: "column", gap: 12, minHeight: 0 }}>
           <div className="panel">
             <div className="ph">
               <div>
-                <div className="h2">Palette</div>
-                <div className="small">Grouped steps (accordion)</div>
+                <div className="h2">Inspector</div>
+                <div className="small">{selectedKind ?? "No selection"}</div>
               </div>
-              <span className="badge">{blockRegistry.steps.types.length}</span>
+              <span className="badge">{card.schemaVersion}</span>
             </div>
 
-            <div className="pb">
-              <div className="small">Active Ability</div>
-              <select
-                className="select"
-                value={String(activeAbilityIdx)}
-                onChange={(e) => {
-                  setActiveAbilityIdx(Number(e.target.value));
-                  setSelectedNodeId(null);
-                }}
-              >
-                {abilityIndexes.map((idx) => {
-                  const a = card.components[idx] as any;
-                  return (
-                    <option key={idx} value={idx}>
-                      {a?.name ?? "Ability"} ({a?.trigger ?? "—"})
-                    </option>
-                  );
-                })}
-              </select>
+            <div className="pb" style={{ overflow: "auto", maxHeight: "55vh" }}>
+              <div className="small">Card Name</div>
+              <input className="input" value={card.name} onChange={(e) => setCard({ ...card, name: e.target.value })} />
 
               <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
-                <button className="btn btnPrimary" style={{ flex: 1 }} onClick={saveActiveAbilityToLibrary}>
-                  Save Ability → Library
-                </button>
-                <button className="btn" style={{ flex: 1 }} onClick={saveSelectedStepToLibrary} disabled={!selectedStep}>
-                  Save Step → Library
-                </button>
-              </div>
-
-              <hr style={{ borderColor: "var(--border)", opacity: 0.5, margin: "12px 0" }} />
-
-              {getStepGroups().map((g) => (
-                <details key={g.id} open={g.id === "core"} style={{ marginBottom: 10 }}>
-                  <summary className="small" style={{ cursor: "pointer", fontWeight: 900 }}>
-                    {g.label}
-                  </summary>
-                  <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 8 }}>
-                    {g.types.map((t) => (
-                      <div key={t} className="item" onClick={() => addStep(t)}>
-                        <b>{t}</b> <span className="small">step</span>
-                      </div>
+                <div style={{ flex: 1 }}>
+                  <div className="small">Card Type</div>
+                  <select className="select" value={card.type} onChange={(e) => setCard({ ...card, type: e.target.value as any })}>
+                    {["UNIT", "ITEM", "ENVIRONMENT", "SPELL", "TOKEN"].map((t) => (
+                      <option key={t} value={t}>
+                        {t}
+                      </option>
                     ))}
-                  </div>
-                </details>
-              ))}
-            </div>
-          </div>
-
-          {/* Canvas */}
-          <div className="panel">
-            <div className="ph">
-              <div>
-                <div className="h2">Logic Canvas</div>
-                <div className="small">Select nodes to edit on the right.</div>
-              </div>
-              <span className="badge">React Flow</span>
-            </div>
-            <div className="rfWrap">
-              <ReactFlow
-                nodes={nodesWithSelection}
-                edges={edges}
-                nodeTypes={nodeTypes}
-                fitView
-                onSelectionChange={(sel) => setSelectedNodeId(sel?.nodes?.[0]?.id ?? null)}
-                proOptions={{ hideAttribution: true }}
-              >
-                <Background />
-                <Controls position="bottom-right" />
-                <MiniMap pannable zoomable />
-              </ReactFlow>
-            </div>
-          </div>
-
-          {/* Inspector + JSON + Compile */}
-          <div style={{ display: "flex", flexDirection: "column", gap: 12, minHeight: 0 }}>
-            <div className="panel">
-              <div className="ph">
-                <div>
-                  <div className="h2">Inspector</div>
-                  <div className="small">{selectedKind ?? "No selection"}</div>
+                  </select>
                 </div>
-                <span className="badge">{card.schemaVersion}</span>
+                <div style={{ flex: 1 }}>
+                  <div className="small">Schema</div>
+                  <input className="input" value={card.schemaVersion} disabled />
+                </div>
               </div>
 
-              <div className="pb" style={{ overflow: "auto", maxHeight: "55vh" }}>
-                <div className="small">Card Name</div>
-                <input className="input" value={card.name} onChange={(e) => setCard({ ...card, name: e.target.value })} />
+              <details style={{ marginTop: 10 }}>
+                <summary className="small" style={{ cursor: "pointer" }}>
+                  Card Art + Identity
+                </summary>
+
+                <div className="small" style={{ marginTop: 8 }}>
+                  Image URL / Path
+                </div>
+                <input
+                  className="input"
+                  value={card.visuals?.cardImage ?? ""}
+                  onChange={(e) => setCard({ ...card, visuals: { ...(card.visuals ?? {}), cardImage: e.target.value || undefined } })}
+                  placeholder="/cards/my_card.png"
+                />
 
                 <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
                   <div style={{ flex: 1 }}>
-                    <div className="small">Card Type</div>
-                    <select className="select" value={card.type} onChange={(e) => setCard({ ...card, type: e.target.value as any })}>
-                      {["UNIT", "ITEM", "ENVIRONMENT", "SPELL", "TOKEN"].map((t) => (
-                        <option key={t} value={t}>
-                          {t}
+                    <div className="small">Image Align</div>
+                    <select
+                      className="select"
+                      value={card.visuals?.imageAlign ?? "CENTER"}
+                      onChange={(e) => setCard({ ...card, visuals: { ...(card.visuals ?? {}), imageAlign: e.target.value as any } })}
+                    >
+                      {["TOP", "CENTER", "BOTTOM", "LEFT", "RIGHT"].map((x) => (
+                        <option key={x} value={x}>
+                          {x}
                         </option>
                       ))}
                     </select>
                   </div>
                   <div style={{ flex: 1 }}>
-                    <div className="small">Schema</div>
-                    <input className="input" value={card.schemaVersion} disabled />
+                    <div className="small">Image Fit</div>
+                    <select
+                      className="select"
+                      value={card.visuals?.imageFit ?? "COVER"}
+                      onChange={(e) => setCard({ ...card, visuals: { ...(card.visuals ?? {}), imageFit: e.target.value as any } })}
+                    >
+                      {["COVER", "CONTAIN"].map((x) => (
+                        <option key={x} value={x}>
+                          {x}
+                        </option>
+                      ))}
+                    </select>
                   </div>
                 </div>
 
-                <details style={{ marginTop: 10 }}>
-                  <summary className="small" style={{ cursor: "pointer" }}>
-                    Card Art + Identity
-                  </summary>
-
-                  <div className="small" style={{ marginTop: 8 }}>
-                    Image URL / Path
+                <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+                  <div style={{ flex: 1 }}>
+                    <div className="small">Faction</div>
+                    <input className="input" value={card.faction ?? ""} onChange={(e) => setCard({ ...card, faction: e.target.value || undefined })} />
                   </div>
-                  <input
-                    className="input"
-                    value={card.visuals?.cardImage ?? ""}
-                    onChange={(e) => setCard({ ...card, visuals: { ...(card.visuals ?? {}), cardImage: e.target.value || undefined } })}
-                    placeholder="/cards/my_card.png"
-                  />
-
-                  <div style={{ display: "flex", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
-                    <button className="btn btnPrimary" onClick={() => setImgOpen(true)}>
-                      ✨ Generate Image (AI)
-                    </button>
-                    <button
-                      className="btn"
-                      onClick={() => {
-                        downloadText(cardFileName(card, "prompt") + ".txt", imgPrompt || `Illustration for: ${card.name}`);
-                      }}
-                    >
-                      Export Art Prompt
-                    </button>
+                  <div style={{ flex: 1 }}>
+                    <div className="small">Types (comma)</div>
+                    <input
+                      className="input"
+                      value={(card.subType ?? []).join(", ")}
+                      onChange={(e) => setCard({ ...card, subType: e.target.value.split(",").map((s) => s.trim()).filter(Boolean) })}
+                      placeholder="HUMAN, DUELIST..."
+                    />
                   </div>
+                </div>
 
-                  <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
-                    <div style={{ flex: 1 }}>
-                      <div className="small">Image Align</div>
-                      <select
-                        className="select"
-                        value={card.visuals?.imageAlign ?? "CENTER"}
-                        onChange={(e) => setCard({ ...card, visuals: { ...(card.visuals ?? {}), imageAlign: e.target.value as any } })}
-                      >
-                        {["TOP", "CENTER", "BOTTOM", "LEFT", "RIGHT"].map((x) => (
-                          <option key={x} value={x}>
-                            {x}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                    <div style={{ flex: 1 }}>
-                      <div className="small">Image Fit</div>
-                      <select
-                        className="select"
-                        value={card.visuals?.imageFit ?? "COVER"}
-                        onChange={(e) => setCard({ ...card, visuals: { ...(card.visuals ?? {}), imageFit: e.target.value as any } })}
-                      >
-                        {["COVER", "CONTAIN"].map((x) => (
-                          <option key={x} value={x}>
-                            {x}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                  </div>
-
-                  <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
-                    <div style={{ flex: 1 }}>
-                      <div className="small">Faction</div>
-                      <select
-                        className="select"
-                        value={card.faction ?? ""}
-                        onChange={(e) => setCard({ ...card, faction: e.target.value || undefined })}
-                      >
-                        <option value="">(none)</option>
-                        {catalog.factions.map((fx) => (
-                          <option key={fx.id} value={fx.id}>
-                            {fx.name} ({fx.id})
-                          </option>
-                        ))}
-                      </select>
-                      <div className="small" style={{ marginTop: 6 }}>
-                        (Manage factions in the <b>CATALOG</b> tab)
-                      </div>
-                    </div>
-                    <div style={{ flex: 1 }}>
-                      <div className="small">Types (comma)</div>
+                <div className="small" style={{ marginTop: 8 }}>
+                  Printed Token Value (for contests)
+                </div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 6 }}>
+                  {((blockRegistry.keys.TokenKey as string[]) ?? []).map((k) => (
+                    <label key={k} className="chip" style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                      <span style={{ fontWeight: 900 }}>{k}</span>
                       <input
                         className="input"
-                        value={(card.subType ?? []).join(", ")}
-                        onChange={(e) => setCard({ ...card, subType: e.target.value.split(",").map((s) => s.trim()).filter(Boolean) })}
-                        placeholder="HUMAN, DUELIST..."
-                      />
-                    </div>
-                  </div>
-
-                  {/* Unit / restrictions */}
-                  <div className="small" style={{ marginTop: 10 }}>
-                    Unit linkage / restrictions
-                  </div>
-                  {card.type === "UNIT" ? (
-                    <>
-                      <div className="small" style={{ marginTop: 6 }}>
-                        Unit Registry ID (optional)
-                      </div>
-                      <input
-                        className="input"
-                        value={String((card as any).unitId ?? "")}
-                        onChange={(e) => setCard({ ...(card as any), unitId: e.target.value || undefined })}
-                        placeholder="THE_FISHERMAN"
-                      />
-                    </>
-                  ) : (
-                    <>
-                      <div className="small" style={{ marginTop: 6 }}>
-                        Usable by Unit IDs (comma)
-                      </div>
-                      <input
-                        className="input"
-                        value={usableByUnitIds.join(", ")}
-                        onChange={(e) => {
-                          const ids = e.target.value
-                            .split(",")
-                            .map((s) => s.trim())
-                            .filter(Boolean);
+                        style={{ width: 70 }}
+                        type="number"
+                        value={(card.tokenValue as any)?.[k] ?? 0}
+                        onChange={(e) =>
                           setCard({
-                            ...(card as any),
-                            restrictions: { ...(restrictions ?? {}), usableByUnitIds: ids.length ? ids : undefined }
+                            ...card,
+                            tokenValue: { ...(card.tokenValue ?? {}), [k]: Number(e.target.value) }
+                          })
+                        }
+                      />
+                    </label>
+                  ))}
+                </div>
+
+                {card.type === "UNIT" ? (
+                  <>
+                    <div className="small" style={{ marginTop: 10 }}>
+                      Unit Stats
+                    </div>
+                    <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
+                      <input
+                        className="input"
+                        type="number"
+                        title="HP max"
+                        value={card.stats?.hp?.max ?? 100}
+                        onChange={(e) => {
+                          const max = Number(e.target.value);
+                          setCard({
+                            ...card,
+                            stats: {
+                              ...(card.stats ?? {}),
+                              hp: { current: Math.min(card.stats?.hp?.current ?? max, max), max }
+                            }
                           });
                         }}
-                        placeholder="THE_FISHERMAN"
                       />
-                      <div className="small" style={{ marginTop: 6 }}>
-                        Tip: pick Unit IDs from the Catalog tab. This supports rules like “Hookstaff only usable by The Fisherman”.
+                      <input
+                        className="input"
+                        type="number"
+                        title="AP max"
+                        value={card.stats?.ap?.max ?? 2}
+                        onChange={(e) => {
+                          const max = Number(e.target.value);
+                          setCard({
+                            ...card,
+                            stats: {
+                              ...(card.stats ?? {}),
+                              ap: { current: Math.min(card.stats?.ap?.current ?? max, max), max }
+                            }
+                          });
+                        }}
+                      />
+                      <input
+                        className="input"
+                        type="number"
+                        title="MOVE"
+                        value={card.stats?.movement ?? 4}
+                        onChange={(e) => setCard({ ...card, stats: { ...(card.stats ?? {}), movement: Number(e.target.value) } })}
+                      />
+                      <input
+                        className="input"
+                        type="number"
+                        title="SIZE"
+                        value={card.stats?.size ?? 1}
+                        onChange={(e) => setCard({ ...card, stats: { ...(card.stats ?? {}), size: Number(e.target.value) } })}
+                      />
+                    </div>
+                  </>
+                ) : null}
+
+                <button className="btn btnPrimary" style={{ marginTop: 10 }} onClick={() => setPreviewOpen(true)}>
+                  Open Preview
+                </button>
+              </details>
+
+              <hr style={{ borderColor: "var(--border)", opacity: 0.5, margin: "12px 0" }} />
+
+              {!ability ? (
+                <div className="err">
+                  <b>No ABILITY component</b>
+                  <div className="small">Add an ability to use this editor.</div>
+                </div>
+              ) : (
+                <>
+                  {/* Ability Root editor */}
+                  {(selectedKind === "ABILITY_ROOT" || !selectedKind) && (
+                    <>
+                      <div className="small">Ability Name</div>
+                      <input className="input" value={ability.name} onChange={(e) => setAbility({ name: e.target.value })} />
+
+                      <div className="small" style={{ marginTop: 8 }}>
+                        Description
                       </div>
+                      <textarea className="textarea" value={ability.description ?? ""} onChange={(e) => setAbility({ description: e.target.value })} />
+
+                      <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+                        <div style={{ flex: 1 }}>
+                          <div className="small">Trigger</div>
+                          <select className="select" value={ability.trigger} onChange={(e) => setAbility({ trigger: e.target.value as any })}>
+                            {((blockRegistry.triggers as string[]) ?? []).map((t) => (
+                              <option key={t} value={t}>
+                                {t}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                        <div style={{ flex: 1 }}>
+                          <div className="small">AP Cost</div>
+                          <input
+                            className="input"
+                            type="number"
+                            value={ability.cost?.ap ?? 0}
+                            onChange={(e) => setAbility({ cost: { ...(ability.cost ?? { ap: 0 }), ap: Number(e.target.value) } })}
+                          />
+                        </div>
+                      </div>
+
+                      <div className="small" style={{ marginTop: 8 }}>
+                        Token Cost (AND)
+                      </div>
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                        {((blockRegistry.keys.TokenKey as string[]) ?? []).map((k) => (
+                          <label key={k} className="chip" style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                            <span style={{ fontWeight: 900 }}>{k}</span>
+                            <input
+                              className="input"
+                              style={{ width: 70 }}
+                              type="number"
+                              value={((ability.cost as any)?.tokens as any)?.[k] ?? 0}
+                              onChange={(e) =>
+                                setAbility({
+                                  cost: {
+                                    ...(ability.cost ?? { ap: 0 }),
+                                    tokens: { ...((ability.cost as any)?.tokens ?? {}), [k]: Number(e.target.value) }
+                                  } as any
+                                })
+                              }
+                            />
+                          </label>
+                        ))}
+                      </div>
+
+                      <details style={{ marginTop: 10 }}>
+                        <summary className="small" style={{ cursor: "pointer" }}>
+                          Alternative Token Options (OR)
+                        </summary>
+                        <div className="small" style={{ marginTop: 6 }}>
+                          Example: costs AWR 1 <b>or</b> SPD 1.
+                        </div>
+                        <button
+                          className="btn"
+                          style={{ marginTop: 8 }}
+                          onClick={() =>
+                            setAbility({
+                              cost: { ...(ability.cost ?? { ap: 0 }), tokenOptions: [...(((ability.cost as any)?.tokenOptions ?? []) as any[]), {}] } as any
+                            })
+                          }
+                        >
+                          + Add Option
+                        </button>
+                        {(((ability.cost as any)?.tokenOptions ?? []) as any[]).map((opt, idx) => (
+                          <div key={idx} className="panel" style={{ marginTop: 8 }}>
+                            <div className="pb">
+                              <div className="small">Option {idx + 1}</div>
+                              <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                                {((blockRegistry.keys.TokenKey as string[]) ?? []).map((k) => (
+                                  <label key={k} className="chip" style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                                    <span style={{ fontWeight: 900 }}>{k}</span>
+                                    <input
+                                      className="input"
+                                      style={{ width: 70 }}
+                                      type="number"
+                                      value={(opt as any)?.[k] ?? 0}
+                                      onChange={(e) => {
+                                        const next = ([...(((ability.cost as any)?.tokenOptions ?? []) as any[])] as any[]);
+                                        next[idx] = { ...(next[idx] as any), [k]: Number(e.target.value) };
+                                        setAbility({ cost: { ...(ability.cost ?? { ap: 0 }), tokenOptions: next } as any });
+                                      }}
+                                    />
+                                  </label>
+                                ))}
+                              </div>
+
+                              <button
+                                className="btn btnDanger"
+                                style={{ marginTop: 8 }}
+                                onClick={() => {
+                                  const next = ([...(((ability.cost as any)?.tokenOptions ?? []) as any[])] as any[]);
+                                  next.splice(idx, 1);
+                                  setAbility({ cost: { ...(ability.cost ?? { ap: 0 }), tokenOptions: next.length ? next : undefined } as any });
+                                }}
+                              >
+                                Remove Option
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </details>
+
+                      <div className="small" style={{ marginTop: 10 }}>
+                        Requirements (Condition)
+                      </div>
+                      <ConditionEditor value={(ability as any).requirements ?? { type: "ALWAYS" }} onChange={(requirements) => setAbility({ requirements } as any)} />
                     </>
                   )}
 
-                  <button className="btn btnPrimary" style={{ marginTop: 10 }} onClick={() => setPreviewOpen(true)}>
-                    Open Preview
-                  </button>
-                </details>
+                  {/* COST editor (Meta node) */}
+                  {selectedKind === "COST" && (
+                    <>
+                      <div className="small">Required Equipped Item IDs (comma)</div>
+                      <input
+                        className="input"
+                        value={(((ability.cost as any)?.requiredEquippedItemIds ?? []) as string[]).join(", ")}
+                        onChange={(e) =>
+                          setAbility({
+                            cost: {
+                              ...(ability.cost ?? { ap: 0 }),
+                              requiredEquippedItemIds: e.target.value.split(",").map((s) => s.trim()).filter(Boolean)
+                            } as any
+                          })
+                        }
+                      />
 
-                <hr style={{ borderColor: "var(--border)", opacity: 0.5, margin: "12px 0" }} />
+                      <div className="small" style={{ marginTop: 8 }}>
+                        Cooldown (turns)
+                      </div>
+                      <input
+                        className="input"
+                        type="number"
+                        value={(ability.cost as any)?.cooldown?.turns ?? 0}
+                        onChange={(e) => {
+                          const n = Number(e.target.value);
+                          setAbility({
+                            cost: { ...(ability.cost ?? { ap: 0 }), cooldown: n > 0 ? { turns: Math.max(1, Math.floor(n)) } : undefined } as any
+                          });
+                        }}
+                      />
+                    </>
+                  )}
 
-                {!ability ? (
-                  <div className="err">
-                    <b>No ABILITY component</b>
-                    <div className="small">Add an ability to use this editor.</div>
-                  </div>
-                ) : (
-                  <>
-                    {/* Ability editor when ability root or no selection */}
-                    {(selectedKind === "ABILITY_ROOT" || !selectedKind) && (
-                      <>
-                        <div className="small">Ability Name</div>
-                        <input className="input" value={ability.name} onChange={(e) => setAbility({ name: e.target.value })} />
-
-                        <div className="small" style={{ marginTop: 8 }}>
-                          Description
+                  {/* TARGETING editor (Meta node) */}
+                  {selectedKind === "TARGETING" && (
+                    <>
+                      <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center" }}>
+                        <div>
+                          <div className="small">Target Profiles</div>
+                          <div className="small">Use multiple profiles for primary + secondary targets.</div>
                         </div>
-                        <textarea className="textarea" value={ability.description ?? ""} onChange={(e) => setAbility({ description: e.target.value })} />
+                        <button className="btn btnPrimary" onClick={addProfile}>
+                          + Add Profile
+                        </button>
+                      </div>
 
-                        <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
-                          <div style={{ flex: 1 }}>
-                            <div className="small">Trigger</div>
-                            <select className="select" value={ability.trigger} onChange={(e) => setAbility({ trigger: e.target.value as any })}>
-                              {(blockRegistry.triggers as string[]).map((t) => (
-                                <option key={t} value={t}>
-                                  {t}
-                                </option>
-                              ))}
-                            </select>
+                      <div className="small" style={{ marginTop: 8 }}>
+                        Active Profile
+                      </div>
+                      <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                        <select className="select" value={activeProfile?.id ?? ""} onChange={(e) => setActiveProfileId(e.target.value)} style={{ flex: 1 }}>
+                          {(profiles ?? []).map((p: any) => (
+                            <option key={p.id} value={p.id}>
+                              {p.id} — {p.label ?? ""}
+                            </option>
+                          ))}
+                        </select>
+                        <button className="btn btnDanger" onClick={() => removeProfile(activeProfile?.id)} disabled={(profiles?.length ?? 0) <= 1}>
+                          Remove
+                        </button>
+                      </div>
+
+                      {activeProfile ? (
+                        <>
+                          <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+                            <div style={{ flex: 1 }}>
+                              <div className="small">id</div>
+                              <input
+                                className="input"
+                                value={activeProfile.id}
+                                onChange={(e) => {
+                                  const nextId = e.target.value.trim();
+                                  if (!nextId) return;
+                                  const dup = profiles.some((p: any) => p.id === nextId && p !== activeProfile);
+                                  if (dup) return;
+                                  const next = profiles.map((p: any) => (p === activeProfile ? { ...p, id: nextId } : p));
+                                  setProfiles(next);
+                                  setActiveProfileId(nextId);
+                                }}
+                              />
+                            </div>
+                            <div style={{ flex: 1 }}>
+                              <div className="small">label</div>
+                              <input
+                                className="input"
+                                value={activeProfile.label ?? ""}
+                                onChange={(e) => setProfiles(profiles.map((p: any) => (p === activeProfile ? { ...p, label: e.target.value } : p)))}
+                              />
+                            </div>
                           </div>
-                          <div style={{ flex: 1 }}>
-                            <div className="small">AP Cost</div>
+
+                          <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+                            <div style={{ flex: 1 }}>
+                              <div className="small">type</div>
+                              <select
+                                className="select"
+                                value={activeProfile.type ?? "SINGLE_TARGET"}
+                                onChange={(e) => {
+                                  const type = e.target.value;
+                                  const next = profiles.map((p: any) =>
+                                    p === activeProfile
+                                      ? {
+                                          ...p,
+                                          type,
+                                          area:
+                                            type === "AREA_RADIUS" || type === "AREA_AROUND_TARGET"
+                                              ? { ...(p.area ?? { radius: 1, includeCenter: true }) }
+                                              : undefined
+                                        }
+                                      : p
+                                  );
+                                  setProfiles(next);
+                                }}
+                              >
+                                {((blockRegistry.targeting?.types as string[]) ?? []).map((t) => (
+                                  <option key={t} value={t}>
+                                    {t}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+
+                            <div style={{ flex: 1 }}>
+                              <div className="small">origin</div>
+                              <select
+                                className="select"
+                                value={activeProfile.origin ?? "SOURCE"}
+                                onChange={(e) => setProfiles(profiles.map((p: any) => (p === activeProfile ? { ...p, origin: e.target.value } : p)))}
+                              >
+                                {((blockRegistry.targeting?.origins as string[]) ?? ["SOURCE", "TARGET", "ANYWHERE"]).map((o) => (
+                                  <option key={o} value={o}>
+                                    {o}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                          </div>
+
+                          <div className="small" style={{ marginTop: 8 }}>
+                            originRef (optional; for secondary profiles that depend on a previous selection)
+                          </div>
+                          <input
+                            className="input"
+                            value={activeProfile.originRef ?? ""}
+                            onChange={(e) => setProfiles(profiles.map((p: any) => (p === activeProfile ? { ...p, originRef: e.target.value || undefined } : p)))}
+                            placeholder='e.g. "targets_primary"'
+                          />
+
+                          <div className="small" style={{ marginTop: 8 }}>
+                            Range
+                          </div>
+                          <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
                             <input
                               className="input"
                               type="number"
-                              value={ability.cost?.ap ?? 0}
-                              onChange={(e) => setAbility({ cost: { ...(ability.cost ?? { ap: 0 }), ap: Number(e.target.value) } })}
+                              title="base"
+                              value={activeProfile.range?.base ?? 0}
+                              onChange={(e) => {
+                                const base = Math.max(0, Math.floor(Number(e.target.value)));
+                                setProfiles(profiles.map((p: any) => (p === activeProfile ? { ...p, range: { ...(p.range ?? {}), base } } : p)));
+                              }}
+                            />
+                            <input
+                              className="input"
+                              type="number"
+                              title="min"
+                              value={activeProfile.range?.min ?? 0}
+                              onChange={(e) => {
+                                const min = Math.max(0, Math.floor(Number(e.target.value)));
+                                setProfiles(profiles.map((p: any) => (p === activeProfile ? { ...p, range: { ...(p.range ?? {}), min } } : p)));
+                              }}
+                            />
+                            <input
+                              className="input"
+                              type="number"
+                              title="max"
+                              value={activeProfile.range?.max ?? (activeProfile.range?.base ?? 0)}
+                              onChange={(e) => {
+                                const max = Math.max(0, Math.floor(Number(e.target.value)));
+                                setProfiles(profiles.map((p: any) => (p === activeProfile ? { ...p, range: { ...(p.range ?? {}), max } } : p)));
+                              }}
                             />
                           </div>
-                        </div>
 
-                        <div className="small" style={{ marginTop: 8 }}>
-                          Token Cost (AND)
-                        </div>
-                        <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                          {(blockRegistry.keys.TokenKey as string[]).map((k) => (
-                            <label key={k} className="chip" style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                              <span style={{ fontWeight: 900 }}>{k}</span>
+                          <div className="small" style={{ marginTop: 8 }}>
+                            Line of Sight
+                          </div>
+                          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                            <select
+                              className="select"
+                              value={String(activeProfile.lineOfSight ?? false)}
+                              onChange={(e) => setProfiles(profiles.map((p: any) => (p === activeProfile ? { ...p, lineOfSight: e.target.value === "true" } : p)))}
+                            >
+                              <option value="false">false</option>
+                              <option value="true">true</option>
+                            </select>
+
+                            <select
+                              className="select"
+                              value={activeProfile.los?.mode ?? "HEX_RAYCAST"}
+                              onChange={(e) =>
+                                setProfiles(
+                                  profiles.map((p: any) =>
+                                    p === activeProfile ? { ...p, los: { ...(p.los ?? { required: true }), mode: e.target.value } } : p
+                                  )
+                                )
+                              }
+                              title="los.mode"
+                            >
+                              {(((blockRegistry.keys as any)?.LoSMode as string[]) ?? ["HEX_RAYCAST", "SQUARE_RAYCAST", "NONE", "ADVISORY"]).map((m) => (
+                                <option key={m} value={m}>
+                                  {m}
+                                </option>
+                              ))}
+                            </select>
+
+                            <label className="small" style={{ display: "flex", gap: 6, alignItems: "center" }}>
                               <input
-                                className="input"
-                                style={{ width: 70 }}
-                                type="number"
-                                value={(ability.cost.tokens as any)?.[k] ?? 0}
+                                type="checkbox"
+                                checked={Boolean(activeProfile.los?.required ?? true)}
                                 onChange={(e) =>
-                                  setAbility({
-                                    cost: {
-                                      ...(ability.cost ?? { ap: 0 }),
-                                      tokens: { ...(ability.cost.tokens ?? {}), [k]: Number(e.target.value) }
-                                    }
-                                  })
+                                  setProfiles(
+                                    profiles.map((p: any) =>
+                                      p === activeProfile ? { ...p, los: { ...(p.los ?? { mode: "HEX_RAYCAST" }), required: e.target.checked } } : p
+                                    )
+                                  )
                                 }
                               />
+                              required
                             </label>
-                          ))}
-                        </div>
-
-                        <details style={{ marginTop: 10 }}>
-                          <summary className="small" style={{ cursor: "pointer" }}>
-                            Alternative Token Options (OR)
-                          </summary>
-                          <div className="small" style={{ marginTop: 6 }}>
-                            Example: Quick Shot costs AWR 1 <b>or</b> SPD 1.
                           </div>
-                          <button
-                            className="btn"
-                            style={{ marginTop: 8 }}
-                            onClick={() =>
-                              setAbility({
-                                cost: { ...(ability.cost ?? { ap: 0 }), tokenOptions: [...(ability.cost.tokenOptions ?? []), {}] }
-                              })
-                            }
-                          >
-                            + Add Option
-                          </button>
-                          {(ability.cost.tokenOptions ?? []).map((opt, idx) => (
-                            <div key={idx} className="panel" style={{ marginTop: 8 }}>
-                              <div className="pb">
-                                <div className="small">Option {idx + 1}</div>
-                                <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                                  {(blockRegistry.keys.TokenKey as string[]).map((k) => (
-                                    <label key={k} className="chip" style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                                      <span style={{ fontWeight: 900 }}>{k}</span>
-                                      <input
-                                        className="input"
-                                        style={{ width: 70 }}
-                                        type="number"
-                                        value={(opt as any)?.[k] ?? 0}
-                                        onChange={(e) => {
-                                          const next = (ability.cost.tokenOptions ?? []).slice();
-                                          next[idx] = { ...(next[idx] as any), [k]: Number(e.target.value) };
-                                          setAbility({ cost: { ...(ability.cost ?? { ap: 0 }), tokenOptions: next } });
-                                        }}
-                                      />
-                                    </label>
-                                  ))}
+
+                          <details style={{ marginTop: 10 }}>
+                            <summary className="small" style={{ cursor: "pointer" }}>
+                              LoS Blockers (tags/policy)
+                            </summary>
+
+                            <button
+                              className="btn"
+                              style={{ marginTop: 8 }}
+                              onClick={() => {
+                                const blockers = [...(activeProfile.los?.blockers ?? [])];
+                                blockers.push({ policy: "BLOCK_ALL", tags: ["BARRIER"] });
+                                setProfiles(
+                                  profiles.map((p: any) =>
+                                    p === activeProfile
+                                      ? { ...p, los: { ...(p.los ?? { mode: "HEX_RAYCAST", required: true }), blockers } }
+                                      : p
+                                  )
+                                );
+                              }}
+                            >
+                              + Add blocker
+                            </button>
+
+                            {(activeProfile.los?.blockers ?? []).map((b: any, bi: number) => (
+                              <div key={bi} className="panel" style={{ marginTop: 8 }}>
+                                <div className="pb">
+                                  <div style={{ display: "flex", gap: 8 }}>
+                                    <select
+                                      className="select"
+                                      value={b.policy ?? "BLOCK_ALL"}
+                                      onChange={(e) => {
+                                        const blockers = [...(activeProfile.los?.blockers ?? [])];
+                                        blockers[bi] = { ...blockers[bi], policy: e.target.value };
+                                        setProfiles(
+                                          profiles.map((p: any) =>
+                                            p === activeProfile ? { ...p, los: { ...(p.los ?? { mode: "HEX_RAYCAST", required: true }), blockers } } : p
+                                          )
+                                        );
+                                      }}
+                                    >
+                                      {(((blockRegistry.keys as any)?.LoSBlockPolicy as string[]) ?? ["BLOCK_ALL"]).map((pol) => (
+                                        <option key={pol} value={pol}>
+                                          {pol}
+                                        </option>
+                                      ))}
+                                    </select>
+
+                                    <input
+                                      className="input"
+                                      value={(b.tags ?? []).join(", ")}
+                                      onChange={(e) => {
+                                        const blockers = [...(activeProfile.los?.blockers ?? [])];
+                                        blockers[bi] = { ...blockers[bi], tags: e.target.value.split(",").map((s) => s.trim()).filter(Boolean) };
+                                        setProfiles(
+                                          profiles.map((p: any) =>
+                                            p === activeProfile ? { ...p, los: { ...(p.los ?? { mode: "HEX_RAYCAST", required: true }), blockers } } : p
+                                          )
+                                        );
+                                      }}
+                                      placeholder="BARRIER, WALL..."
+                                    />
+
+                                    <button
+                                      className="btn btnDanger"
+                                      onClick={() => {
+                                        const blockers = [...(activeProfile.los?.blockers ?? [])];
+                                        blockers.splice(bi, 1);
+                                        setProfiles(
+                                          profiles.map((p: any) =>
+                                            p === activeProfile ? { ...p, los: { ...(p.los ?? { mode: "HEX_RAYCAST", required: true }), blockers } } : p
+                                          )
+                                        );
+                                      }}
+                                    >
+                                      Remove
+                                    </button>
+                                  </div>
                                 </div>
-                                <button
-                                  className="btn btnDanger"
-                                  style={{ marginTop: 8 }}
-                                  onClick={() => {
-                                    const next = (ability.cost.tokenOptions ?? []).slice();
-                                    next.splice(idx, 1);
-                                    setAbility({ cost: { ...(ability.cost ?? { ap: 0 }), tokenOptions: next.length ? next : undefined } });
-                                  }}
-                                >
-                                  Remove Option
-                                </button>
                               </div>
-                            </div>
-                          ))}
-                        </details>
+                            ))}
+                          </details>
 
-                        <div className="small" style={{ marginTop: 10 }}>
-                          Requirements (Condition)
-                        </div>
-                        <ConditionEditor value={ability.requirements ?? { type: "ALWAYS" }} onChange={(requirements) => setAbility({ requirements })} />
-                      </>
-                    )}
-
-                    {/* STEP EDITOR */}
-                    {selectedKind === "STEP" && selectedStep && (
-                      <>
-                        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                          <div style={{ flex: 1 }}>
-                            <div className="small">Step Type</div>
-                            <div style={{ fontWeight: 900 }}>{selectedStep.type}</div>
-                          </div>
-                          <button className="btn" onClick={() => moveStep(selectedStepIdx, -1)} disabled={selectedStepIdx === 0}>
-                            ↑
-                          </button>
-                          <button
-                            className="btn"
-                            onClick={() => moveStep(selectedStepIdx, +1)}
-                            disabled={(ability.execution?.steps?.length ?? 0) - 1 === selectedStepIdx}
-                          >
-                            ↓
-                          </button>
-                          <button className="btn btnDanger" onClick={() => deleteStep(selectedStepIdx)}>
-                            Delete
-                          </button>
-                        </div>
-
-                        <div style={{ marginTop: 10 }}>
-                          {selectedStep.type === "SHOW_TEXT" && (
+                          {(activeProfile.type === "AREA_RADIUS" || activeProfile.type === "AREA_AROUND_TARGET") && (
                             <>
-                              <div className="small">Text</div>
-                              <textarea className="textarea" value={(selectedStep as any).text} onChange={(e) => setStep(selectedStepIdx, { text: e.target.value })} />
-                            </>
-                          )}
-
-                          {(selectedStep.type === "ROLL_D6" || selectedStep.type === "ROLL_D20") && (
-                            <>
-                              <div className="small">saveAs</div>
-                              <input className="input" value={(selectedStep as any).saveAs ?? ""} onChange={(e) => setStep(selectedStepIdx, { saveAs: e.target.value || undefined })} />
-                            </>
-                          )}
-
-                          {selectedStep.type === "SET_VARIABLE" && (
-                            <>
-                              <div className="small">saveAs</div>
-                              <input className="input" value={(selectedStep as any).saveAs} onChange={(e) => setStep(selectedStepIdx, { saveAs: e.target.value })} />
-                              <div className="small" style={{ marginTop: 8 }}>
-                                valueExpr
+                              <div className="small" style={{ marginTop: 10 }}>
+                                Area
                               </div>
-                              <ExpressionEditor value={(selectedStep as any).valueExpr} onChange={(valueExpr) => setStep(selectedStepIdx, { valueExpr })} />
-                            </>
-                          )}
-
-                          {selectedStep.type === "IF_ELSE" && (
-                            <>
-                              <div className="small">Condition</div>
-                              <ConditionEditor value={(selectedStep as any).condition} onChange={(condition) => setStep(selectedStepIdx, { condition })} />
-                              <div className="small" style={{ marginTop: 8 }}>
-                                Branch steps
-                              </div>
-                              <div className="small">
-                                Use nested editors next (already supported by schema). For now edit Raw Step JSON below for <b>then / elseIf / else</b>.
-                              </div>
-                            </>
-                          )}
-
-                          {selectedStep.type === "SELECT_TARGETS" && (
-                            <>
-                              <div className="small">profileId</div>
-                              <input className="input" value={(selectedStep as any).profileId} onChange={(e) => setStep(selectedStepIdx, { profileId: e.target.value })} />
-                              <div className="small" style={{ marginTop: 8 }}>
-                                saveAs
-                              </div>
-                              <input className="input" value={(selectedStep as any).saveAs} onChange={(e) => setStep(selectedStepIdx, { saveAs: e.target.value })} />
-                              <div className="small" style={{ marginTop: 8 }}>
-                                Tip: profileId must match a targetingProfiles[].id on this ability.
-                              </div>
-                            </>
-                          )}
-
-                          {selectedStep.type === "FOR_EACH_TARGET" && (
-                            <>
-                              <div className="small">targetSet.ref</div>
-                              <input className="input" value={(selectedStep as any).targetSet?.ref ?? ""} onChange={(e) => setStep(selectedStepIdx, { targetSet: { ref: e.target.value } })} />
-                              <div className="small" style={{ marginTop: 8 }}>
-                                do (nested steps)
-                              </div>
-                              <div className="small">Edit in Raw JSON for now.</div>
-                            </>
-                          )}
-
-                          {selectedStep.type === "CALC_DISTANCE" && (
-                            <>
-                              <div className="small">metric</div>
-                              <select className="select" value={(selectedStep as any).metric} onChange={(e) => setStep(selectedStepIdx, { metric: e.target.value as DistanceMetric })}>
-                                {(blockRegistry.keys.DistanceMetric as string[]).map((m) => (
-                                  <option key={m} value={m}>
-                                    {m}
-                                  </option>
-                                ))}
-                              </select>
-                              <div className="small" style={{ marginTop: 8 }}>
-                                saveAs
-                              </div>
-                              <input className="input" value={(selectedStep as any).saveAs} onChange={(e) => setStep(selectedStepIdx, { saveAs: e.target.value })} />
-                              <div className="small" style={{ marginTop: 8 }}>
-                                from / to are edited via Raw JSON (entity refs).
-                              </div>
-                            </>
-                          )}
-
-                          {selectedStep.type === "DRAW_CARDS" && (
-                            <>
-                              <div className="small">from</div>
-                              <select className="select" value={(selectedStep as any).from} onChange={(e) => setStep(selectedStepIdx, { from: e.target.value as ZoneKey })}>
-                                {(blockRegistry.keys.ZoneKey as string[]).map((z) => (
-                                  <option key={z} value={z}>
-                                    {z}
-                                  </option>
-                                ))}
-                              </select>
-                              <div className="small" style={{ marginTop: 8 }}>
-                                to
-                              </div>
-                              <select className="select" value={(selectedStep as any).to} onChange={(e) => setStep(selectedStepIdx, { to: e.target.value as ZoneKey })}>
-                                {(blockRegistry.keys.ZoneKey as string[]).map((z) => (
-                                  <option key={z} value={z}>
-                                    {z}
-                                  </option>
-                                ))}
-                              </select>
-                              <div className="small" style={{ marginTop: 8 }}>
-                                count
-                              </div>
-                              <input className="input" type="number" value={(selectedStep as any).count} onChange={(e) => setStep(selectedStepIdx, { count: Number(e.target.value) })} />
-                              <div className="small" style={{ marginTop: 8 }}>
-                                saveAs
-                              </div>
-                              <input className="input" value={(selectedStep as any).saveAs ?? ""} onChange={(e) => setStep(selectedStepIdx, { saveAs: e.target.value || undefined })} />
-                            </>
-                          )}
-
-                          {selectedStep.type === "PROPERTY_CONTEST" && (
-                            <>
-                              <div className="small">variant</div>
-                              <select className="select" value={(selectedStep as any).variant} onChange={(e) => setStep(selectedStepIdx, { variant: e.target.value })}>
-                                {["STATUS_GAME", "INFLUENCE_INVENTORY"].map((v) => (
-                                  <option key={v} value={v}>
-                                    {v}
-                                  </option>
-                                ))}
-                              </select>
-
-                              <details style={{ marginTop: 10 }}>
-                                <summary className="small" style={{ cursor: "pointer" }}>
-                                  Post-Contest Policy
-                                </summary>
-                                <label className="small" style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 8 }}>
-                                  <input
-                                    type="checkbox"
-                                    checked={Boolean((selectedStep as any).policy?.shuffleAllDrawnIntoOwnersDeck)}
-                                    onChange={(e) => setStep(selectedStepIdx, { policy: { ...((selectedStep as any).policy ?? {}), shuffleAllDrawnIntoOwnersDeck: e.target.checked } })}
-                                  />
-                                  shuffleAllDrawnIntoOwnersDeck
-                                </label>
-                                <div className="small" style={{ marginTop: 8 }}>
-                                  winnerMayKeepToHandMax
-                                </div>
+                              <div style={{ display: "flex", gap: 8 }}>
                                 <input
                                   className="input"
                                   type="number"
-                                  value={(selectedStep as any).policy?.winnerMayKeepToHandMax ?? 0}
-                                  onChange={(e) => setStep(selectedStepIdx, { policy: { ...((selectedStep as any).policy ?? {}), winnerMayKeepToHandMax: Number(e.target.value) } })}
+                                  title="radius"
+                                  value={activeProfile.area?.radius ?? 1}
+                                  onChange={(e) => {
+                                    const radius = Math.max(0, Math.floor(Number(e.target.value)));
+                                    setProfiles(profiles.map((p: any) => (p === activeProfile ? { ...p, area: { ...(p.area ?? {}), radius } } : p)));
+                                  }}
                                 />
-                                <div className="small" style={{ marginTop: 10 }}>
-                                  onWin / onLose are nested steps (edit in Raw JSON for now)
-                                </div>
-                              </details>
-                            </>
-                          )}
-
-                          {selectedStep.type === "WEBHOOK_CALL" && (
-                            <>
-                              <div className="small">url</div>
-                              <input className="input" value={(selectedStep as any).url} onChange={(e) => setStep(selectedStepIdx, { url: e.target.value })} />
-                              <div className="small" style={{ marginTop: 8 }}>
-                                eventName
-                              </div>
-                              <input className="input" value={(selectedStep as any).eventName} onChange={(e) => setStep(selectedStepIdx, { eventName: e.target.value })} />
-                            </>
-                          )}
-
-                          {selectedStep.type === "OPEN_UI_FLOW" && (
-                            <>
-                              <div className="small">flowId</div>
-                              <select className="select" value={(selectedStep as any).flowId} onChange={(e) => setStep(selectedStepIdx, { flowId: e.target.value })}>
-                                {(blockRegistry.uiFlows.types as string[]).map((f) => (
-                                  <option key={f} value={f}>
-                                    {f}
-                                  </option>
-                                ))}
-                              </select>
-                              <div className="small" style={{ marginTop: 8 }}>
-                                saveAs
-                              </div>
-                              <input className="input" value={(selectedStep as any).saveAs ?? ""} onChange={(e) => setStep(selectedStepIdx, { saveAs: e.target.value || undefined })} />
-                              <div className="small" style={{ marginTop: 8 }}>
-                                payload: edit in Raw JSON
+                                <input
+                                  className="input"
+                                  type="number"
+                                  title="maxTargets (optional)"
+                                  value={activeProfile.area?.maxTargets ?? 0}
+                                  onChange={(e) => {
+                                    const maxTargets = Math.max(0, Math.floor(Number(e.target.value)));
+                                    setProfiles(
+                                      profiles.map((p: any) =>
+                                        p === activeProfile ? { ...p, area: { ...(p.area ?? {}), maxTargets: maxTargets > 0 ? maxTargets : undefined } } : p
+                                      )
+                                    );
+                                  }}
+                                />
+                                <label className="small" style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                                  <input
+                                    type="checkbox"
+                                    checked={Boolean(activeProfile.area?.includeCenter ?? true)}
+                                    onChange={(e) =>
+                                      setProfiles(
+                                        profiles.map((p: any) =>
+                                          p === activeProfile ? { ...p, area: { ...(p.area ?? {}), includeCenter: e.target.checked } } : p
+                                        )
+                                      )
+                                    }
+                                  />
+                                  includeCenter
+                                </label>
                               </div>
                             </>
                           )}
-
-                          {selectedStep.type === "AI_REQUEST" && (
-                            <>
-                              <div className="small">systemPrompt</div>
-                              <textarea className="textarea" value={(selectedStep as any).systemPrompt} onChange={(e) => setStep(selectedStepIdx, { systemPrompt: e.target.value })} />
-                              <div className="small" style={{ marginTop: 8 }}>
-                                userPrompt
-                              </div>
-                              <textarea className="textarea" value={(selectedStep as any).userPrompt} onChange={(e) => setStep(selectedStepIdx, { userPrompt: e.target.value })} />
-                              <div className="small" style={{ marginTop: 8 }}>
-                                saveAs
-                              </div>
-                              <input className="input" value={(selectedStep as any).saveAs ?? ""} onChange={(e) => setStep(selectedStepIdx, { saveAs: e.target.value || undefined })} />
-                            </>
-                          )}
-
-                          {selectedStep.type === "UNKNOWN_STEP" && (
-                            <div className="err">
-                              <b>UNKNOWN_STEP</b>
-                              <div className="small">This step type isn’t in the registry. Add it to blockRegistry.json.</div>
-                            </div>
-                          )}
+                        </>
+                      ) : (
+                        <div className="err">
+                          <b>No targeting profiles</b>
+                          <div className="small">Add a profile to enable SELECT_TARGETS.</div>
                         </div>
+                      )}
+                    </>
+                  )}
 
-                        <details style={{ marginTop: 10 }}>
-                          <summary className="small" style={{ cursor: "pointer" }}>
-                            Raw Step JSON
-                          </summary>
-                          <pre>{JSON.stringify(selectedStep, null, 2)}</pre>
-                        </details>
-                      </>
-                    )}
-                  </>
-                )}
-              </div>
-            </div>
-
-            <div className="panel" style={{ minHeight: 0 }}>
-              <div className="ph">
-                <div>
-                  <div className="h2">Preview JSON</div>
-                  <div className="small">Card JSON (read-only)</div>
-                </div>
-                <span className="badge">{card.schemaVersion}</span>
-              </div>
-              <div className="pb" style={{ overflow: "auto", maxHeight: "22vh" }}>
-                <pre style={{ margin: 0 }}>{JSON.stringify(card, null, 2)}</pre>
-              </div>
-            </div>
-
-            <div className="panel">
-              <div className="ph">
-                <div>
-                  <div className="h2">Compile</div>
-                  <div className="small">Schema + invariants</div>
-                </div>
-                <span className="badge">{errorCount} errors</span>
-              </div>
-              <div className="pb">
-                {issues.some((i) => i.severity === "ERROR") ? (
-                  issues
-                    .filter((i) => i.severity === "ERROR")
-                    .map((i, idx) => (
-                      <div key={idx} className="err">
-                        <b>{i.code}</b>
-                        <div className="small">{i.message}</div>
-                        {i.path ? (
-                          <div className="small">
-                            <code>{i.path}</code>
-                          </div>
-                        ) : null}
+                  {/* STEP EDITOR */}
+                  {selectedKind === "STEP" && selectedStep && (
+                    <>
+                      <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                        <div style={{ flex: 1 }}>
+                          <div className="small">Step Type</div>
+                          <div style={{ fontWeight: 900 }}>{(selectedStep as any).type}</div>
+                        </div>
+                        <button className="btn" onClick={() => moveStep(selectedStepIdx, -1)} disabled={selectedStepIdx === 0}>
+                          ↑
+                        </button>
+                        <button
+                          className="btn"
+                          onClick={() => moveStep(selectedStepIdx, +1)}
+                          disabled={(ability.execution?.steps?.length ?? 0) - 1 === selectedStepIdx}
+                        >
+                          ↓
+                        </button>
+                        <button className="btn btnDanger" onClick={() => deleteStep(selectedStepIdx)}>
+                          Delete
+                        </button>
                       </div>
-                    ))
-                ) : (
-                  <div className="ok">
-                    <b>✅ OK</b>
-                    <div className="small">{issues[0]?.message ?? "No issues."}</div>
-                  </div>
-                )}
+
+                      <div style={{ marginTop: 10 }}>
+                        {(selectedStep as any).type === "SHOW_TEXT" && (
+                          <>
+                            <div className="small">Text</div>
+                            <textarea className="textarea" value={(selectedStep as any).text} onChange={(e) => setStep(selectedStepIdx, { text: e.target.value })} />
+                          </>
+                        )}
+
+                        {((selectedStep as any).type === "ROLL_D6" || (selectedStep as any).type === "ROLL_D20") && (
+                          <>
+                            <div className="small">saveAs</div>
+                            <input className="input" value={(selectedStep as any).saveAs ?? ""} onChange={(e) => setStep(selectedStepIdx, { saveAs: e.target.value || undefined })} />
+                          </>
+                        )}
+
+                        {(selectedStep as any).type === "SET_VARIABLE" && (
+                          <>
+                            <div className="small">saveAs</div>
+                            <input className="input" value={(selectedStep as any).saveAs} onChange={(e) => setStep(selectedStepIdx, { saveAs: e.target.value })} />
+                            <div className="small" style={{ marginTop: 8 }}>
+                              valueExpr
+                            </div>
+                            <ExpressionEditor value={(selectedStep as any).valueExpr} onChange={(valueExpr) => setStep(selectedStepIdx, { valueExpr })} />
+                          </>
+                        )}
+
+                        {(selectedStep as any).type === "IF_ELSE" && (
+                          <>
+                            <div className="small">Condition</div>
+                            <ConditionEditor value={(selectedStep as any).condition} onChange={(condition) => setStep(selectedStepIdx, { condition })} />
+                            <div className="small" style={{ marginTop: 8 }}>
+                              Branch steps
+                            </div>
+                            <div className="small">
+                              Edit <b>then / elseIf / else</b> in Raw Step JSON for now (next: nested editors).
+                            </div>
+                          </>
+                        )}
+
+                        {(selectedStep as any).type === "SELECT_TARGETS" && (
+                          <>
+                            <div className="small">profileId</div>
+                            <input className="input" value={(selectedStep as any).profileId} onChange={(e) => setStep(selectedStepIdx, { profileId: e.target.value })} />
+                            <div className="small" style={{ marginTop: 8 }}>
+                              saveAs
+                            </div>
+                            <input className="input" value={(selectedStep as any).saveAs} onChange={(e) => setStep(selectedStepIdx, { saveAs: e.target.value })} />
+                            <div className="small" style={{ marginTop: 8 }}>
+                              originRef (optional)
+                            </div>
+                            <input
+                              className="input"
+                              value={(selectedStep as any).originRef ?? ""}
+                              onChange={(e) => setStep(selectedStepIdx, { originRef: e.target.value || undefined })}
+                              placeholder='e.g. "targets_primary"'
+                            />
+                          </>
+                        )}
+
+                        {(selectedStep as any).type === "FOR_EACH_TARGET" && (
+                          <>
+                            <div className="small">targetSet.ref</div>
+                            <input className="input" value={(selectedStep as any).targetSet?.ref ?? ""} onChange={(e) => setStep(selectedStepIdx, { targetSet: { ref: e.target.value } })} />
+                            <div className="small" style={{ marginTop: 8 }}>
+                              do (nested steps)
+                            </div>
+                            <div className="small">Edit in Raw JSON for now.</div>
+                          </>
+                        )}
+
+                        {(selectedStep as any).type === "DEAL_DAMAGE" && (
+                          <>
+                            <div className="small">Damage Type</div>
+                            <select
+                              className="select"
+                              value={(selectedStep as any).damageType}
+                              onChange={(e) => setStep(selectedStepIdx, { damageType: e.target.value as DamageType })}
+                            >
+                              {((blockRegistry.keys.DamageType as string[]) ?? []).map((d) => (
+                                <option key={d} value={d}>
+                                  {d}
+                                </option>
+                              ))}
+                            </select>
+                            <div className="small" style={{ marginTop: 8 }}>
+                              Amount Expression
+                            </div>
+                            <ExpressionEditor value={(selectedStep as any).amountExpr} onChange={(amountExpr) => setStep(selectedStepIdx, { amountExpr })} />
+                            <div className="small" style={{ marginTop: 8 }}>
+                              Target is edited via Raw JSON (ENTITY REFs)
+                            </div>
+                          </>
+                        )}
+
+                        {(selectedStep as any).type === "APPLY_STATUS" && (
+                          <>
+                            <div className="small">Status</div>
+                            <select className="select" value={(selectedStep as any).status} onChange={(e) => setStep(selectedStepIdx, { status: e.target.value as StatusKey })}>
+                              {((blockRegistry.keys.StatusKey as string[]) ?? []).map((s) => (
+                                <option key={s} value={s}>
+                                  {s}
+                                </option>
+                              ))}
+                            </select>
+                            <div className="small" style={{ marginTop: 8 }}>
+                              Duration (turns)
+                            </div>
+                            <input
+                              className="input"
+                              type="number"
+                              value={(selectedStep as any).duration?.turns ?? 1}
+                              onChange={(e) => setStep(selectedStepIdx, { duration: { turns: Math.max(1, Math.floor(Number(e.target.value))) } })}
+                            />
+                          </>
+                        )}
+
+                        {(selectedStep as any).type === "REMOVE_STATUS" && (
+                          <>
+                            <div className="small">Status</div>
+                            <select className="select" value={(selectedStep as any).status} onChange={(e) => setStep(selectedStepIdx, { status: e.target.value as StatusKey })}>
+                              {((blockRegistry.keys.StatusKey as string[]) ?? []).map((s) => (
+                                <option key={s} value={s}>
+                                  {s}
+                                </option>
+                              ))}
+                            </select>
+                          </>
+                        )}
+
+                        {(selectedStep as any).type === "CALC_DISTANCE" && (
+                          <>
+                            <div className="small">metric</div>
+                            <select
+                              className="select"
+                              value={(selectedStep as any).metric}
+                              onChange={(e) => setStep(selectedStepIdx, { metric: e.target.value as DistanceMetric })}
+                            >
+                              {((blockRegistry.keys.DistanceMetric as string[]) ?? []).map((m) => (
+                                <option key={m} value={m}>
+                                  {m}
+                                </option>
+                              ))}
+                            </select>
+                            <div className="small" style={{ marginTop: 8 }}>
+                              saveAs
+                            </div>
+                            <input className="input" value={(selectedStep as any).saveAs} onChange={(e) => setStep(selectedStepIdx, { saveAs: e.target.value })} />
+                            <div className="small" style={{ marginTop: 8 }}>
+                              from / to are edited via Raw JSON (entity refs).
+                            </div>
+                          </>
+                        )}
+
+                        {/* NEW: State steps */}
+                        {(selectedStep as any).type === "SET_ENTITY_STATE" && (
+                          <>
+                            <div className="small">key</div>
+                            <input className="input" value={(selectedStep as any).key ?? ""} onChange={(e) => setStep(selectedStepIdx, { key: e.target.value })} />
+                            <div className="small" style={{ marginTop: 8 }}>
+                              value (JSON)
+                            </div>
+                            <textarea
+                              className="textarea"
+                              value={JSON.stringify((selectedStep as any).value ?? true, null, 2)}
+                              onChange={(e) => {
+                                const parsed = safeJsonParse(e.target.value);
+                                if (!parsed.ok) return; // keep typing; edit via Raw JSON if needed
+                                setStep(selectedStepIdx, { value: parsed.value });
+                              }}
+                            />
+                            <div className="small">entity is edited via Raw JSON (SELF / TARGET / ENTITY_ID).</div>
+                          </>
+                        )}
+
+                        {(selectedStep as any).type === "TOGGLE_ENTITY_STATE" && (
+                          <>
+                            <div className="small">key</div>
+                            <input className="input" value={(selectedStep as any).key ?? ""} onChange={(e) => setStep(selectedStepIdx, { key: e.target.value })} />
+                            <div className="small">entity edited via Raw JSON.</div>
+                          </>
+                        )}
+
+                        {(selectedStep as any).type === "CLEAR_ENTITY_STATE" && (
+                          <>
+                            <div className="small">key</div>
+                            <input className="input" value={(selectedStep as any).key ?? ""} onChange={(e) => setStep(selectedStepIdx, { key: e.target.value })} />
+                            <div className="small">entity edited via Raw JSON.</div>
+                          </>
+                        )}
+
+                        {/* NEW: Entity query / spawn / deck steps (minimal editors) */}
+                        {(selectedStep as any).type === "FIND_ENTITIES" && (
+                          <>
+                            <div className="small">saveAs</div>
+                            <input className="input" value={(selectedStep as any).saveAs ?? ""} onChange={(e) => setStep(selectedStepIdx, { saveAs: e.target.value })} />
+                            <div className="small" style={{ marginTop: 8 }}>
+                              selector (JSON)
+                            </div>
+                            <textarea
+                              className="textarea"
+                              value={JSON.stringify((selectedStep as any).selector ?? {}, null, 2)}
+                              onChange={(e) => {
+                                const parsed = safeJsonParse(e.target.value);
+                                if (!parsed.ok) return;
+                                setStep(selectedStepIdx, { selector: parsed.value });
+                              }}
+                            />
+                          </>
+                        )}
+
+                        {(selectedStep as any).type === "COUNT_ENTITIES" && (
+                          <>
+                            <div className="small">targetSet.ref</div>
+                            <input className="input" value={(selectedStep as any).targetSet?.ref ?? ""} onChange={(e) => setStep(selectedStepIdx, { targetSet: { ref: e.target.value } })} />
+                            <div className="small" style={{ marginTop: 8 }}>
+                              saveAs
+                            </div>
+                            <input className="input" value={(selectedStep as any).saveAs ?? ""} onChange={(e) => setStep(selectedStepIdx, { saveAs: e.target.value })} />
+                          </>
+                        )}
+
+                        {(selectedStep as any).type === "FILTER_TARGET_SET" && (
+                          <>
+                            <div className="small">source.ref</div>
+                            <input className="input" value={(selectedStep as any).source?.ref ?? ""} onChange={(e) => setStep(selectedStepIdx, { source: { ref: e.target.value } })} />
+                            <div className="small" style={{ marginTop: 8 }}>
+                              saveAs
+                            </div>
+                            <input className="input" value={(selectedStep as any).saveAs ?? ""} onChange={(e) => setStep(selectedStepIdx, { saveAs: e.target.value })} />
+                            <div className="small" style={{ marginTop: 8 }}>
+                              filter (JSON)
+                            </div>
+                            <textarea
+                              className="textarea"
+                              value={JSON.stringify((selectedStep as any).filter ?? {}, null, 2)}
+                              onChange={(e) => {
+                                const parsed = safeJsonParse(e.target.value);
+                                if (!parsed.ok) return;
+                                setStep(selectedStepIdx, { filter: parsed.value });
+                              }}
+                            />
+                          </>
+                        )}
+
+                        {(selectedStep as any).type === "SPAWN_ENTITY" && (
+                          <>
+                            <div className="small">cardId</div>
+                            <input className="input" value={(selectedStep as any).cardId ?? ""} onChange={(e) => setStep(selectedStepIdx, { cardId: e.target.value })} />
+                            <div className="small" style={{ marginTop: 8 }}>
+                              owner
+                            </div>
+                            <select className="select" value={(selectedStep as any).owner ?? "SCENARIO"} onChange={(e) => setStep(selectedStepIdx, { owner: e.target.value })}>
+                              {["ACTOR", "OPPONENT", "SCENARIO"].map((o) => (
+                                <option key={o} value={o}>
+                                  {o}
+                                </option>
+                              ))}
+                            </select>
+                            <div className="small" style={{ marginTop: 8 }}>
+                              saveAs
+                            </div>
+                            <input className="input" value={(selectedStep as any).saveAs ?? ""} onChange={(e) => setStep(selectedStepIdx, { saveAs: e.target.value || undefined })} />
+                            <div className="small" style={{ marginTop: 8 }}>
+                              at (JSON)
+                            </div>
+                            <textarea
+                              className="textarea"
+                              value={JSON.stringify((selectedStep as any).at ?? { mode: "TARGET_POSITION" }, null, 2)}
+                              onChange={(e) => {
+                                const parsed = safeJsonParse(e.target.value);
+                                if (!parsed.ok) return;
+                                setStep(selectedStepIdx, { at: parsed.value });
+                              }}
+                            />
+                          </>
+                        )}
+
+                        {(selectedStep as any).type === "DESPAWN_ENTITY" && (
+                          <>
+                            <div className="small">target is edited via Raw JSON (SELF / TARGET / ITERATION_TARGET / ENTITY_ID)</div>
+                          </>
+                        )}
+
+                        {(selectedStep as any).type === "EMPTY_HAND" && (
+                          <>
+                            <div className="small">handZone</div>
+                            <select className="select" value={(selectedStep as any).handZone} onChange={(e) => setStep(selectedStepIdx, { handZone: e.target.value as ZoneKey })}>
+                              {((blockRegistry.keys.ZoneKey as string[]) ?? []).map((z) => (
+                                <option key={z} value={z}>
+                                  {z}
+                                </option>
+                              ))}
+                            </select>
+                            <div className="small" style={{ marginTop: 8 }}>
+                              to
+                            </div>
+                            <select className="select" value={(selectedStep as any).to} onChange={(e) => setStep(selectedStepIdx, { to: e.target.value as ZoneKey })}>
+                              {((blockRegistry.keys.ZoneKey as string[]) ?? []).map((z) => (
+                                <option key={z} value={z}>
+                                  {z}
+                                </option>
+                              ))}
+                            </select>
+                          </>
+                        )}
+
+                        {(selectedStep as any).type === "ADD_CARDS_TO_DECK" && (
+                          <>
+                            <div className="small">deckZone</div>
+                            <select className="select" value={(selectedStep as any).deckZone} onChange={(e) => setStep(selectedStepIdx, { deckZone: e.target.value as ZoneKey })}>
+                              {((blockRegistry.keys.ZoneKey as string[]) ?? []).map((z) => (
+                                <option key={z} value={z}>
+                                  {z}
+                                </option>
+                              ))}
+                            </select>
+                            <div className="small" style={{ marginTop: 8 }}>
+                              cardIds (comma)
+                            </div>
+                            <input
+                              className="input"
+                              value={(((selectedStep as any).cardIds ?? []) as string[]).join(", ")}
+                              onChange={(e) => setStep(selectedStepIdx, { cardIds: e.target.value.split(",").map((s) => s.trim()).filter(Boolean) })}
+                            />
+                            <div className="small" style={{ marginTop: 8 }}>
+                              countEach
+                            </div>
+                            <input className="input" type="number" value={(selectedStep as any).countEach ?? 1} onChange={(e) => setStep(selectedStepIdx, { countEach: Number(e.target.value) })} />
+                            <label className="small" style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 8 }}>
+                              <input
+                                type="checkbox"
+                                checked={Boolean((selectedStep as any).shuffleIn ?? true)}
+                                onChange={(e) => setStep(selectedStepIdx, { shuffleIn: e.target.checked })}
+                              />
+                              shuffleIn
+                            </label>
+                          </>
+                        )}
+
+                        {(selectedStep as any).type === "REMOVE_CARDS_FROM_DECK" && (
+                          <>
+                            <div className="small">deckZone</div>
+                            <select className="select" value={(selectedStep as any).deckZone} onChange={(e) => setStep(selectedStepIdx, { deckZone: e.target.value as ZoneKey })}>
+                              {((blockRegistry.keys.ZoneKey as string[]) ?? []).map((z) => (
+                                <option key={z} value={z}>
+                                  {z}
+                                </option>
+                              ))}
+                            </select>
+                            <div className="small" style={{ marginTop: 8 }}>
+                              cardIds (comma)
+                            </div>
+                            <input
+                              className="input"
+                              value={(((selectedStep as any).cardIds ?? []) as string[]).join(", ")}
+                              onChange={(e) => setStep(selectedStepIdx, { cardIds: e.target.value.split(",").map((s) => s.trim()).filter(Boolean) })}
+                            />
+                            <div className="small" style={{ marginTop: 8 }}>
+                              countEach
+                            </div>
+                            <input className="input" type="number" value={(selectedStep as any).countEach ?? 1} onChange={(e) => setStep(selectedStepIdx, { countEach: Number(e.target.value) })} />
+                            <div className="small" style={{ marginTop: 8 }}>
+                              to (optional)
+                            </div>
+                            <select
+                              className="select"
+                              value={(selectedStep as any).to ?? ""}
+                              onChange={(e) => setStep(selectedStepIdx, { to: e.target.value ? (e.target.value as ZoneKey) : undefined })}
+                            >
+                              <option value="">(none)</option>
+                              {((blockRegistry.keys.ZoneKey as string[]) ?? []).map((z) => (
+                                <option key={z} value={z}>
+                                  {z}
+                                </option>
+                              ))}
+                            </select>
+                          </>
+                        )}
+
+                        {(selectedStep as any).type === "SWAP_DECK" && (
+                          <>
+                            <div className="small">actor</div>
+                            <select className="select" value={(selectedStep as any).actor ?? "ACTOR"} onChange={(e) => setStep(selectedStepIdx, { actor: e.target.value })}>
+                              {["ACTOR", "OPPONENT", "SCENARIO"].map((a) => (
+                                <option key={a} value={a}>
+                                  {a}
+                                </option>
+                              ))}
+                            </select>
+                            <div className="small" style={{ marginTop: 8 }}>
+                              slot
+                            </div>
+                            <select className="select" value={(selectedStep as any).slot ?? "ACTION"} onChange={(e) => setStep(selectedStepIdx, { slot: e.target.value })}>
+                              {["ACTION", "ITEM", "CUSTOM"].map((s) => (
+                                <option key={s} value={s}>
+                                  {s}
+                                </option>
+                              ))}
+                            </select>
+                            <div className="small" style={{ marginTop: 8 }}>
+                              newDeckId
+                            </div>
+                            <input className="input" value={(selectedStep as any).newDeckId ?? ""} onChange={(e) => setStep(selectedStepIdx, { newDeckId: e.target.value })} />
+                            <div className="small" style={{ marginTop: 8 }}>
+                              policy.onSwap
+                            </div>
+                            <select
+                              className="select"
+                              value={(selectedStep as any).policy?.onSwap ?? "DISCARD_HAND"}
+                              onChange={(e) => setStep(selectedStepIdx, { policy: { ...((selectedStep as any).policy ?? {}), onSwap: e.target.value } })}
+                            >
+                              {["KEEP_HAND", "DISCARD_HAND", "EMPTY_HAND_TO_DISCARD"].map((p) => (
+                                <option key={p} value={p}>
+                                  {p}
+                                </option>
+                              ))}
+                            </select>
+                          </>
+                        )}
+
+                        {(selectedStep as any).type === "OPEN_UI_FLOW" && (
+                          <>
+                            <div className="small">flowId</div>
+                            <select className="select" value={(selectedStep as any).flowId} onChange={(e) => setStep(selectedStepIdx, { flowId: e.target.value })}>
+                              {((blockRegistry.uiFlows.types as string[]) ?? []).map((f) => (
+                                <option key={f} value={f}>
+                                  {f}
+                                </option>
+                              ))}
+                            </select>
+                            <div className="small" style={{ marginTop: 8 }}>
+                              saveAs
+                            </div>
+                            <input className="input" value={(selectedStep as any).saveAs ?? ""} onChange={(e) => setStep(selectedStepIdx, { saveAs: e.target.value || undefined })} />
+                            <div className="small" style={{ marginTop: 8 }}>
+                              payload: edit in Raw JSON
+                            </div>
+                          </>
+                        )}
+
+                        {(selectedStep as any).type === "PROPERTY_CONTEST" && (
+                          <>
+                            <div className="small">variant</div>
+                            <select className="select" value={(selectedStep as any).variant} onChange={(e) => setStep(selectedStepIdx, { variant: e.target.value })}>
+                              {["STATUS_GAME", "INFLUENCE_INVENTORY"].map((v) => (
+                                <option key={v} value={v}>
+                                  {v}
+                                </option>
+                              ))}
+                            </select>
+                            <div className="small" style={{ marginTop: 10 }}>
+                              Nested branches (onWin/onLose) edited in Raw JSON for now.
+                            </div>
+                          </>
+                        )}
+
+                        {(selectedStep as any).type === "AI_REQUEST" && (
+                          <>
+                            <div className="small">systemPrompt</div>
+                            <textarea className="textarea" value={(selectedStep as any).systemPrompt} onChange={(e) => setStep(selectedStepIdx, { systemPrompt: e.target.value })} />
+                            <div className="small" style={{ marginTop: 8 }}>
+                              userPrompt
+                            </div>
+                            <textarea className="textarea" value={(selectedStep as any).userPrompt} onChange={(e) => setStep(selectedStepIdx, { userPrompt: e.target.value })} />
+                            <div className="small" style={{ marginTop: 8 }}>
+                              saveAs
+                            </div>
+                            <input className="input" value={(selectedStep as any).saveAs ?? ""} onChange={(e) => setStep(selectedStepIdx, { saveAs: e.target.value || undefined })} />
+                            <details style={{ marginTop: 10 }}>
+                              <summary className="small" style={{ cursor: "pointer" }}>
+                                outputJsonSchema (advanced)
+                              </summary>
+                              <pre>{JSON.stringify((selectedStep as any).outputJsonSchema ?? {}, null, 2)}</pre>
+                              <div className="small">Edit in Raw JSON below for now.</div>
+                            </details>
+                          </>
+                        )}
+
+                        {(selectedStep as any).type === "UNKNOWN_STEP" && (
+                          <div className="err">
+                            <b>UNKNOWN_STEP</b>
+                            <div className="small">This step type isn’t in the registry. Add it to blockRegistry.json.</div>
+                          </div>
+                        )}
+                      </div>
+
+                      <details style={{ marginTop: 10 }}>
+                        <summary className="small" style={{ cursor: "pointer" }}>
+                          Raw Step JSON
+                        </summary>
+                        <pre style={{ margin: 0 }}>{JSON.stringify(selectedStep, null, 2)}</pre>
+                      </details>
+                    </>
+                  )}
+                </>
+              )}
+            </div>
+          </div>
+
+          <div className="panel" style={{ minHeight: 0 }}>
+            <div className="ph">
+              <div>
+                <div className="h2">Preview JSON</div>
+                <div className="small">Card JSON (read-only)</div>
               </div>
+              <span className="badge">{card.schemaVersion}</span>
+            </div>
+            <div className="pb" style={{ overflow: "auto", maxHeight: "22vh" }}>
+              <pre style={{ margin: 0 }}>{JSON.stringify(card, null, 2)}</pre>
+            </div>
+          </div>
+
+          <div className="panel">
+            <div className="ph">
+              <div>
+                <div className="h2">Compile</div>
+                <div className="small">Schema + invariants</div>
+              </div>
+              <span className="badge">{errorCount} errors</span>
+            </div>
+            <div className="pb">
+              {issues.some((i) => i.severity === "ERROR") ? (
+                issues
+                  .filter((i) => i.severity === "ERROR")
+                  .map((i, idx) => (
+                    <div key={idx} className="err">
+                      <b>{i.code}</b>
+                      <div className="small">{i.message}</div>
+                      {i.path ? (
+                        <div className="small">
+                          <code>{i.path}</code>
+                        </div>
+                      ) : null}
+                    </div>
+                  ))
+              ) : (
+                <div className="ok">
+                  <b>✅ OK</b>
+                  <div className="small">{issues[0]?.message ?? "No issues."}</div>
+                </div>
+              )}
             </div>
           </div>
         </div>
-      )}
+      </div>
 
       {/* Import modal */}
       <Modal
         open={importOpen}
-        title="Import CJ-1.x Card JSON (or FORGE-1.0 project)"
+        title="Import CJ Card JSON (or FORGE-1.0 project)"
         onClose={() => {
           setImportOpen(false);
           setImportError(null);
@@ -1557,77 +2145,6 @@ export default function App() {
         <CardPreview card={card} />
       </Modal>
 
-      {/* AI Image Gen modal */}
-      <Modal
-        open={imgOpen}
-        title="Generate Card Image (AI)"
-        onClose={() => {
-          setImgOpen(false);
-          setImgErr(null);
-        }}
-        footer={
-          <button className="btn btnPrimary" onClick={runImageGen} disabled={imgBusy}>
-            {imgBusy ? "Generating..." : "Generate"}
-          </button>
-        }
-      >
-        {imgErr ? (
-          <div className="err">
-            <b>Image error</b>
-            <div className="small">{imgErr}</div>
-          </div>
-        ) : null}
-
-        <div className="small">Provider</div>
-        <select className="select" value={imgProvider} onChange={(e) => setImgProvider(e.target.value as AiImageProvider)}>
-          <option value="OPENAI">OPENAI</option>
-          <option value="GEMINI">GEMINI</option>
-          <option value="GEMINI_NANO_BANANA_PRO">GEMINI_NANO_BANANA_PRO</option>
-        </select>
-
-        <div className="small" style={{ marginTop: 10 }}>
-          System prompt
-        </div>
-        <textarea className="textarea" value={imgSystem} onChange={(e) => setImgSystem(e.target.value)} />
-
-        <div className="small" style={{ marginTop: 10 }}>
-          Your prompt
-        </div>
-        <textarea className="textarea" value={imgPrompt} onChange={(e) => setImgPrompt(e.target.value)} placeholder={`Illustration for ${card.name}...`} />
-
-        <div className="small" style={{ marginTop: 10 }}>
-          Reference images
-        </div>
-        <input
-          className="input"
-          type="file"
-          accept="image/*"
-          multiple
-          onChange={async (e) => {
-            const files = Array.from(e.target.files ?? []);
-            if (!files.length) return;
-            const next = [];
-            for (const f of files) {
-              const dataUrl = await fileToDataUrl(f);
-              next.push({ name: f.name, dataUrl });
-            }
-            setImgRefs((prev) => [...prev, ...next]);
-          }}
-        />
-        {imgRefs.length ? (
-          <div className="small" style={{ marginTop: 8 }}>
-            {imgRefs.length} reference(s) attached.
-            <button className="btn" style={{ marginLeft: 8 }} onClick={() => setImgRefs([])}>
-              Clear
-            </button>
-          </div>
-        ) : (
-          <div className="small" style={{ marginTop: 8 }}>
-            Optional. Add character references or style guides.
-          </div>
-        )}
-      </Modal>
-
       {/* Action Library modal */}
       <Modal
         open={libraryOpen}
@@ -1653,7 +2170,12 @@ export default function App() {
 
         <div className="small">Relink library source</div>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-          <input className="input" value={libraryUrl} onChange={(e) => setLibraryUrl(e.target.value)} placeholder="https://raw.githubusercontent.com/.../cj_action_library.json" />
+          <input
+            className="input"
+            value={libraryUrl}
+            onChange={(e) => setLibraryUrl(e.target.value)}
+            placeholder="https://raw.githubusercontent.com/.../cj_action_library.json"
+          />
           <button className="btn" onClick={relinkFromUrl} disabled={!libraryUrl.trim()}>
             Relink (URL)
           </button>
@@ -1704,7 +2226,7 @@ export default function App() {
 
         <div className="h2">Steps</div>
         {library.steps.length === 0 ? <div className="small">No steps saved yet.</div> : null}
-        {library.steps.slice(0, 20).map((s) => (
+        {library.steps.slice(0, 30).map((s) => (
           <div key={s.id} className="item">
             <b>{s.name}</b> <span className="small">{s.id}</span>
           </div>
