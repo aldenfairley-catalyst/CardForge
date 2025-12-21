@@ -786,51 +786,164 @@ export default function App() {
     };
   }
 
+  function dataUrlToBase64(dataUrl: string) {
+    const idx = dataUrl.indexOf(",");
+    return idx === -1 ? dataUrl : dataUrl.slice(idx + 1);
+  }
+
+  function extractImageFromPayload(payload: any) {
+    if (!payload) return null;
+
+    const direct = payload?.imageDataUrl ?? payload?.dataUrl ?? payload?.imageUrl ?? payload?.url ?? null;
+    if (direct) return direct;
+
+    const openAi = payload?.data?.[0];
+    if (openAi?.b64_json) return `data:image/png;base64,${openAi.b64_json}`;
+    if (openAi?.url) return openAi.url;
+
+    const gemImages = payload?.images ?? [];
+    const gemInline = gemImages[0]?.inlineData;
+    if (gemInline?.data) return `data:${gemInline.mimeType ?? "image/png"};base64,${gemInline.data}`;
+    if (gemImages[0]?.url || gemImages[0]?.imageUri) return gemImages[0].url ?? gemImages[0].imageUri;
+
+    const candidateParts = payload?.candidates?.[0]?.content?.parts ?? [];
+    const inlinePart = candidateParts.find((p: any) => p?.inlineData?.data);
+    if (inlinePart?.inlineData?.data) {
+      return `data:${inlinePart.inlineData.mimeType ?? "image/png"};base64,${inlinePart.inlineData.data}`;
+    }
+
+    return null;
+  }
+
+  async function callAiImageProxy(proxyUrl: string, req: ReturnType<typeof buildAiImageRequest>) {
+    const res = await fetch(proxyUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(req)
+    });
+
+    const text = await res.text();
+    const parsed = safeJsonParse(text);
+    const payload = parsed.ok ? parsed.value : { raw: text };
+
+    if (!res.ok) {
+      throw Object.assign(new Error(payload?.error ?? `Proxy returned ${res.status}`), { payload });
+    }
+
+    return { image: extractImageFromPayload(payload), payload };
+  }
+
+  async function callOpenAiDirect(req: ReturnType<typeof buildAiImageRequest>) {
+    const promptSegments = [req.prompt];
+    if (req.negativePrompt?.trim()) promptSegments.push(`Negative prompt: ${req.negativePrompt.trim()}`);
+    if (req.references?.length) promptSegments.push(`Reference images: ${req.references.map((r) => r.name).join(", ")}`);
+
+    const body = {
+      model: req.model || "gpt-image-1",
+      prompt: promptSegments.join("\n\n"),
+      size: `${req.size.width}x${req.size.height}`,
+      response_format: "b64_json",
+      n: 1
+    };
+
+    const res = await fetch("https://api.openai.com/v1/images/generations", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${req.apiKey}`
+      },
+      body: JSON.stringify(body)
+    });
+
+    const text = await res.text();
+    const parsed = safeJsonParse(text);
+    const payload = parsed.ok ? parsed.value : { raw: text };
+
+    if (!res.ok) {
+      throw Object.assign(new Error(payload?.error?.message ?? payload?.error ?? `OpenAI returned ${res.status}`), { payload });
+    }
+
+    return { image: extractImageFromPayload(payload), payload };
+  }
+
+  async function callGeminiDirect(req: ReturnType<typeof buildAiImageRequest>) {
+    const parts: any[] = [];
+    if (req.prompt) parts.push({ text: req.prompt });
+    if (req.negativePrompt?.trim()) parts.push({ text: `Negative prompt: ${req.negativePrompt.trim()}` });
+
+    if (req.references?.length) {
+      parts.push(
+        ...req.references.map((r) => ({
+          inlineData: {
+            data: dataUrlToBase64(r.dataUrl),
+            mimeType: r.mime || "image/png"
+          }
+        }))
+      );
+    }
+
+    const body = {
+      contents: [{ role: "user", parts }],
+      generationConfig: {
+        responseMimeType: "image/png",
+        responseImageDimensions: { width: req.size.width, height: req.size.height }
+      }
+    };
+
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(req.model)}:generateContent?key=${encodeURIComponent(String(req.apiKey))}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body)
+      }
+    );
+
+    const text = await res.text();
+    const parsed = safeJsonParse(text);
+    const payload = parsed.ok ? parsed.value : { raw: text };
+
+    if (!res.ok) {
+      throw Object.assign(new Error(payload?.error?.message ?? payload?.error ?? `Gemini returned ${res.status}`), { payload });
+    }
+
+    return { image: extractImageFromPayload(payload), payload };
+  }
+
+  async function callAiProviderDirect(req: ReturnType<typeof buildAiImageRequest>) {
+    if (!req.apiKey?.trim()) {
+      throw new Error("Direct provider calls require an API key. Add a proxy URL or enter your provider key.");
+    }
+
+    if (req.provider === "OPENAI") return callOpenAiDirect(req);
+    if (req.provider === "GEMINI") return callGeminiDirect(req);
+    throw new Error(`Unsupported AI provider: ${req.provider}`);
+  }
+
   async function runAiImageGenerate() {
     setAiErr(null);
     setAiLastResponse(null);
 
     const req = buildAiImageRequest();
 
-    if (!aiProxyUrl.trim()) {
-      setAiErr("No Proxy URL set. Add one (e.g. http://localhost:8787/ai/image) or copy the request JSON.");
-      setAiLastResponse(req);
-      return;
-    }
-
+    const proxyUrl = aiProxyUrl.trim();
     setAiBusy(true);
     try {
-      const res = await fetch(aiProxyUrl.trim(), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(req)
-      });
-
-      const text = await res.text();
-      const parsed = safeJsonParse(text);
-      const payload = parsed.ok ? parsed.value : { raw: text };
-
-      if (!res.ok) {
-        throw new Error(payload?.error ?? `Proxy returned ${res.status}`);
-      }
-
+      const { image, payload } = proxyUrl ? await callAiImageProxy(proxyUrl, req) : await callAiProviderDirect(req);
       setAiLastResponse(payload);
 
-      const imageDataUrl = payload?.imageDataUrl ?? payload?.dataUrl ?? null;
-      const imageUrl = payload?.imageUrl ?? null;
-
-      const nextImage = imageDataUrl || imageUrl;
+      const nextImage = image ?? extractImageFromPayload(payload);
       if (nextImage) {
         setCard({
           ...card,
           visuals: { ...(card.visuals ?? {}), cardImage: nextImage }
         });
       } else {
-        setAiErr("Proxy response did not include imageDataUrl or imageUrl.");
+        setAiErr("Provider response did not include an image payload or URL.");
       }
     } catch (e: any) {
-      setAiErr(e.message ?? String(e));
-      setAiLastResponse(req);
+      setAiErr(e?.message ?? String(e));
+      setAiLastResponse(e?.payload ?? req);
     } finally {
       setAiBusy(false);
     }
