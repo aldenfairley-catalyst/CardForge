@@ -47,10 +47,9 @@ export type TargetSetRef = { ref: string };
 export type Expression =
   | { type: "CONST_NUMBER"; value: number }
   | { type: "VAR"; key: string }
-  | { type: "ADD"; a: Expression; b: Expression }
-  | { type: "SUB"; a: Expression; b: Expression }
-  | { type: "MUL"; a: Expression; b: Expression }
-  | { type: "DIV"; a: Expression; b: Expression }
+  | { type: "SAVED_VALUE"; key: string }
+  | { type: "READ_STAT"; entity: EntityRef; stat: string }
+  | { type: "ADD" | "SUB" | "SUBTRACT" | "MUL" | "MULTIPLY" | "DIV" | "DIVIDE" | "MIN" | "MAX"; a: Expression; b: Expression }
   | { type: string; [k: string]: any }; // forward compatible
 
 export type Condition =
@@ -58,6 +57,9 @@ export type Condition =
   | { type: "NOT"; cond: Condition }
   | { type: "AND"; all: Condition[] }
   | { type: "OR"; any: Condition[] }
+  | { type: "COMPARE_NUMBERS"; lhs: Expression; op: ">" | ">=" | "==" | "!=" | "<=" | "<"; rhs: Expression }
+  | { type: "HAS_TAG"; entity: EntityRef; tag: string }
+  | { type: "COUNT_UNITS_ON_BOARD"; targetTag: string; min: number; faction?: "ANY" | "ALLY" | "ENEMY" }
   | { type: "STATE_EQUALS"; entity: EntityRef; key: string; value: any }
   | { type: "WITHIN_DISTANCE"; metric: DistanceMetric; from: EntityRef; to: EntityRef; max: number; min?: number }
   | { type: string; [k: string]: any }; // forward compatible

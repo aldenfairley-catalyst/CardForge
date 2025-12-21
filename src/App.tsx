@@ -1709,8 +1709,8 @@ export default function App() {
           type="file"
           accept="image/*"
           multiple
-          onChange={(e) => {
-            const files = Array.from(e.target.files ?? []);
+          onChange={(e: any) => {
+            const files = Array.from(e.target.files ?? []) as any[];
             if (!files.length) return;
 
             files.forEach((file) => {
