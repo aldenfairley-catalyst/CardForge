@@ -1,6 +1,11 @@
 import registry from "../assets/blockRegistry.json";
+import registryUrl from "../assets/blockRegistry.json?url";
 
 export const blockRegistry = registry as any;
+export const blockRegistryVersion = String((blockRegistry as any)?.schemaVersion ?? "BR-UNKNOWN");
+export const blockRegistryCacheBustingUrl = `${registryUrl}${registryUrl.includes("?") ? "&" : "?"}v=${encodeURIComponent(
+  blockRegistryVersion
+)}`;
 
 export function isStepTypeAllowed(t: string) {
   return (blockRegistry.steps.types as string[]).includes(t);
