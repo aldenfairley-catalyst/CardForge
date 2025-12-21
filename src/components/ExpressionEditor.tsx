@@ -1,16 +1,16 @@
 import React from "react";
-import type { Expr, EntityRef } from "../lib/types";
+import type { Expression, EntityRef } from "../lib/types";
 import { EntityRefEditor } from "./EntityRefEditor";
 
 type Props = {
-  value: Expr;
-  onChange: (next: Expr) => void;
+  value: Expression;
+  onChange: (next: Expression) => void;
 };
 
 const exprTypes = ["CONST_NUMBER","SAVED_VALUE","READ_STAT","ADD","SUBTRACT","MULTIPLY","DIVIDE","MIN","MAX"] as const;
 type ExprType = typeof exprTypes[number];
 
-function isBinary(t: Expr["type"]) {
+function isBinary(t: Expression["type"]) {
   return ["ADD","SUBTRACT","MULTIPLY","DIVIDE","MIN","MAX"].includes(t);
 }
 

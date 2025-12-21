@@ -842,7 +842,7 @@ export default function App() {
           </div>
 
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-            <button className={`btn ${mode === "FORGE" ? "btnPrimary" : ""}`} onClick={() => setMode("FORGE")}>
+            <button className="btn" onClick={() => setMode("FORGE")}>
               Forge
             </button>
             <button className={`btn ${mode === "LIBRARY" ? "btnPrimary" : ""}`} onClick={() => setMode("LIBRARY")}>
@@ -890,13 +890,13 @@ export default function App() {
           <button className={`btn ${mode === "FORGE" ? "btnPrimary" : ""}`} onClick={() => setMode("FORGE")}>
             Forge
           </button>
-          <button className={`btn ${mode === "LIBRARY" ? "btnPrimary" : ""}`} onClick={() => setMode("LIBRARY")}>
+          <button className="btn" onClick={() => setMode("LIBRARY")}>
             Library
           </button>
-          <button className={`btn ${mode === "DECKS" ? "btnPrimary" : ""}`} onClick={() => setMode("DECKS")}>
+          <button className="btn" onClick={() => setMode("DECKS")}>
             Decks
           </button>
-          <button className={`btn ${mode === "SCENARIOS" ? "btnPrimary" : ""}`} onClick={() => setMode("SCENARIOS")}>
+          <button className="btn" onClick={() => setMode("SCENARIOS")}>
             Scenarios
           </button>
 
