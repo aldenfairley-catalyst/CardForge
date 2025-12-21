@@ -14,7 +14,11 @@ import type {
   ZoneKey,
   DistanceMetric,
   DamageType,
-  StatusKey
+  StatusKey,
+  TargetingType,
+  TargetOrigin,
+  LoSMode,
+  LoSBlockPolicy
 } from "./lib/types";
 
 import { makeDefaultCard, canonicalToGraph, abilitySummary } from "./lib/graph";
@@ -727,11 +731,43 @@ export default function App() {
     selectedStepIdx != null && (ability as any)?.execution?.steps ? ((ability as any).execution.steps[selectedStepIdx] as Step) : null;
 
   // ---- Target profile editing helpers ----
+  const TARGETING_TYPES: TargetingType[] = [
+    "SELF",
+    "SINGLE_TARGET",
+    "AREA_RADIUS",
+    "AREA_AROUND_TARGET",
+    "LINE",
+    "CONE",
+    "GLOBAL_ANYWHERE"
+  ];
+  const TARGET_ORIGINS: TargetOrigin[] = ["SOURCE", "TARGET", "ANYWHERE"];
+  const LOS_MODES: LoSMode[] = ["HEX_RAYCAST", "SQUARE_RAYCAST", "NONE", "ADVISORY"];
+  const LOS_POLICIES: LoSBlockPolicy[] = ["BLOCK_ALL", "BLOCK_RANGED", "BLOCK_AOE", "BLOCK_MAGIC", "BLOCK_NON_MAGICAL"];
+
   const profiles = ((ability as any)?.targetingProfiles ?? []) as any[];
   const activeProfile = profiles.find((p: any) => p.id === activeProfileId) ?? profiles[0];
 
   function setProfiles(nextProfiles: any[]) {
-    setAbility({ targetingProfiles: nextProfiles } as any);
+    const cloned = (nextProfiles ?? []).map((p) => ({
+      ...(p ?? {}),
+      range: p?.range ? { ...p.range } : undefined,
+      los: p?.los
+        ? {
+            ...p.los,
+            blockers: Array.isArray(p.los.blockers)
+              ? p.los.blockers.map((b: any) => ({ ...b, tags: Array.isArray(b.tags) ? [...b.tags] : [] }))
+              : undefined
+          }
+        : undefined,
+      area: p?.area ? { ...p.area } : undefined
+    }));
+    setAbility({ targetingProfiles: cloned } as any);
+  }
+
+  function updateActiveProfile(updater: (profile: any) => any) {
+    if (!activeProfile) return;
+    const next = (profiles ?? []).map((p: any) => (p.id === activeProfile.id ? updater({ ...p }) : { ...p }));
+    setProfiles(next);
   }
 
   function ensureUniqueProfileId(base: string) {
@@ -1326,6 +1362,272 @@ export default function App() {
                           Remove
                         </button>
                       </div>
+
+                      {activeProfile ? (
+                        <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 8 }}>
+                          <div>
+                            <div className="small">Label</div>
+                            <input
+                              className="input"
+                              value={activeProfile.label ?? ""}
+                              onChange={(e) => updateActiveProfile((p) => ({ ...p, label: e.target.value || undefined }))}
+                              placeholder="Primary Target"
+                            />
+                          </div>
+
+                          <div style={{ display: "flex", gap: 8 }}>
+                            <div style={{ flex: 1 }}>
+                              <div className="small">Type</div>
+                              <select
+                                className="select"
+                                value={activeProfile.type ?? "SELF"}
+                                onChange={(e) => updateActiveProfile((p) => ({ ...p, type: e.target.value as TargetingType }))}
+                              >
+                                {TARGETING_TYPES.map((t) => (
+                                  <option key={t} value={t}>
+                                    {t}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                            <div style={{ flex: 1 }}>
+                              <div className="small">Origin</div>
+                              <select
+                                className="select"
+                                value={activeProfile.origin ?? "SOURCE"}
+                                onChange={(e) => updateActiveProfile((p) => ({ ...p, origin: e.target.value as TargetOrigin }))}
+                              >
+                                {TARGET_ORIGINS.map((o) => (
+                                  <option key={o} value={o}>
+                                    {o}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                          </div>
+
+                          <div>
+                            <div className="small">Origin Ref (for chained targeting)</div>
+                            <input
+                              className="input"
+                              value={activeProfile.originRef ?? ""}
+                              onChange={(e) => updateActiveProfile((p) => ({ ...p, originRef: e.target.value || undefined }))}
+                              placeholder="targets"
+                            />
+                          </div>
+
+                          <div>
+                            <div className="small">Range</div>
+                            <div style={{ display: "flex", gap: 8 }}>
+                              <div style={{ flex: 1 }}>
+                                <div className="small">Base</div>
+                                <input
+                                  className="input"
+                                  type="number"
+                                  value={activeProfile.range?.base ?? 0}
+                                  onChange={(e) =>
+                                    updateActiveProfile((p) => ({
+                                      ...p,
+                                      range: { ...(p.range ?? {}), base: Number(e.target.value) }
+                                    }))
+                                  }
+                                />
+                              </div>
+                              <div style={{ flex: 1 }}>
+                                <div className="small">Min</div>
+                                <input
+                                  className="input"
+                                  type="number"
+                                  value={activeProfile.range?.min ?? 0}
+                                  onChange={(e) =>
+                                    updateActiveProfile((p) => ({
+                                      ...p,
+                                      range: { ...(p.range ?? {}), min: Number(e.target.value) }
+                                    }))
+                                  }
+                                />
+                              </div>
+                              <div style={{ flex: 1 }}>
+                                <div className="small">Max</div>
+                                <input
+                                  className="input"
+                                  type="number"
+                                  value={activeProfile.range?.max ?? 0}
+                                  onChange={(e) =>
+                                    updateActiveProfile((p) => ({
+                                      ...p,
+                                      range: { ...(p.range ?? {}), max: Number(e.target.value) }
+                                    }))
+                                  }
+                                />
+                              </div>
+                            </div>
+                          </div>
+
+                          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                            <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                              <input
+                                type="checkbox"
+                                checked={Boolean(activeProfile.lineOfSight)}
+                                onChange={(e) => updateActiveProfile((p) => ({ ...p, lineOfSight: e.target.checked }))}
+                              />
+                              Line of Sight Required
+                            </label>
+                            <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                              <input
+                                type="checkbox"
+                                checked={Boolean(activeProfile.los?.required)}
+                                onChange={(e) =>
+                                  updateActiveProfile((p) => ({
+                                    ...p,
+                                    los: { ...(p.los ?? { mode: "HEX_RAYCAST", blockers: [] }), required: e.target.checked }
+                                  }))
+                                }
+                              />
+                              Strict LOS
+                            </label>
+                          </div>
+
+                          <div style={{ display: "flex", gap: 8 }}>
+                            <div style={{ flex: 1 }}>
+                              <div className="small">LOS Mode</div>
+                              <select
+                                className="select"
+                                value={activeProfile.los?.mode ?? "HEX_RAYCAST"}
+                                onChange={(e) =>
+                                  updateActiveProfile((p) => ({
+                                    ...p,
+                                    los: { ...(p.los ?? { required: true, blockers: [] }), mode: e.target.value as LoSMode }
+                                  }))
+                                }
+                              >
+                                {LOS_MODES.map((m) => (
+                                  <option key={m} value={m}>
+                                    {m}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                            <div style={{ flex: 2 }}>
+                              <div className="small">LOS Blockers</div>
+                              {Array.isArray(activeProfile.los?.blockers) && activeProfile.los.blockers.length
+                                ? activeProfile.los.blockers.map((b: any, i: number) => (
+                                    <div key={i} style={{ display: "flex", gap: 6, marginBottom: 6, alignItems: "center" }}>
+                                      <select
+                                        className="select"
+                                        value={b.policy}
+                                        onChange={(e) =>
+                                          updateActiveProfile((p) => {
+                                            const blockers = Array.isArray(p.los?.blockers) ? p.los.blockers.slice() : [];
+                                            blockers[i] = { ...(blockers[i] ?? {}), policy: e.target.value as LoSBlockPolicy };
+                                            return { ...p, los: { ...(p.los ?? {}), blockers } };
+                                          })
+                                        }
+                                        style={{ flex: 1 }}
+                                      >
+                                        {LOS_POLICIES.map((pol) => (
+                                          <option key={pol} value={pol}>
+                                            {pol}
+                                          </option>
+                                        ))}
+                                      </select>
+                                      <input
+                                        className="input"
+                                        style={{ flex: 2 }}
+                                        placeholder="tags comma separated"
+                                        value={(b.tags ?? []).join(", ")}
+                                        onChange={(e) =>
+                                          updateActiveProfile((p) => {
+                                            const blockers = Array.isArray(p.los?.blockers) ? p.los.blockers.slice() : [];
+                                            blockers[i] = {
+                                              ...(blockers[i] ?? {}),
+                                              tags: e.target.value
+                                                .split(",")
+                                                .map((t) => t.trim())
+                                                .filter(Boolean)
+                                            };
+                                            return { ...p, los: { ...(p.los ?? {}), blockers } };
+                                          })
+                                        }
+                                      />
+                                      <button
+                                        className="btn btnDanger"
+                                        onClick={() =>
+                                          updateActiveProfile((p) => {
+                                            const blockers = Array.isArray(p.los?.blockers) ? p.los.blockers.slice() : [];
+                                            blockers.splice(i, 1);
+                                            return { ...p, los: { ...(p.los ?? {}), blockers } };
+                                          })
+                                        }
+                                      >
+                                        ✕
+                                      </button>
+                                    </div>
+                                  ))
+                                : null}
+                              <button
+                                className="btn"
+                                onClick={() =>
+                                  updateActiveProfile((p) => {
+                                    const blockers = Array.isArray(p.los?.blockers) ? p.los.blockers.slice() : [];
+                                    blockers.push({ policy: LOS_POLICIES[0], tags: [] });
+                                    return { ...p, los: { ...(p.los ?? { mode: "HEX_RAYCAST", required: true }), blockers } };
+                                  })
+                                }
+                              >
+                                + Add Blocker
+                              </button>
+                            </div>
+                          </div>
+
+                          <div>
+                            <div className="small">Area</div>
+                            <div style={{ display: "flex", gap: 8 }}>
+                              <div style={{ flex: 1 }}>
+                                <div className="small">Radius</div>
+                                <input
+                                  className="input"
+                                  type="number"
+                                  value={activeProfile.area?.radius ?? 0}
+                                  onChange={(e) =>
+                                    updateActiveProfile((p) => ({
+                                      ...p,
+                                      area: { ...(p.area ?? {}), radius: Number(e.target.value) }
+                                    }))
+                                  }
+                                />
+                              </div>
+                              <div style={{ flex: 1 }}>
+                                <div className="small">Max Targets</div>
+                                <input
+                                  className="input"
+                                  type="number"
+                                  value={activeProfile.area?.maxTargets ?? 0}
+                                  onChange={(e) =>
+                                    updateActiveProfile((p) => ({
+                                      ...p,
+                                      area: { ...(p.area ?? {}), maxTargets: Number(e.target.value) }
+                                    }))
+                                  }
+                                />
+                              </div>
+                              <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                                <input
+                                  type="checkbox"
+                                  checked={Boolean(activeProfile.area?.includeCenter)}
+                                  onChange={(e) =>
+                                    updateActiveProfile((p) => ({
+                                      ...p,
+                                      area: { ...(p.area ?? {}), includeCenter: e.target.checked }
+                                    }))
+                                  }
+                                />
+                                Include Center
+                              </label>
+                            </div>
+                          </div>
+                        </div>
+                      ) : null}
 
                       <details style={{ marginTop: 10 }}>
                         <summary className="small" style={{ cursor: "pointer" }}>
