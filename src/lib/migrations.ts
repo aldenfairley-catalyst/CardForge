@@ -1,6 +1,7 @@
 import type { CardEntity } from "./types";
 
 export const LATEST_SCHEMA_VERSION = "CJ-1.2" as const;
+export const SUPPORTED_SCHEMA_VERSIONS = ["CJ-1.0", "CJ-1.1", LATEST_SCHEMA_VERSION] as const;
 
 function isObj(x: any) {
   return x && typeof x === "object" && !Array.isArray(x);
