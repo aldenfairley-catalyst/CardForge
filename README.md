@@ -6,6 +6,12 @@ React + TypeScript + Vite + React Flow.
 npm install
 npm run dev
 
+### Local Run (SQLite + API proxy)
+1) Install Node.js 20 (via nvm or your package manager)
+2) `npm install`
+3) `npm run dev` (launches the Vite client; start the backend with `npm run dev --prefix server`)
+4) Open `http://localhost:5173`
+
 ## GitHub Pages
 1) Push to main
 2) Settings → Pages → Build and deployment → GitHub Actions
