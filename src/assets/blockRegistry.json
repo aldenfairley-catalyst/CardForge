@@ -3,126 +3,250 @@
   "steps": {
     "types": [
       "SHOW_TEXT",
-      "ROLL_DN",
       "ROLL_D6",
       "ROLL_D20",
       "SET_VARIABLE",
       "IF_ELSE",
-      "WHILE",
+      "OPPONENT_SAVE",
       "SELECT_TARGETS",
       "FOR_EACH_TARGET",
-      "FIND_ADJACENT_ENTITIES",
-      "FIND_ENTITIES_IN_AREA",
-      "FIND_ENTITIES_BY_TAG",
-      "CALC_DISTANCE",
       "DEAL_DAMAGE",
       "HEAL",
       "APPLY_STATUS",
       "REMOVE_STATUS",
-      "SET_ENTITY_STATE",
-      "CLEAR_ENTITY_STATE",
-      "NEGATE_DAMAGE",
-      "REDUCE_DAMAGE",
-      "MODIFY_PENDING_DAMAGE",
       "OPEN_REACTION_WINDOW",
-      "OPPONENT_SAVE",
       "MOVE_ENTITY",
       "MOVE_WITH_PATH_CAPTURE",
-      "PULL_TOWARD",
-      "TURN_ENTITY",
-      "MOVE_VEHICLE",
-      "RAM_COLLISION_RESOLVE",
+      "CALC_DISTANCE",
       "DRAW_CARDS",
-      "SEARCH_ZONE",
       "MOVE_CARDS",
       "SHUFFLE_ZONE",
       "PUT_ON_TOP_ORDERED",
       "END_TURN_IMMEDIATELY",
+      "EMPTY_HAND",
+      "ADD_CARDS_TO_DECK",
+      "REMOVE_CARDS_FROM_DECK",
+      "SWAP_DECK",
+      "SET_ENTITY_STATE",
+      "TOGGLE_ENTITY_STATE",
+      "CLEAR_ENTITY_STATE",
+      "FIND_ENTITIES",
+      "COUNT_ENTITIES",
+      "FILTER_TARGET_SET",
+      "SPAWN_ENTITY",
+      "DESPAWN_ENTITY",
       "OPEN_UI_FLOW",
       "REQUEST_PLAYER_CHOICE",
       "REGISTER_INTERRUPTS",
-      "EMIT_EVENT",
-      "WEBHOOK_CALL",
-      "AI_REQUEST",
       "PROPERTY_CONTEST",
-      "SUBSYSTEM_RUN",
-      "SCHEDULE_STEPS",
-      "CANCEL_SCHEDULED",
-      "UNKNOWN_STEP"
+      "WEBHOOK_CALL",
+      "EMIT_EVENT",
+      "AI_REQUEST"
     ],
     "groups": [
       {
         "id": "core",
         "label": "Core",
-        "types": ["SHOW_TEXT", "ROLL_DN", "SET_VARIABLE", "IF_ELSE", "SELECT_TARGETS", "FOR_EACH_TARGET", "DEAL_DAMAGE", "HEAL", "APPLY_STATUS", "MOVE_ENTITY"]
+        "types": [
+          "SHOW_TEXT",
+          "SET_VARIABLE",
+          "IF_ELSE",
+          "OPPONENT_SAVE",
+          "ROLL_D6",
+          "ROLL_D20"
+        ]
       },
       {
         "id": "targeting",
-        "label": "Targeting & Queries",
-        "types": ["FIND_ADJACENT_ENTITIES", "FIND_ENTITIES_IN_AREA", "FIND_ENTITIES_BY_TAG", "CALC_DISTANCE"]
+        "label": "Targeting & Iteration",
+        "types": [
+          "SELECT_TARGETS",
+          "FOR_EACH_TARGET",
+          "CALC_DISTANCE"
+        ]
       },
       {
-        "id": "cards",
-        "label": "Cards / Zones",
-        "types": ["DRAW_CARDS", "SEARCH_ZONE", "MOVE_CARDS", "SHUFFLE_ZONE", "PUT_ON_TOP_ORDERED"]
+        "id": "combat",
+        "label": "Combat & Status",
+        "types": [
+          "DEAL_DAMAGE",
+          "HEAL",
+          "APPLY_STATUS",
+          "REMOVE_STATUS",
+          "OPEN_REACTION_WINDOW"
+        ]
       },
       {
-        "id": "timing",
-        "label": "Timing / Events / Multiplayer",
-        "types": ["OPEN_REACTION_WINDOW", "REGISTER_INTERRUPTS", "EMIT_EVENT", "SCHEDULE_STEPS", "CANCEL_SCHEDULED", "WEBHOOK_CALL"]
+        "id": "movement",
+        "label": "Movement",
+        "types": [
+          "MOVE_ENTITY",
+          "MOVE_WITH_PATH_CAPTURE"
+        ]
       },
       {
-        "id": "systems",
-        "label": "Subsystems / Minigames / AI",
-        "types": ["PROPERTY_CONTEST", "SUBSYSTEM_RUN", "OPEN_UI_FLOW", "AI_REQUEST"]
+        "id": "state",
+        "label": "Entity State",
+        "types": [
+          "SET_ENTITY_STATE",
+          "TOGGLE_ENTITY_STATE",
+          "CLEAR_ENTITY_STATE"
+        ]
       },
       {
-        "id": "advanced",
-        "label": "Advanced Combat / Vehicles",
-        "types": ["NEGATE_DAMAGE", "REDUCE_DAMAGE", "MODIFY_PENDING_DAMAGE", "PULL_TOWARD", "TURN_ENTITY", "MOVE_VEHICLE", "RAM_COLLISION_RESOLVE"]
+        "id": "entities",
+        "label": "Entity Query & Spawning",
+        "types": [
+          "FIND_ENTITIES",
+          "COUNT_ENTITIES",
+          "FILTER_TARGET_SET",
+          "SPAWN_ENTITY",
+          "DESPAWN_ENTITY"
+        ]
+      },
+      {
+        "id": "zones",
+        "label": "Deck / Hand / Zones",
+        "types": [
+          "DRAW_CARDS",
+          "MOVE_CARDS",
+          "SHUFFLE_ZONE",
+          "PUT_ON_TOP_ORDERED",
+          "EMPTY_HAND",
+          "ADD_CARDS_TO_DECK",
+          "REMOVE_CARDS_FROM_DECK",
+          "SWAP_DECK",
+          "END_TURN_IMMEDIATELY"
+        ]
+      },
+      {
+        "id": "ui",
+        "label": "UI / Subsystems",
+        "types": [
+          "OPEN_UI_FLOW",
+          "REQUEST_PLAYER_CHOICE",
+          "PROPERTY_CONTEST",
+          "REGISTER_INTERRUPTS"
+        ]
+      },
+      {
+        "id": "integrations",
+        "label": "Integrations (AI / Webhooks / Events)",
+        "types": [
+          "AI_REQUEST",
+          "WEBHOOK_CALL",
+          "EMIT_EVENT"
+        ]
       }
     ]
   },
   "triggers": [
     "ACTIVE_ACTION",
     "PASSIVE_AURA",
-    "START_OF_TURN",
-    "END_OF_TURN",
-    "BEFORE_DAMAGE_APPLIED",
-    "ON_DAMAGE_TAKEN",
-    "ON_MOVE",
-    "ON_CARD_PLAYED",
-    "ON_CARD_MOVED_ZONE",
-    "ON_UNIT_SPAWNED",
-    "ON_UNIT_REMOVED",
-    "ON_GLOBAL_COUNTER_CHANGED"
+    "REACTION",
+    "ON_DEATH",
+    "ON_DRAW",
+    "ON_EQUIP",
+    "ON_PLAY_FROM_HAND",
+    "ON_TURN_START",
+    "ON_TURN_END",
+    "ON_ROUND_START",
+    "ON_ROUND_END"
   ],
   "targeting": {
-    "types": ["SINGLE_TARGET", "MULTI_TARGET", "TILE", "AREA", "LINE", "CONE", "SELF", "GLOBAL_ZONE", "AUTO_FROM_REF"]
-  },
-  "uiFlows": {
-    "types": ["CUSTOM", "PROPERTY_CONTEST", "STORM_CONVERGENCE", "STORY_SLIDE", "TARGETING_HEX_TOOL", "DECK_SWAP"]
+    "types": [
+      "SELF",
+      "SINGLE_TARGET",
+      "AREA_RADIUS",
+      "AREA_AROUND_TARGET",
+      "LINE",
+      "CONE",
+      "GLOBAL_ANYWHERE"
+    ],
+    "origins": [
+      "SOURCE",
+      "TARGET",
+      "ANYWHERE"
+    ]
   },
   "keys": {
-    "TokenKey": ["UMB", "AET", "CRD", "AWR", "CHR", "STR", "RES", "WIS", "INT", "SPD"],
-    "DamageType": ["PHYSICAL", "ELECTRIC", "FIRE", "COLD", "POISON", "SIEGE", "ARCANE"],
-    "StatusKey": ["STUNNED", "PRONE", "SLOWED", "IMMOBILE", "KNOCKED_OUT"],
-    "DistanceMetric": ["HEX", "SQUARE", "MANHATTAN"],
+    "TokenKey": [
+      "UMB",
+      "AET",
+      "CRD",
+      "CHR",
+      "STR",
+      "RES",
+      "WIS",
+      "INT",
+      "SPD",
+      "AWR"
+    ],
+    "DistanceMetric": [
+      "HEX",
+      "SQUARE_MANHATTAN",
+      "SQUARE_EUCLIDEAN",
+      "SQUARE_CHEBYSHEV"
+    ],
     "ZoneKey": [
       "ACTOR_ACTION_DECK",
       "ACTOR_ACTION_HAND",
       "ACTOR_ACTION_DISCARD",
-      "ACTOR_ACTION_LOST",
-      "OPPONENT_ACTION_DECK",
-      "OPPONENT_ACTION_HAND",
-      "OPPONENT_ACTION_DISCARD",
-      "OPPONENT_ACTION_LOST",
       "ACTOR_ITEM_DECK",
       "ACTOR_ITEM_HAND",
       "ACTOR_ITEM_DISCARD",
-      "ACTOR_ITEM_LOST",
-      "BATTLEFIELD",
-      "GLOBAL_ENVIRONMENT"
+      "OPPONENT_ACTION_DECK",
+      "OPPONENT_ACTION_HAND",
+      "OPPONENT_ACTION_DISCARD",
+      "OPPONENT_ITEM_DECK",
+      "OPPONENT_ITEM_HAND",
+      "OPPONENT_ITEM_DISCARD",
+      "SCENARIO_SHARED_DECK",
+      "SCENARIO_SHARED_HAND",
+      "SCENARIO_SHARED_DISCARD",
+      "SCENARIO_EXILE"
+    ],
+    "DamageType": [
+      "PHYSICAL",
+      "ELECTRICAL",
+      "FIRE",
+      "COLD",
+      "POISON",
+      "SIEGE",
+      "MAGICAL"
+    ],
+    "StatusKey": [
+      "SLOWED",
+      "STUNNED",
+      "BURNING",
+      "POISONED",
+      "WET",
+      "FROZEN",
+      "MARKED",
+      "FEARED",
+      "INVISIBLE",
+      "BLEEDING"
+    ],
+    "LoSMode": [
+      "HEX_RAYCAST",
+      "SQUARE_RAYCAST",
+      "NONE",
+      "ADVISORY"
+    ],
+    "LoSBlockPolicy": [
+      "BLOCK_ALL",
+      "BLOCK_RANGED",
+      "BLOCK_AOE",
+      "BLOCK_MAGIC",
+      "BLOCK_NON_MAGICAL"
+    ]
+  },
+  "uiFlows": {
+    "types": [
+      "CUSTOM",
+      "PROPERTY_CONTEST",
+      "AI_IMAGE_GENERATE",
+      "STORM_CONVERGENCE_CHAIN"
     ]
   }
 }
