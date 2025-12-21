@@ -18,8 +18,9 @@ import type {
 } from "./lib/types";
 
 import { makeDefaultCard, canonicalToGraph, abilitySummary } from "./lib/graph";
-import { loadCardJson, saveCardJson, clearSaved } from "./lib/storage";
+import { loadMigratedCardOrDefault, saveCardJson, clearSaved } from "./lib/storage";
 import { validateCard, type ValidationIssue } from "./lib/schemas";
+import { migrateCard } from "./lib/migrations";
 import {
   blockRegistry,
   blockRegistryCacheBustingUrl,
@@ -271,15 +272,8 @@ export default function App() {
   const [mode, setMode] = useState<AppMode>("FORGE");
 
   const [card, setCard] = useState<CardEntity>(() => {
-    const saved = loadCardJson();
-    if (saved) {
-      try {
-        return coerceUnknownSteps(JSON.parse(saved)) as CardEntity;
-      } catch {
-        // ignore
-      }
-    }
-    return makeDefaultCard();
+    const migrated = loadMigratedCardOrDefault(makeDefaultCard);
+    return coerceUnknownSteps(migrated) as CardEntity;
   });
 
   const [issues, setIssues] = useState<ValidationIssue[]>([]);
@@ -589,11 +583,9 @@ export default function App() {
   function doImport() {
     setImportError(null);
     try {
-      const parsed = coerceUnknownSteps(JSON.parse(importText));
-      const incoming: CardEntity = parsed?.projectVersion === "FORGE-1.0" ? parsed.card : parsed;
-      if (!incoming || typeof (incoming as any).schemaVersion !== "string") {
-        throw new Error("Expected CJ card JSON with schemaVersion.");
-      }
+      const parsed = JSON.parse(importText);
+      const migrated = migrateCard(parsed);
+      const incoming = coerceUnknownSteps(migrated) as CardEntity;
       setCard(incoming);
       const idxs = findAbilityIndexes(incoming);
       setActiveAbilityIdx(idxs[0] ?? 0);

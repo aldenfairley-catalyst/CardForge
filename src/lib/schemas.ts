@@ -1,6 +1,7 @@
 // src/lib/schemas.ts
 import type { CardEntity, AbilityComponent, Step } from "./types";
 import { blockRegistry, isStepTypeAllowed } from "./registry";
+import { LATEST_SCHEMA_VERSION } from "./migrations";
 
 export type ValidationSeverity = "ERROR" | "WARN";
 
@@ -11,9 +12,8 @@ export type ValidationIssue = {
   path?: string;
 };
 
-const CJ_SCHEMA_PATTERN = /^CJ-1\.\d+$/;
 const ALLOWED_CARD_TYPES = new Set(["UNIT", "ITEM", "ENVIRONMENT", "SPELL", "TOKEN"]);
-const isSchemaVersionAllowed = (v: string) => CJ_SCHEMA_PATTERN.test(v);
+const isSchemaVersionAllowed = (v: string) => v === LATEST_SCHEMA_VERSION;
 
 function push(
   issues: ValidationIssue[],
@@ -176,7 +176,7 @@ export function validateCard(card: any): ValidationIssue[] {
       issues,
       "ERROR",
       "SCHEMA_VERSION",
-      "schemaVersion must match CJ-1.x (e.g., CJ-1.2).",
+      `schemaVersion must be the latest supported version (${LATEST_SCHEMA_VERSION}).`,
       "schemaVersion"
     );
   }
