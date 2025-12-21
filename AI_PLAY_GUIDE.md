@@ -1,93 +1,94 @@
-# Captain Jawa Digital — How the Game is Played (AI-first)
+# AI_PLAY_GUIDE.md
+Version: CJ Docs 1.2 (AI-first, comprehensive) • Updated: 2025-12-20
 
-This is a system play guide written for AI agents (and devs) to understand the intended tabletop + digital hybrid.
-
----
-
-## 1) Two Modes of Play
-
-### 1.1 Assisted Physical (Hybrid)
-- Physical board + minis.
-- Players handle some adjudication (e.g., exact LoS edge cases, “can I really see?”).
-- App handles:
-  - card library, decks, scenarios
-  - draw/shuffle
-  - RNG (d6/d20)
-  - ability execution scripts
-  - HP/AP/status/tokens tracking
-  - scenario director triggers (story beats, deck swaps, spawns)
-
-### 1.2 Full Digital
-- The board is fully represented in the client.
-- The server is authoritative:
-  - validates LoS, range, AoE templates
-  - executes steps deterministically + RNG
-  - syncs state to clients
+This is a **rules & timing** reference for AI agents to generate content that doesn’t break gameplay.
 
 ---
 
-## 2) Turn Structure (typical)
-1) Round start triggers (scenario director)
-2) Player turn start triggers
-3) Active player spends AP to:
-   - move
-   - use abilities
-   - play spells / equip items (if allowed)
-4) Reaction windows may occur (server pauses and allows responses)
-5) Turn ends
-6) Victory conditions checked continuously or at defined timing windows
+## 1) Core resources
+- **AP** (Action Points): per-round budget used by abilities.
+- **HP**: health.
+- **MOVE**: how many tiles per round a unit can move.
+- **SIZE**: affects collisions, hazards, targeting exceptions.
+- **Tokens** (UMB/AET/etc): costs and printed contest values.
 
 ---
 
-## 3) Cards on the Table
-
-### 3.1 UNIT cards
-- Become entities on battlefield.
-- Track HP/AP/MOVE/SIZE
-- Have abilities and passives.
-
-### 3.2 ITEM cards
-- Equipped to units.
-- May inject abilities or modify stats.
-- May maintain local state (“loaded”) that abilities check.
-
-### 3.3 SPELL cards
-- Played from hand.
-- Can create entities, apply effects, alter environment, or trigger subsystems.
-
-### 3.4 ENVIRONMENT cards
-- Walls, hazards, doors, fog, etc.
-- May be destructible (HP).
-
-### 3.5 TOKEN cards
-- Summons, markers, ongoing effects represented on board.
+## 2) Turn loop (authoritative)
+1. START_OF_TURN triggers fire
+2. Scheduled effects resolve (those due now)
+3. Player actions (any order):
+   - Move (may cost AP or be free; depends on rules)
+   - Play card / activate ability
+   - Reactions windows open at specified timings
+4. END_OF_TURN triggers fire
+5. Scenario victory conditions evaluated
 
 ---
 
-## 4) The Director (Scenario System)
-Scenarios are the narrative/gameplay layer:
-- defines starting units for each side
-- assigns decks
-- defines victory conditions
-- defines triggers that run actions:
-  - spawn/remove units
-  - switch decks
-  - empty hand
-  - add/remove cards from zones
-  - change environment variables (water level, fog density)
-  - trigger story beats (slideshow/video)
+## 3) Timing windows (recommended)
+- BEFORE_ACTION (cost check)
+- AFTER_COST_PAID
+- BEFORE_TARGETING
+- AFTER_TARGETING
+- BEFORE_DAMAGE_APPLIED
+- AFTER_DAMAGE_APPLIED / ON_DAMAGE_TAKEN
+- END_OF_TURN
+- START_OF_OPPONENT_TURN
 
 ---
 
-## 5) Stress-tested mechanics (must be supported)
-This list captures the “novel mechanics” your game wants:
-- multi-target attacks (primary + up to N secondary)
-- dynamic targeting shapes (area radius, cone, line, adjacency)
-- blockers/barriers that change AoE propagation
-- custom entity state + state changes (loaded, aiming, overheated)
-- subsystems/minigames (Property Contest)
-- token-value sums across cards in hand (minigame requirements)
-- deck swaps and zone manipulations based on triggers
-- story slide/video triggers tied to gameplay events
+## 4) Hybrid vs Digital enforcement
+Hybrid mode:
+- LoS and exact distance may be “player confirmed”.
+- The app should still compute and show suggested legal tiles/targets.
+- Provide “override” reasons.
 
-AI agents generating card/scenario JSON should preserve unimplemented mechanics as `UNKNOWN_STEP` with raw intent.
+Full digital mode:
+- Movement/path/LoS must be computed.
+- Barriers block range/aoe according to profile.los rules.
+
+---
+
+## 5) Environment model
+Environment can be:
+- **Tile-based** (occupies a tile)
+- **Global** (e.g., Storm Cloud as global weather state)
+
+Global environment should contribute to counters like:
+- `GLOBAL_COUNTERS.STORM_CLOUD`
+
+---
+
+## 6) Events (scenario + passives)
+Common events:
+- ON_SCENARIO_START / ON_SCENARIO_END
+- ON_TURN_START / ON_TURN_END
+- ON_UNIT_SPAWNED / ON_UNIT_REMOVED
+- ON_DAMAGE_DEALT / ON_DAMAGE_TAKEN
+- ON_CARD_MOVED_ZONE
+- ON_GLOBAL_COUNTER_CHANGED
+- ON_TILE_HIT (damage affects tile)
+
+Scenarios use triggers:
+```json
+{"id":"t","when":{"event":"ON_DAMAGE_DEALT","filter":{"damageType":"ELECTRIC"}},"do":[ ...steps... ]}
+```
+
+---
+
+## 7) Status definitions (baseline)
+Recommended standard statuses (extendable):
+- PRONE (movement penalty; may remove reactions)
+- STUNNED (lose AP next turn)
+- SLOWED (movement reduced)
+- IMMOBILE, SILENCED, DISARMED
+
+---
+
+## 8) Vehicles / facing (Gunboat)
+Vehicles require:
+- Facing/orientation state (0..5 in hex or 0/90/180/270 in square)
+- Movement constraints (no diagonal/side-slip)
+- Collision and ram resolution steps
+

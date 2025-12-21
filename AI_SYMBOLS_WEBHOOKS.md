@@ -1,122 +1,84 @@
-# Captain Jawa Digital — Symbols, Events, Hooks, Policies, and UI Triggers (AI-first)
-
-This document connects the “rule language” (steps/conditions) to runtime engine concepts (events, hooks, UI requests).
-
----
-
-## 1) Symbols / Abbreviations
-Token abbreviations (canonical):
-- UMB, AET, CRD, CHR, STR, RES, WIS, INT, SPD, AWR
-
-Common stats abbreviations:
-- HP (hit points)
-- AP (action points)
-- MOVE (movement per action/turn)
-- SIZE (footprint / targeting interactions)
+# AI_SYMBOLS_WEBHOOKS.md
+Version: CJ Docs 1.2 (AI-first, comprehensive) • Updated: 2025-12-20
 
 ---
 
-## 2) Events (“webhooks” concept)
-In local single-player/hybrid mode, these are internal events (not network webhooks).
-In multiplayer later, these become server events over sockets.
-
-### 2.1 Scenario Trigger Events (Director)
-| Event | When it fires | Payload (suggested) |
+## 1) Token keys (TokenKey)
+| Key | Name | Typical use |
 |---|---|---|
-| `ON_SCENARIO_START` | scenario begins | scenarioId |
-| `ON_ROUND_START` | round begins | roundNumber |
-| `ON_TURN_START` | side starts turn | sideId |
-| `ON_UNIT_DEATH` | unit removed | unitInstanceId, cardId, sideId |
-| `ON_ENV_VAR_CHANGED` | env changes | key, oldValue, newValue |
-| `ON_CUSTOM_EVENT` | scenario-defined | name, payload |
-
-### 2.2 Ability Lifecycle Events (future)
-| Event | Meaning |
-|---|---|
-| `ABILITY_REQUESTED` | player tries to use ability |
-| `COST_PAID` | cost deducted |
-| `TARGETS_SELECTED` | targets locked |
-| `REACTION_WINDOW_OPEN` | opponent may react |
-| `DAMAGE_RESOLVED` | damage applied |
-| `ABILITY_COMPLETE` | script finished |
+| UMB | Umbra | shadow/void resource |
+| AET | Aether | magic/energy resource |
+| CRD | Coordination | precision/technique |
+| AWR | Awareness | perception/ranged |
+| CHR | Charisma | influence/contests |
+| STR | Strength | melee/impact |
+| RES | Resilience | toughness/saves |
+| WIS | Wisdom | insight/ritual |
+| INT | Intelligence | planning |
+| SPD | Speed | mobility/initiative |
 
 ---
 
-## 3) Policies (rules that vary by mode)
-Policies are configurable rule modules.
-
-### 3.1 Line of Sight Policies
-Examples:
-- `LOS_STANDARD`: walls block, units may or may not block (config)
-- `LOS_IGNORE_UNITS`: units don’t block
-- `LOS_ARCING`: ignores low obstacles
-- `LOS_SPECTRAL`: ignores walls tagged ETHEREAL
-
-Targeting profiles may reference:
-- `lineOfSight: true`
-- optional `losPolicyId`
-
-### 3.2 AoE Propagation Policies
-For area radius with barriers:
-- `AOE_FLOOD_FILL_BLOCKED_BY_WALLS`
-- `AOE_STOPS_AT_BARRIER_COLOR`
-- `AOE_IGNORES_BARRIER_IF_ATTRIBUTE_FIRE` (example)
+## 2) Unit stats
+- HP (hit points)
+- AP (action points/round)
+- MOVE (tiles/round)
+- SIZE (collision/targeting rules)
 
 ---
 
-## 4) Custom UI Triggers (miniflows / subsystems)
-Some steps require a dedicated UI:
-- template picker (line/cone/area)
-- property contest minigame
-- cinematic/story playback
-- “choose order” UI (put cards on top in any order)
+## 3) Damage types (baseline)
+PHYSICAL, ELECTRIC, FIRE, COLD, POISON, SIEGE, ARCANE
 
-Recommended step:
+---
+
+## 4) Zone keys (ZoneKey)
+Action decks:
+- ACTOR_ACTION_DECK / HAND / DISCARD / LOST
+- OPPONENT_ACTION_DECK / HAND / DISCARD / LOST
+
+Item decks (optional):
+- ACTOR_ITEM_DECK / HAND / DISCARD / LOST
+
+World:
+- BATTLEFIELD
+- GLOBAL_ENVIRONMENT
+
+---
+
+## 5) UI flows
+UI flows are modal mini-interfaces invoked by steps:
+- PROPERTY_CONTEST (minigame)
+- STORM_CONVERGENCE (chain reaction resolver)
+- STORY_SLIDE (narrative slideshow/video)
+- TARGETING_HEX_TOOL (advanced targeting)
+- DECK_SWAP (scenario trigger)
+
+---
+
+## 6) Webhooks and external events
+`WEBHOOK_CALL` is intended for:
+- server-authoritative multiplayer
+- analytics telemetry
+- external AI services
+
+Recommended payload convention:
 ```json
 {
-  "type": "REQUEST_UI",
-  "uiId": "PROPERTY_CONTEST",
-  "input": { "...": "..." },
-  "saveAs": "uiResult"
+  "eventName":"CARD_PLAYED",
+  "matchId":"...",
+  "playerId":"...",
+  "cardId":"...",
+  "abilityName":"...",
+  "timestamp":"..."
 }
 ```
 
-If unimplemented:
-```json
-{ "type":"UNKNOWN_STEP", "raw": { "type":"REQUEST_UI", "uiId":"...", "input":{...} } }
-```
-
 ---
 
-## 5) Classes / Modules (conceptual mapping)
-Even if implemented in TS files, AI should understand roles:
-
-- **CardEntity**: static card definition
-- **AbilityComponent**: logic container on card
-- **TargetingProfile**: reusable selection rule
-- **Step**: atomic action in execution
-- **Expr/Cond**: AST for arithmetic and boolean logic
-- **Director**: scenario trigger runner
-- **ZoneManager**: deck/hand/discard/lost operations
-- **LoSService**: raycast / blockers / policy evaluation
-- **TemplateService**: compute affected tiles/hexes for AoE/line/cone
-- **RNGService**: server-authoritative randomness
-
----
-
-## 6) I/O boundaries (what trusts what)
-Assisted Physical:
-- Player provides some truths (e.g., “yes LoS exists”)
-- App provides RNG and state tracking
-Full Digital:
-- Server validates everything
-- Client only requests actions; server computes result
-
----
-
-## 7) “Don’t break the game” rules for AI
-1) Never create duplicate IDs  
-2) Never reference a cardId not present in the library  
-3) Never reference profileId or targetSet names that don’t exist  
-4) Distinguish printed token value vs activation cost  
-5) Preserve unknown mechanics as UNKNOWN_STEP (raw intent kept)
+## 7) Policies (contest + subsystems)
+Subsystem steps should accept `policy` blocks that define:
+- shuffling behavior
+- card ownership
+- UI permissions
+- ordering options
