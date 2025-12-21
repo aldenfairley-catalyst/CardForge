@@ -42,7 +42,26 @@ app.get("*", (req, res, next) => {
   });
 });
 
-const port = Number(process.env.PORT) || 8787;
-app.listen(port, () => {
-  console.log(`Forge backend listening on http://localhost:${port}`);
-});
+const preferredPort = Number(process.env.PORT) || 8787;
+const candidatePorts = Array.from(new Set([preferredPort, preferredPort + 1, preferredPort + 2]));
+
+function listenOnPort(index: number) {
+  const port = candidatePorts[index];
+  const server = app.listen(port, () => {
+    console.log(`Forge backend listening on http://localhost:${port}`);
+  });
+
+  server.on("error", (err: NodeJS.ErrnoException) => {
+    if (err.code === "EADDRINUSE" && index + 1 < candidatePorts.length) {
+      const nextPort = candidatePorts[index + 1];
+      console.warn(`Port ${port} is in use, attempting ${nextPort}...`);
+      listenOnPort(index + 1);
+      return;
+    }
+
+    console.error(`Failed to start server on port ${port}:`, err);
+    process.exit(1);
+  });
+}
+
+listenOnPort(0);

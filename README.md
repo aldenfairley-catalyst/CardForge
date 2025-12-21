@@ -11,6 +11,7 @@ React + TypeScript + Vite + React Flow.
 ### Troubleshooting local setup
 - Avoid `sudo npm install`; it can create permission issues with the Vite cache. If you already used sudo, remove the generated `node_modules` folder and rerun `npm install`.
 - If you see `tsx: command not found`, the server dependencies were not installed. Run `npm run install:server` from the repo root.
+- If port 8787 is already taken, set `PORT=8788` (or another open port) before running `npm run dev`. The server will also try the next two ports automatically.
 
 ## GitHub Pages
 1) Push to main
