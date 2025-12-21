@@ -3,14 +3,14 @@
 React + TypeScript + Vite + React Flow.
 
 ## Local
-npm install
-npm run dev
+1) Install Node.js 20 (via nvm or your package manager).
+2) From the repo root run `npm install` (this also installs server deps via postinstall).
+3) Run `npm run dev` to start both the Vite client and the local API server.
+4) Open `http://localhost:5173`.
 
-### Local Run (SQLite + API proxy)
-1) Install Node.js 20 (via nvm or your package manager)
-2) `npm install`
-3) `npm run dev` (launches the Vite client; start the backend with `npm run dev --prefix server`)
-4) Open `http://localhost:5173`
+### Troubleshooting local setup
+- Avoid `sudo npm install`; it can create permission issues with the Vite cache. If you already used sudo, remove the generated `node_modules` folder and rerun `npm install`.
+- If you see `tsx: command not found`, the server dependencies were not installed. Run `npm run install:server` from the repo root.
 
 ## GitHub Pages
 1) Push to main

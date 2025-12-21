@@ -4,6 +4,8 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
+    "postinstall": "npm run install:server",
+    "install:server": "npm install --prefix server",
     "dev": "npm run dev:server & npm run dev:client",
     "dev:client": "vite",
     "dev:server": "npm run dev --prefix server",
