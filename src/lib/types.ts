@@ -3,7 +3,7 @@
  * CJ-1.2 (permissive typing to avoid blocking iteration)
  */
 
-export type CardSchemaVersion = "CJ-1.0" | "CJ-1.1" | "CJ-1.2";
+export type CardSchemaVersion = `CJ-1.${number}`;
 
 export type CardType = "UNIT" | "ITEM" | "ENVIRONMENT" | "SPELL" | "TOKEN";
 

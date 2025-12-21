@@ -1,9 +1,10 @@
 import { v4 as uuidv4 } from "uuid";
+import { LATEST_SCHEMA_VERSION } from "./migrations";
 import type { CardEntity, AbilityComponent } from "./types";
 
 export function makeDefaultCard(): CardEntity {
   return {
-    schemaVersion: "CJ-1.1",
+    schemaVersion: LATEST_SCHEMA_VERSION,
     id: uuidv4(),
     name: "New Card",
     type: "UNIT",

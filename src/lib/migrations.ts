@@ -1,6 +1,6 @@
 import type { CardEntity } from "./types";
 
-export const LATEST_SCHEMA_VERSION = "CJ-1.1" as const;
+export const LATEST_SCHEMA_VERSION = "CJ-1.2" as const;
 
 function isObj(x: any) {
   return x && typeof x === "object" && !Array.isArray(x);
@@ -31,13 +31,19 @@ function migrate_1_0_to_1_1(card: any): CardEntity {
   return card as CardEntity;
 }
 
+function migrate_1_1_to_1_2(card: any): CardEntity {
+  card.schemaVersion = "CJ-1.2";
+  return ensurePresentation(card) as CardEntity;
+}
+
 export function migrateCard(raw: any): CardEntity {
   const incoming = raw?.projectVersion === "FORGE-1.0" ? raw.card : raw;
   if (!incoming || typeof incoming !== "object") throw new Error("Invalid card JSON.");
 
   const v = String(incoming.schemaVersion ?? "");
-  if (v === "CJ-1.1") return ensurePresentation({ ...incoming }) as CardEntity;
-  if (v === "CJ-1.0") return migrate_1_0_to_1_1({ ...incoming });
+  if (v === "CJ-1.2") return ensurePresentation({ ...incoming }) as CardEntity;
+  if (v === "CJ-1.1") return migrate_1_1_to_1_2({ ...incoming });
+  if (v === "CJ-1.0") return migrate_1_1_to_1_2(migrate_1_0_to_1_1({ ...incoming }));
 
   throw new Error(`Unsupported schemaVersion: ${v}`);
 }

@@ -11,8 +11,9 @@ export type ValidationIssue = {
   path?: string;
 };
 
-const ALLOWED_SCHEMA = new Set(["CJ-1.0", "CJ-1.1", "CJ-1.2"]);
+const CJ_SCHEMA_PATTERN = /^CJ-1\.\d+$/;
 const ALLOWED_CARD_TYPES = new Set(["UNIT", "ITEM", "ENVIRONMENT", "SPELL", "TOKEN"]);
+const isSchemaVersionAllowed = (v: string) => CJ_SCHEMA_PATTERN.test(v);
 
 function push(
   issues: ValidationIssue[],
@@ -170,12 +171,12 @@ export function validateCard(card: any): ValidationIssue[] {
     return issues;
   }
 
-  if (typeof card.schemaVersion !== "string" || !ALLOWED_SCHEMA.has(card.schemaVersion)) {
+  if (typeof card.schemaVersion !== "string" || !isSchemaVersionAllowed(card.schemaVersion)) {
     push(
       issues,
       "ERROR",
       "SCHEMA_VERSION",
-      "schemaVersion must be CJ-1.0, CJ-1.1, or CJ-1.2",
+      "schemaVersion must match CJ-1.x (e.g., CJ-1.2).",
       "schemaVersion"
     );
   }
