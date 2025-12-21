@@ -9,6 +9,9 @@ function computeBase() {
   return "/";
 }
 
+const apiPort = Number(process.env.FORGE_SERVER_PORT ?? process.env.PORT ?? 8787);
+const apiTarget = `http://localhost:${apiPort}`;
+
 export default defineConfig({
   base: computeBase(),
   // Store Vite's cache in a project-local folder to avoid node_modules permissions issues
@@ -17,7 +20,7 @@ export default defineConfig({
   server: {
     proxy: {
       "/api": {
-        target: "http://localhost:8787",
+        target: apiTarget,
         changeOrigin: true
       }
     }
