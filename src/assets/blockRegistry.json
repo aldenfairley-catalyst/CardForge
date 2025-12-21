@@ -23,22 +23,28 @@
       "SHUFFLE_ZONE",
       "PUT_ON_TOP_ORDERED",
       "END_TURN_IMMEDIATELY",
+
       "EMPTY_HAND",
       "ADD_CARDS_TO_DECK",
       "REMOVE_CARDS_FROM_DECK",
       "SWAP_DECK",
+
       "SET_ENTITY_STATE",
       "TOGGLE_ENTITY_STATE",
       "CLEAR_ENTITY_STATE",
+
       "FIND_ENTITIES",
       "COUNT_ENTITIES",
       "FILTER_TARGET_SET",
+
       "SPAWN_ENTITY",
       "DESPAWN_ENTITY",
+
       "OPEN_UI_FLOW",
       "REQUEST_PLAYER_CHOICE",
       "REGISTER_INTERRUPTS",
       "PROPERTY_CONTEST",
+
       "WEBHOOK_CALL",
       "EMIT_EVENT",
       "AI_REQUEST"
@@ -47,62 +53,32 @@
       {
         "id": "core",
         "label": "Core",
-        "types": [
-          "SHOW_TEXT",
-          "SET_VARIABLE",
-          "IF_ELSE",
-          "OPPONENT_SAVE",
-          "ROLL_D6",
-          "ROLL_D20"
-        ]
+        "types": ["SHOW_TEXT", "SET_VARIABLE", "IF_ELSE", "OPPONENT_SAVE", "ROLL_D6", "ROLL_D20"]
       },
       {
         "id": "targeting",
         "label": "Targeting & Iteration",
-        "types": [
-          "SELECT_TARGETS",
-          "FOR_EACH_TARGET",
-          "CALC_DISTANCE"
-        ]
+        "types": ["SELECT_TARGETS", "FOR_EACH_TARGET", "CALC_DISTANCE"]
       },
       {
         "id": "combat",
         "label": "Combat & Status",
-        "types": [
-          "DEAL_DAMAGE",
-          "HEAL",
-          "APPLY_STATUS",
-          "REMOVE_STATUS",
-          "OPEN_REACTION_WINDOW"
-        ]
+        "types": ["DEAL_DAMAGE", "HEAL", "APPLY_STATUS", "REMOVE_STATUS", "OPEN_REACTION_WINDOW"]
       },
       {
         "id": "movement",
         "label": "Movement",
-        "types": [
-          "MOVE_ENTITY",
-          "MOVE_WITH_PATH_CAPTURE"
-        ]
+        "types": ["MOVE_ENTITY", "MOVE_WITH_PATH_CAPTURE"]
       },
       {
         "id": "state",
         "label": "Entity State",
-        "types": [
-          "SET_ENTITY_STATE",
-          "TOGGLE_ENTITY_STATE",
-          "CLEAR_ENTITY_STATE"
-        ]
+        "types": ["SET_ENTITY_STATE", "TOGGLE_ENTITY_STATE", "CLEAR_ENTITY_STATE"]
       },
       {
         "id": "entities",
         "label": "Entity Query & Spawning",
-        "types": [
-          "FIND_ENTITIES",
-          "COUNT_ENTITIES",
-          "FILTER_TARGET_SET",
-          "SPAWN_ENTITY",
-          "DESPAWN_ENTITY"
-        ]
+        "types": ["FIND_ENTITIES", "COUNT_ENTITIES", "FILTER_TARGET_SET", "SPAWN_ENTITY", "DESPAWN_ENTITY"]
       },
       {
         "id": "zones",
@@ -122,21 +98,12 @@
       {
         "id": "ui",
         "label": "UI / Subsystems",
-        "types": [
-          "OPEN_UI_FLOW",
-          "REQUEST_PLAYER_CHOICE",
-          "PROPERTY_CONTEST",
-          "REGISTER_INTERRUPTS"
-        ]
+        "types": ["OPEN_UI_FLOW", "REQUEST_PLAYER_CHOICE", "PROPERTY_CONTEST", "REGISTER_INTERRUPTS"]
       },
       {
         "id": "integrations",
         "label": "Integrations (AI / Webhooks / Events)",
-        "types": [
-          "AI_REQUEST",
-          "WEBHOOK_CALL",
-          "EMIT_EVENT"
-        ]
+        "types": ["AI_REQUEST", "WEBHOOK_CALL", "EMIT_EVENT"]
       }
     ]
   },
@@ -154,40 +121,12 @@
     "ON_ROUND_END"
   ],
   "targeting": {
-    "types": [
-      "SELF",
-      "SINGLE_TARGET",
-      "AREA_RADIUS",
-      "AREA_AROUND_TARGET",
-      "LINE",
-      "CONE",
-      "GLOBAL_ANYWHERE"
-    ],
-    "origins": [
-      "SOURCE",
-      "TARGET",
-      "ANYWHERE"
-    ]
+    "types": ["SELF", "SINGLE_TARGET", "AREA_RADIUS", "AREA_AROUND_TARGET", "LINE", "CONE", "GLOBAL_ANYWHERE"],
+    "origins": ["SOURCE", "TARGET", "ANYWHERE"]
   },
   "keys": {
-    "TokenKey": [
-      "UMB",
-      "AET",
-      "CRD",
-      "CHR",
-      "STR",
-      "RES",
-      "WIS",
-      "INT",
-      "SPD",
-      "AWR"
-    ],
-    "DistanceMetric": [
-      "HEX",
-      "SQUARE_MANHATTAN",
-      "SQUARE_EUCLIDEAN",
-      "SQUARE_CHEBYSHEV"
-    ],
+    "TokenKey": ["UMB", "AET", "CRD", "CHR", "STR", "RES", "WIS", "INT", "SPD", "AWR"],
+    "DistanceMetric": ["HEX", "SQUARE_MANHATTAN", "SQUARE_EUCLIDEAN", "SQUARE_CHEBYSHEV"],
     "ZoneKey": [
       "ACTOR_ACTION_DECK",
       "ACTOR_ACTION_HAND",
@@ -206,47 +145,12 @@
       "SCENARIO_SHARED_DISCARD",
       "SCENARIO_EXILE"
     ],
-    "DamageType": [
-      "PHYSICAL",
-      "ELECTRICAL",
-      "FIRE",
-      "COLD",
-      "POISON",
-      "SIEGE",
-      "MAGICAL"
-    ],
-    "StatusKey": [
-      "SLOWED",
-      "STUNNED",
-      "BURNING",
-      "POISONED",
-      "WET",
-      "FROZEN",
-      "MARKED",
-      "FEARED",
-      "INVISIBLE",
-      "BLEEDING"
-    ],
-    "LoSMode": [
-      "HEX_RAYCAST",
-      "SQUARE_RAYCAST",
-      "NONE",
-      "ADVISORY"
-    ],
-    "LoSBlockPolicy": [
-      "BLOCK_ALL",
-      "BLOCK_RANGED",
-      "BLOCK_AOE",
-      "BLOCK_MAGIC",
-      "BLOCK_NON_MAGICAL"
-    ]
+    "DamageType": ["PHYSICAL", "ELECTRICAL", "FIRE", "COLD", "POISON", "SIEGE", "MAGICAL"],
+    "StatusKey": ["SLOWED", "STUNNED", "BURNING", "POISONED", "WET", "FROZEN", "MARKED", "FEARED", "INVISIBLE", "BLEEDING"],
+    "LoSMode": ["HEX_RAYCAST", "SQUARE_RAYCAST", "NONE", "ADVISORY"],
+    "LoSBlockPolicy": ["BLOCK_ALL", "BLOCK_RANGED", "BLOCK_AOE", "BLOCK_MAGIC", "BLOCK_NON_MAGICAL"]
   },
   "uiFlows": {
-    "types": [
-      "CUSTOM",
-      "PROPERTY_CONTEST",
-      "AI_IMAGE_GENERATE",
-      "STORM_CONVERGENCE_CHAIN"
-    ]
+    "types": ["CUSTOM", "PROPERTY_CONTEST", "AI_IMAGE_GENERATE", "STORM_CONVERGENCE_CHAIN"]
   }
 }
