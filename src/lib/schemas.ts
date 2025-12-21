@@ -1,7 +1,7 @@
 // src/lib/schemas.ts
 import type { CardEntity, AbilityComponent, Step } from "./types";
 import { blockRegistry, isStepTypeAllowed } from "./registry";
-import { LATEST_SCHEMA_VERSION } from "./migrations";
+import { LATEST_SCHEMA_VERSION, SUPPORTED_SCHEMA_VERSIONS } from "./migrations";
 
 export type ValidationSeverity = "ERROR" | "WARN";
 
@@ -13,7 +13,8 @@ export type ValidationIssue = {
 };
 
 const ALLOWED_CARD_TYPES = new Set(["UNIT", "ITEM", "ENVIRONMENT", "SPELL", "TOKEN"]);
-const isSchemaVersionAllowed = (v: string) => v === LATEST_SCHEMA_VERSION;
+const SUPPORTED_SCHEMA_VERSION_SET = new Set<string>(SUPPORTED_SCHEMA_VERSIONS);
+const isSchemaVersionAllowed = (v: string) => SUPPORTED_SCHEMA_VERSION_SET.has(v);
 
 function push(
   issues: ValidationIssue[],
@@ -172,13 +173,13 @@ export function validateCard(card: any): ValidationIssue[] {
   }
 
   if (typeof card.schemaVersion !== "string" || !isSchemaVersionAllowed(card.schemaVersion)) {
-    push(
-      issues,
-      "ERROR",
-      "SCHEMA_VERSION",
-      `schemaVersion must be the latest supported version (${LATEST_SCHEMA_VERSION}).`,
-      "schemaVersion"
-    );
+      push(
+        issues,
+        "ERROR",
+        "SCHEMA_VERSION",
+        `schemaVersion must be one of: ${Array.from(SUPPORTED_SCHEMA_VERSION_SET).join(", ")}.`,
+        "schemaVersion"
+      );
   }
 
   if (typeof card.id !== "string" || !card.id.trim()) {
