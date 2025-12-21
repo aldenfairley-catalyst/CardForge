@@ -1,66 +1,107 @@
-import { z } from "zod";
+/**
+ * src/lib/catalog.ts
+ * Lightweight catalog for factions, templates, and unit registry.
+ *
+ * Stored in localStorage so builder UIs can provide dropdowns + relationships.
+ * Deck/Scenario builder can reference this in the future.
+ */
 
-export type CatalogFaction = { id: string; name: string; abbr: string };
+export type CatalogSchemaVersion = "CJ-CATALOG-1.0";
+
+export type FactionDef = {
+  id: string;            // stable id, e.g. "EMERALD_TIDE"
+  name: string;          // display label
+  symbolUrl?: string;    // optional icon path/URL
+  templateId?: string;   // optional default card template
+};
+
+export type TemplateDef = {
+  id: string;            // stable id
+  name: string;
+  // Future-proof: template fields are free-form; renderer decides what it understands.
+  data?: Record<string, any>;
+};
+
+export type UnitDef = {
+  id: string;            // stable id, e.g. "THE_FISHERMAN"
+  name: string;
+  factionId?: string;
+  cardId?: string;       // links to a UNIT card id
+};
+
 export type Catalog = {
-  version: "CAT-1.0";
-  factions: CatalogFaction[];
-  unitTypes: string[];
-  attributes: string[];
+  schemaVersion: CatalogSchemaVersion;
+  factions: FactionDef[];
+  templates: TemplateDef[];
+  units: UnitDef[];
 };
 
-export const CatalogZ = z.object({
-  version: z.literal("CAT-1.0"),
-  factions: z.array(z.object({ id: z.string(), name: z.string(), abbr: z.string() })),
-  unitTypes: z.array(z.string()),
-  attributes: z.array(z.string())
-});
+const LS_KEY = "CJ_CATALOG";
 
-export const DEFAULT_CATALOG: Catalog = {
-  version: "CAT-1.0",
-  factions: [
-    { id: "CASTILE", name: "The Castile", abbr: "CAS" },
-    { id: "RED_FANG", name: "Red Fang Pirates", abbr: "RFP" },
-    { id: "KEEPERS", name: "The Keepers", abbr: "KPR" },
-    { id: "UNALIGNED", name: "Unaligned", abbr: "UNA" }
-  ],
-  unitTypes: [
-    "BEAST","UNDEAD","HUMAN","JAWA","GHOST","SPECTRAL","ELEMENTAL","CONSTRUCT","MACHINE","DRAGON",
-    "PIRATE","SOLDIER","MAGE","SPIRIT","PLANT","AQUATIC","INSECTOID","REPTILIAN","AVIAN","GIANT"
-  ],
-  attributes: ["EARTH","FIRE","AIR","WATER","WOOD","STEEL","LIGHT","DARK","ICE","LIGHTNING","POISON","ARCANE"]
-};
-
-export function normalizeList(xs: string[]) {
-  const seen = new Set<string>();
-  const out: string[] = [];
-  for (const raw of xs ?? []) {
-    const s = String(raw).trim();
-    if (!s) continue;
-    const u = s.toUpperCase();
-    if (seen.has(u)) continue;
-    seen.add(u);
-    out.push(u);
-  }
-  return out;
+export function defaultCatalog(): Catalog {
+  return { schemaVersion: "CJ-CATALOG-1.0", factions: [], templates: [], units: [] };
 }
 
-export function normalizeCatalog(cat: any): Catalog {
-  const parsed = CatalogZ.safeParse(cat);
-  const base: Catalog = parsed.success ? parsed.data : DEFAULT_CATALOG;
+export function loadCatalog(): Catalog {
+  try {
+    const raw = localStorage.getItem(LS_KEY);
+    if (!raw) return defaultCatalog();
+    const parsed = JSON.parse(raw);
+    if (parsed?.schemaVersion !== "CJ-CATALOG-1.0") return defaultCatalog();
+    return {
+      schemaVersion: "CJ-CATALOG-1.0",
+      factions: Array.isArray(parsed.factions) ? parsed.factions : [],
+      templates: Array.isArray(parsed.templates) ? parsed.templates : [],
+      units: Array.isArray(parsed.units) ? parsed.units : []
+    };
+  } catch {
+    return defaultCatalog();
+  }
+}
 
-  const factions = (base.factions ?? [])
-    .map((f) => ({
-      id: String(f.id).trim().toUpperCase(),
-      name: String(f.name).trim(),
-      abbr: String(f.abbr).trim().toUpperCase().slice(0, 4)
-    }))
-    .filter((f) => f.id && f.name && f.abbr)
-    .sort((a, b) => a.name.localeCompare(b.name));
+export function saveCatalog(cat: Catalog) {
+  localStorage.setItem(LS_KEY, JSON.stringify(cat));
+}
 
-  return {
-    version: "CAT-1.0",
-    factions,
-    unitTypes: normalizeList(base.unitTypes ?? []).sort(),
-    attributes: normalizeList(base.attributes ?? []).sort()
-  };
+// Upsert helpers
+export function upsertFaction(cat: Catalog, f: FactionDef): Catalog {
+  const id = f.id.trim();
+  if (!id) return cat;
+  const next = { ...cat, factions: cat.factions.slice() };
+  const idx = next.factions.findIndex((x) => x.id === id);
+  if (idx >= 0) next.factions[idx] = { ...next.factions[idx], ...f, id };
+  else next.factions.push({ ...f, id });
+  return next;
+}
+
+export function deleteFaction(cat: Catalog, factionId: string): Catalog {
+  return { ...cat, factions: cat.factions.filter((f) => f.id !== factionId) };
+}
+
+export function upsertUnit(cat: Catalog, u: UnitDef): Catalog {
+  const id = u.id.trim();
+  if (!id) return cat;
+  const next = { ...cat, units: cat.units.slice() };
+  const idx = next.units.findIndex((x) => x.id === id);
+  if (idx >= 0) next.units[idx] = { ...next.units[idx], ...u, id };
+  else next.units.push({ ...u, id });
+  return next;
+}
+
+export function deleteUnit(cat: Catalog, unitId: string): Catalog {
+  return { ...cat, units: cat.units.filter((u) => u.id !== unitId) };
+}
+
+export function upsertTemplate(cat: Catalog, t: TemplateDef): Catalog {
+  const id = t.id.trim();
+  if (!id) return cat;
+  const next = { ...cat, templates: cat.templates.slice() };
+  const idx = next.templates.findIndex((x) => x.id === id);
+  if (idx >= 0) next.templates[idx] = { ...next.templates[idx], ...t, id };
+  else next.templates.push({ ...t, id });
+  return next;
+}
+
+export function deleteTemplate(cat: Catalog, templateId: string): Catalog {
+  return { ...cat, templates: cat.templates.filter((t) => t.id !== templateId) };
 }
