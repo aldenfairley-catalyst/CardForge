@@ -37,23 +37,30 @@ export type Catalog = {
 };
 
 const LS_KEY = "CJ_CATALOG";
+const BASE_CATALOG: Catalog = { schemaVersion: "CJ-CATALOG-1.0", factions: [], templates: [], units: [] };
+
+export const DEFAULT_CATALOG: Catalog = BASE_CATALOG;
 
 export function defaultCatalog(): Catalog {
-  return { schemaVersion: "CJ-CATALOG-1.0", factions: [], templates: [], units: [] };
+  return normalizeCatalog(BASE_CATALOG);
+}
+
+export function normalizeCatalog(raw: unknown): Catalog {
+  if (!raw || typeof raw !== "object") return normalizeCatalog(BASE_CATALOG);
+  const parsed = raw as Partial<Catalog>;
+  return {
+    schemaVersion: "CJ-CATALOG-1.0",
+    factions: Array.isArray(parsed.factions) ? parsed.factions.slice() : [],
+    templates: Array.isArray(parsed.templates) ? parsed.templates.slice() : [],
+    units: Array.isArray(parsed.units) ? parsed.units.slice() : []
+  };
 }
 
 export function loadCatalog(): Catalog {
   try {
     const raw = localStorage.getItem(LS_KEY);
     if (!raw) return defaultCatalog();
-    const parsed = JSON.parse(raw);
-    if (parsed?.schemaVersion !== "CJ-CATALOG-1.0") return defaultCatalog();
-    return {
-      schemaVersion: "CJ-CATALOG-1.0",
-      factions: Array.isArray(parsed.factions) ? parsed.factions : [],
-      templates: Array.isArray(parsed.templates) ? parsed.templates : [],
-      units: Array.isArray(parsed.units) ? parsed.units : []
-    };
+    return normalizeCatalog(JSON.parse(raw));
   } catch {
     return defaultCatalog();
   }
