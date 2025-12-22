@@ -62,7 +62,7 @@
       "type": "object",
       "required": ["graphVersion", "id", "nodes", "edges"],
       "properties": {
-        "graphVersion": { "type": "string", "const": "CJ-GRAPH-1.1" },
+        "graphVersion": { "type": "string", "enum": ["CJ-GRAPH-1.0", "CJ-GRAPH-1.1"] },
         "id": { "type": "string" },
         "label": { "type": "string" },
         "nodes": { "type": "array", "items": { "$ref": "#/definitions/GraphNode" } },

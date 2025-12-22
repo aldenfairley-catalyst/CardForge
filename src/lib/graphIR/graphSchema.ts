@@ -10,9 +10,15 @@ export const forgeProjectSchemaVersion: string = String(
 export const forgeProjectProjectVersion: string = String(
   (forgeProjectSchema?.properties?.projectVersion?.const as string | undefined) ?? forgeProjectSchemaVersion
 );
-export const forgeGraphVersion: string = String(
-  (forgeProjectSchema?.definitions?.Graph?.properties?.graphVersion?.const as string | undefined) ?? "CJ-GRAPH-1.1"
-);
+const graphVersionSpec = forgeProjectSchema?.definitions?.Graph?.properties?.graphVersion ?? {};
+const graphVersionEnum = Array.isArray((graphVersionSpec as any)?.enum)
+  ? ((graphVersionSpec as any).enum as Array<string>).map(String)
+  : null;
+export const forgeGraphSupportedVersions: string[] =
+  graphVersionEnum?.length && graphVersionEnum.every((v) => typeof v === "string")
+    ? graphVersionEnum
+    : [String((graphVersionSpec as any)?.const ?? "CJ-GRAPH-1.0")];
+export const forgeGraphVersion: string = forgeGraphSupportedVersions[forgeGraphSupportedVersions.length - 1];
 export const forgeProjectSchemaUrl = `${schemaUrl}${schemaUrl.includes("?") ? "&" : "?"}v=${encodeURIComponent(
   forgeProjectSchemaVersion
 )}`;
@@ -42,14 +48,11 @@ function validateGraphShape(graph: any, path: Path): ValidationIssue[] {
     return issues;
   }
 
-  if (graph.graphVersion !== forgeGraphVersion) {
-    push(
-      issues,
-      "ERROR",
-      "GRAPH_VERSION",
-      `graphVersion must be '${forgeGraphVersion}'.`,
-      path ? `${path}.graphVersion` : "graphVersion"
-    );
+  const graphPath = path ? `${path}.graphVersion` : "graphVersion";
+  if (!forgeGraphSupportedVersions.includes(graph.graphVersion)) {
+    push(issues, "ERROR", "GRAPH_VERSION", `graphVersion must be one of ${forgeGraphSupportedVersions.join(", ")}.`, graphPath);
+  } else if (graph.graphVersion !== forgeGraphVersion) {
+    push(issues, "WARN", "GRAPH_VERSION_OLD", `graphVersion should be '${forgeGraphVersion}' for new graphs.`, graphPath);
   }
 
   if (typeof graph.id !== "string" || !graph.id.trim()) {

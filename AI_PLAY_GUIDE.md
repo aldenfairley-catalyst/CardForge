@@ -99,5 +99,6 @@ Vehicles require:
 - Cycles in control flow are rejected in validation to prevent infinite loops.
 - `SHOW_TEXT` steps surface narrative/log output and are the simplest proof that compile→runtime works.
 - Graphs compile continuously into canonical `execution.steps[]`; invalid graphs preserve the last known good compiled steps so playtests do not regress.
+- Graph IR exports use CJ-GRAPH-1.0 as the baseline with optional CJ-GRAPH-1.1 metadata; validation will warn (not break) when older versions load so playtests can resume.
 - Palette + node rendering are JSON-driven from `src/assets/nodeRegistry.json` with alphabetized categories/labels; a single registry-backed renderer shows grouped pins and surfaces an explicit error node if a node type is missing from the registry.
 - Graph editor state is currently in-memory for Phase A1—export/import a Forge Project to carry layouts between sessions.

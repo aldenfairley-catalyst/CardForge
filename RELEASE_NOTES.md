@@ -2,6 +2,23 @@
 
 # RELEASE_NOTES
 
+## Phase A1 Registry Palette Stabilization (2025-12-23)
+### Added
+- React Flow adapters (`src/lib/graphIR/adapters.ts`) map CJ-GRAPH-1.x nodes/edges to canvas shapes while preserving registry-driven `data` payloads and cached pin ids, keeping the palette renderer generic.
+- Graph schema now accepts `graphVersion` `"CJ-GRAPH-1.0"` (A1 baseline) or `"CJ-GRAPH-1.1"` (typed edge metadata), warning on older versions instead of hard-failing validation to keep legacy exports loadable.
+- Documentation refreshed across `CJ_GRAPH_SPEC.md`, `AI_JSON_GUIDE.md`, and `AI_PLAY_GUIDE.md` to reiterate that the palette is JSON-first and Graph IR remains editor-only in A1.
+
+### Changed
+- `tsconfig.json` switches `moduleResolution` to `NodeNext` so `npm run typecheck` resolves React/ReactFlow types consistently in CI runners that struggled with the `Bundler` mode.
+- Graph/react-flow adapters are now used inside `App.tsx` so new nodes prime their `pinsCache` from the registry and edges reuse a single conversion path for styling and persistence.
+
+### Known Missing / Not Yet Implemented
+- Compiler/output validation expansions, schema-driven config editing beyond the existing inspector, and persistence beyond in-memory graphs remain future work.
+
+### Checkpoint Outcomes
+- Checkpoint 0 pre-flight installs attempted (`npm ci` / `npm install`) but blocked by upstream 403s when fetching `@types/react` in this environment.
+- Checkpoints A1-1 through A1-4 continue to pass: registry lists the MVP nodes, palette renders from JSON categories, the generic renderer shows grouped pins (including IF dynamic pins), and drag/add flows update Graph IR state while flagging unknown node types visibly.
+
 ## Phase A3 Typed Connections + Edge Rules (2025-12-22)
 ### Added
 - Graph IR bumped to **CJ-GRAPH-1.1** with edge metadata (`edgeKind`, optional `dataType`, `createdAt`) persisted through project exports.
