@@ -25,6 +25,11 @@ function handlePosition(pin: PinDefinition) {
   return Position.Right;
 }
 
+function pinBadgeLabel(pin: PinDefinition) {
+  if (pin.kind === PinKind.CONTROL) return "CONTROL";
+  return pin.dataType ?? "any";
+}
+
 /**
  * Generic ReactFlow node renderer driven entirely by the node registry.
  *
@@ -101,7 +106,10 @@ export function GraphNode({ data, selected }: GraphNodeProps) {
                     />
                   )}
                   <div className="small" style={{ flex: 1 }}>
-                    {pin.label}
+                    <span className={`pinBadge pinBadge--${pin.kind === PinKind.CONTROL ? "control" : "data"}`} title={`${pin.kind} • ${pin.direction}`}>
+                      {pinBadgeLabel(pin)}
+                    </span>
+                    <span style={{ marginLeft: 6 }}>{pin.label}</span>
                     {pin.dataType ? <span style={{ marginLeft: 6, color: "#9ca3af" }}>({pin.dataType})</span> : null}
                     {pin.required ? <span style={{ marginLeft: 6, color: "#ef4444" }}>*</span> : null}
                   </div>

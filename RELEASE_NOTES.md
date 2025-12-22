@@ -5,13 +5,13 @@
 ## Phase A3 Typed Connections + Edge Rules (2025-12-22)
 ### Added
 - Graph IR bumped to **CJ-GRAPH-1.1** with edge metadata (`edgeKind`, optional `dataType`, `createdAt`) persisted through project exports.
-- Connection guardrail helper `validateConnect` enforces pin kind/direction, dataType compatibility, multiplicity (`multi`/`maxConnections`), duplicate prevention, and CONTROL cycle detection.
-- React Flow onConnect now uses the validator and surfaces specific error toasts; control vs data edges render with distinct stroke styles while preserving selection.
-- Inspector panels list incoming/outgoing edges with kind + dataType context to speed up debugging.
-- New cycle utility (`wouldCreateCycle`) and edge validation unit tests covering mismatches, multiplicity, duplicates, and cycles.
+- Connection guardrail helper `validateConnect` enforces pin kind/direction, dataType compatibility, multiplicity (`multi`/`maxConnections`), duplicate prevention, and CONTROL cycle detection with clearer error messaging (pin ids, direction details).
+- React Flow onConnect now uses the validator and surfaces specific error toasts; control vs data edges render with distinct stroke styles while preserving selection. Handles and badges differentiate CONTROL vs DATA pins inline.
+- Inspector panels list incoming/outgoing edges with kind + dataType context to speed up debugging; new tests cover direction errors, missing pins, multiplicity, and cycle prevention.
+- Documentation updated (`CJ_GRAPH_SPEC.md`, `AI_JSON_GUIDE.md`) to spell out typed connection rules, multiplicity defaults, and cycle policies for agents.
 
 ### Changed
-- Graph export/import paths carry edge dataType/create timestamps, and React Flow adapters set styling based on edge kind for visual clarity.
+- Graph export/import paths carry edge dataType/create timestamps, and React Flow adapters set styling based on edge kind for visual clarity. DATA compatibility now treats absent `dataType` as `any` without extra wildcards.
 
 ### Known Missing / Not Yet Implemented
 - Broader dataType lattice (e.g., integer subtype) and optional DATA cycles are out of scope for A3; compiler still covers the existing MVP nodes only.

@@ -24,13 +24,15 @@ Version: MVP (EXEC_START, SHOW_TEXT, IF/ELSEIF/ELSE, CONST_BOOL, CONST_NUMBER)
 - The cache is refreshed whenever config changes and is persisted in CJ-GRAPH-1.1 exports for editor diagnostics.
 - Dynamic pin changes reconcile edges against the cached/just-computed ids to drop edges that now point at missing handles.
 
-## Control & data connection rules
-- CONTROL vs DATA pins are enforced at edge creation (kind + direction must match).
-- DATA pins enforce dataType compatibility (`any` wildcard is allowed when a pin omits `dataType`; boolean→boolean, number→number, etc.).
-- Target IN pin multiplicity is enforced: default max 1 incoming edge unless `multi: true` or `maxConnections` is set on the pin.
-- CONTROL **output pins** may have many outgoing connections (fan-out), but CONTROL **input pins** default to 1 incoming edge unless marked `multi`.
-- Cycles in CONTROL edges are rejected at connect time.
-- `EXEC_START.execOut` must connect to at least one downstream control input.
+## Control & data connection rules (A3)
+- **Direction:** connections must flow OUT → IN; attempting IN → IN or OUT → OUT is blocked with a toast.
+- **Kind:** CONTROL connects only to CONTROL; DATA connects only to DATA with a specific error when kinds differ.
+- **Data types:** DATA connections require matching types unless either side omits `dataType` (treated as `any`). Mismatches report the attempted pair (`DATA(number) → DATA(boolean)`).
+- **Multiplicity:** target IN pins allow one incoming edge by default. `multi:true` lifts the limit; `maxConnections` overrides with a specific cap. Over-cap attempts are blocked with “Pin already connected (max X).”
+- **Self-edge policy:** self-connections are rejected for MVP.
+- **Cycles:** CONTROL edges participate in cycle checks; attempts to close a loop are rejected. DATA edges skip cycle checks for now.
+- **Fan-out:** CONTROL OUT pins can fan out to multiple IN pins; multiplicity only constrains the target side.
+- **Start requirement:** `EXEC_START.execOut` should connect to at least one downstream control input (validated). Edge creation also records `edgeKind`, `dataType?`, and `createdAt` for editor diagnostics.
 
 ## Graph IR (CJ-GRAPH-1.1)
 - `GraphNode`: `{ id, nodeType, position {x,y}, config, pinsCache? }`
@@ -50,6 +52,7 @@ Version: MVP (EXEC_START, SHOW_TEXT, IF/ELSEIF/ELSE, CONST_BOOL, CONST_NUMBER)
 - Selecting a node opens a schema-driven config form. Fields are generated from `configSchema` (string, number, integer, boolean, enum) with min/max clamping and required hints.
 - Inspector tabs: Config, Pins (debug view of `materializePins`), and Node JSON (read-only `data` payload including `config` + `pinsCache`).
 - Editing config keeps selection stable and immediately re-renders dynamic pins.
+- Incoming/outgoing edge debug panes list connected edges with `edgeKind`, `dataType`, source/target pin ids, and peer node labels so designers can trace wiring without leaving the inspector.
 
 ## Edge reconciliation (Phase A2)
 - Policy: remove edges that reference pins removed by a config change.

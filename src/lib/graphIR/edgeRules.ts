@@ -32,7 +32,6 @@ function dataTypesCompatible(source?: PinDefinition, target?: PinDefinition) {
   const s = source?.dataType ?? "any";
   const t = target?.dataType ?? "any";
   if (s === "any" || t === "any") return true;
-  if (t === "json") return true;
   if (s === t) return true;
   // Optional subtype: integer -> number; not currently used, keep hook for future.
   if (s === "integer" && t === "number") return true;
@@ -45,14 +44,30 @@ export function validateConnect(params: ValidateConnectParams): Ok | Err {
   const sourcePin = findPin(nodes, sourceNodeId, sourcePinId);
   const targetPin = findPin(nodes, targetNodeId, targetPinId);
 
-  if (!sourcePin) return { ok: false, reason: "Source pin not found.", code: "SOURCE_PIN_MISSING" };
-  if (!targetPin) return { ok: false, reason: "Target pin not found.", code: "TARGET_PIN_MISSING" };
+  if (!sourcePin) {
+    return {
+      ok: false,
+      reason: `Source pin '${sourcePinId}' was not found on node '${sourceNodeId}'.`,
+      code: "SOURCE_PIN_MISSING"
+    };
+  }
+  if (!targetPin) {
+    return {
+      ok: false,
+      reason: `Target pin '${targetPinId}' was not found on node '${targetNodeId}'.`,
+      code: "TARGET_PIN_MISSING"
+    };
+  }
 
   if (sourcePin.direction !== "OUT") {
-    return { ok: false, reason: "Source pin must be an OUT pin.", code: "SOURCE_NOT_OUT" };
+    return {
+      ok: false,
+      reason: `Cannot start from an ${sourcePin.direction} pin. Only OUT pins can be sources.`,
+      code: "SOURCE_NOT_OUT"
+    };
   }
   if (targetPin.direction !== "IN") {
-    return { ok: false, reason: "Target pin must be an IN pin.", code: "TARGET_NOT_IN" };
+    return { ok: false, reason: `Target must be an IN pin (found ${targetPin.direction}).`, code: "TARGET_NOT_IN" };
   }
 
   if (sourceNodeId === targetNodeId) {
@@ -60,7 +75,11 @@ export function validateConnect(params: ValidateConnectParams): Ok | Err {
   }
 
   if (sourcePin.kind !== targetPin.kind) {
-    return { ok: false, reason: "Cannot connect CONTROL to DATA pins.", code: "KIND_MISMATCH" };
+    return {
+      ok: false,
+      reason: `Cannot connect ${sourcePin.kind} → ${targetPin.kind}.`,
+      code: "KIND_MISMATCH"
+    };
   }
 
   if (sourcePin.kind === PinKind.DATA && !dataTypesCompatible(sourcePin, targetPin)) {
