@@ -112,6 +112,10 @@ export function GraphNode({ data, selected }: GraphNodeProps) {
                     <span style={{ marginLeft: 6 }}>{pin.label}</span>
                     {pin.dataType ? <span style={{ marginLeft: 6, color: "#9ca3af" }}>({pin.dataType})</span> : null}
                     {pin.required ? <span style={{ marginLeft: 6, color: "#ef4444" }}>*</span> : null}
+                    {pin.multi ? <span style={{ marginLeft: 6, color: "#c084fc" }}>multi</span> : null}
+                    {typeof pin.maxConnections === "number" ? (
+                      <span style={{ marginLeft: 6, color: "#f59e0b" }}>max {pin.maxConnections}</span>
+                    ) : null}
                   </div>
                   {pin.direction === "IN" ? (
                     <Handle

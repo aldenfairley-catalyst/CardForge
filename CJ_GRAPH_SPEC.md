@@ -4,7 +4,7 @@ Version: MVP (EXEC_START, SHOW_TEXT, IF/ELSEIF/ELSE, CONST_BOOL, CONST_NUMBER)
 
 ## Formats
 - **Forge Project:** `schemaVersion = "CJ-FORGE-PROJECT-1.0"` containing `card`, `graphs`, and `ui` metadata.
-- **Graph:** `graphVersion = "CJ-GRAPH-1.0"` (A1 baseline) with forward-compatible support for `"CJ-GRAPH-1.1"` metadata; validation warns when loading non-latest versions but accepts both.
+- **Graph:** `graphVersion = "CJ-GRAPH-1.1"` (A3 typed edges) with backward-compatible support for `"CJ-GRAPH-1.0"`; validation warns when loading non-latest versions but accepts both.
 - **Node registry:** `src/assets/nodeRegistry.json` is the JSON-first source of truth (labels, pins, configSchema, compile hints, grouping).
 
 ## Node registry (CJ-NODEDEF-1.0)
@@ -28,16 +28,16 @@ Version: MVP (EXEC_START, SHOW_TEXT, IF/ELSEIF/ELSE, CONST_BOOL, CONST_NUMBER)
 ## Control & data connection rules (A3)
 - **Direction:** connections must flow OUT → IN; attempting IN → IN or OUT → OUT is blocked with a toast.
 - **Kind:** CONTROL connects only to CONTROL; DATA connects only to DATA with a specific error when kinds differ.
-- **Data types:** DATA connections require matching types unless either side omits `dataType` (treated as `any`). Mismatches report the attempted pair (`DATA(number) → DATA(boolean)`).
-- **Multiplicity:** target IN pins allow one incoming edge by default. `multi:true` lifts the limit; `maxConnections` overrides with a specific cap. Over-cap attempts are blocked with “Pin already connected (max X).”
+- **Data types:** DATA connections require matching types unless either side omits `dataType` (treated as `any`). Mismatches report the attempted pair (`DATA(number) → DATA(boolean)`). Registry data types include `boolean`, `number`, `string`, `entityRef`, `targetSet`, `tokenMap`, `any`, and more niche editor types.
+- **Multiplicity:** target IN pins allow one incoming edge by default. `multi:true` lifts the limit; `maxConnections` overrides with a specific cap. Over-cap attempts are blocked with “Pin already connected (max X).” (CONTROL fan-out is allowed; multiplicity only applies to the target side.)
 - **Self-edge policy:** self-connections are rejected for MVP.
 - **Cycles:** CONTROL edges participate in cycle checks; attempts to close a loop are rejected. DATA edges skip cycle checks for now.
 - **Fan-out:** CONTROL OUT pins can fan out to multiple IN pins; multiplicity only constrains the target side.
-- **Start requirement:** `EXEC_START.execOut` should connect to at least one downstream control input (validated). Edge creation also records `edgeKind`, `dataType?`, and `createdAt` for editor diagnostics.
+- **Start requirement:** `EXEC_START.execOut` should connect to at least one downstream control input (validated). Edge creation also records `edgeKind`, `dataType?`, and `createdAt` for editor diagnostics; DATA edge labels show the dataType for quick scanning on the canvas.
 
 ## Graph IR (CJ-GRAPH-1.x)
 - `GraphNode`: `{ id, nodeType, position {x,y}, config, pinsCache? }`
-- `GraphEdge`: `{ id, edgeKind: "CONTROL" | "DATA", dataType?, createdAt?, from {nodeId, pinId}, to {nodeId, pinId} }` — `dataType` is recorded for DATA edges.
+- `GraphEdge`: `{ id, edgeKind: "CONTROL" | "DATA", dataType?, createdAt?, from {nodeId, pinId}, to {nodeId, pinId} }` — `dataType` is recorded for DATA edges to keep compatibility checks auditable.
 - `Graph`: `{ graphVersion: "CJ-GRAPH-1.0" | "CJ-GRAPH-1.1", id, label?, nodes: GraphNode[], edges: GraphEdge[] }`
 - Graph IR is **editor-only** in Phase A1; canonical runtime steps still live on the card until compilation phases land.
 - Graph IR currently lives in React state (in-memory) and is exported with the Forge Project JSON; refresh resets the canvas unless a project is re-imported. Validation accepts CJ-GRAPH-1.0 and CJ-GRAPH-1.1, warning when a graph is on an older version.

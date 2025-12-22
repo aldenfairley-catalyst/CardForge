@@ -144,6 +144,7 @@ Use SUBSYSTEM_RUN with a dedicated resolver.
 
 ## 2.5 Graph + node config payloads (Forge project JSON)
 - Forge projects store the authored graph under `graphs[graphId]` with nodes shaped as `{ id, nodeType, position, config, pinsCache? }`.
+- Edges are `{ id, edgeKind: "CONTROL" | "DATA", dataType?, createdAt?, from { nodeId, pinId }, to { nodeId, pinId } }` with `edgeKind` and `dataType` mirrored in React Flow edge labels for debugging. New exports default to `graphVersion = "CJ-GRAPH-1.1"` but load `"CJ-GRAPH-1.0"` with a warning.
 - Node config objects must follow the `configSchema` from `src/assets/nodeRegistry.json`; the editor auto-generates the inspector UI from this schema (supports string/number/integer/boolean/enum with min/max).
 - Dynamic pins (e.g., IF `elseIfCount`) are recomputed from `config` and cached in `pinsCache` to reconcile edges on load/import. Keep config values explicit (do not drop keys) so agents and the inspector agree on pin shape.
 - Edges reference pins by id (`from.pinId` / `to.pinId`); if a config change removes a pin, the editor automatically drops edges pointing at the missing handles.
@@ -223,9 +224,9 @@ Forge now stores a **CJ-FORGE-PROJECT-1.0** that includes:
 
 Compile-on-change keeps `card.ability.execution.steps[]` in sync:
 - Graph validation blocks pin kind/type mismatches and missing required inputs.
-- Connections must be OUT → IN and CONTROL → CONTROL or DATA → DATA; mismatches surface specific toast errors.
-- DATA pins require compatible `dataType` (boolean→boolean, number→number, `"any"` wildcard when a pin omits `dataType`). Mismatched pairs are rejected.
-- Target IN pin multiplicity defaults to 1; `multi:true` or `maxConnections` increases the fan-in cap. CONTROL OUT pins can fan out freely; CONTROL cycles are rejected at connect-time.
+- Connections must be OUT → IN and CONTROL → CONTROL or DATA → DATA; mismatches surface specific toast errors naming the attempted pair.
+- DATA pins require compatible `dataType` (boolean→boolean, number→number, `"any"` wildcard when a pin omits `dataType`). Mismatched pairs are rejected with a “Type mismatch” toast.
+- Target IN pin multiplicity defaults to 1; `multi:true` or `maxConnections` increases the fan-in cap. CONTROL OUT pins can fan out freely; CONTROL cycles are rejected at connect-time for DAG-style execution graphs.
 - `SHOW_TEXT`, `IF_ELSE`, `CONST_BOOL`, `CONST_NUMBER`, `EXEC_START` round-trip between graph and canonical steps.
 
 Node definitions live in `src/assets/nodeRegistry.json` (JSON-first source of truth). Add new nodes there, then extend compiler/validation accordingly.

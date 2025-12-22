@@ -26,13 +26,15 @@ export function reactFlowNodeToGraphNode(node: ReactFlowNode): GraphNode {
 }
 
 export function graphEdgeToReactFlowEdge(edge: GraphEdge): ReactFlowEdge {
+  const label =
+    edge.edgeKind === PinKind.DATA && edge.dataType ? `${edge.edgeKind} (${edge.dataType})` : edge.edgeKind;
   return {
     id: edge.id,
     source: edge.from.nodeId,
     target: edge.to.nodeId,
     sourceHandle: edge.from.pinId,
     targetHandle: edge.to.pinId,
-    label: edge.edgeKind,
+    label,
     data: { edgeKind: edge.edgeKind, dataType: edge.dataType, createdAt: edge.createdAt }
   };
 }
