@@ -3,6 +3,9 @@ import type { AbilityComponent, CardEntity, Condition, Expression, Step } from "
 // Editor-side Graph IR used by the React Flow canvas.
 // This is distinct from the canonical runtime steps stored on the card.
 
+export type GraphVersion = "CJ-GRAPH-1.0" | "CJ-GRAPH-1.1";
+export const supportedGraphVersions: GraphVersion[] = ["CJ-GRAPH-1.0", "CJ-GRAPH-1.1"];
+
 export enum PinKind {
   CONTROL = "CONTROL",
   DATA = "DATA"
@@ -99,7 +102,7 @@ export type GraphNode = {
 };
 
 export type Graph = {
-  graphVersion: "CJ-GRAPH-1.1";
+  graphVersion: GraphVersion;
   id: string;
   label?: string;
   nodes: GraphNode[];

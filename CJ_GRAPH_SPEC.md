@@ -1,11 +1,11 @@
-# CJ Graph Spec (CJ-GRAPH-1.1)
+# CJ Graph Spec (CJ-GRAPH-1.x)
 
 Version: MVP (EXEC_START, SHOW_TEXT, IF/ELSEIF/ELSE, CONST_BOOL, CONST_NUMBER)
 
 ## Formats
 - **Forge Project:** `schemaVersion = "CJ-FORGE-PROJECT-1.0"` containing `card`, `graphs`, and `ui` metadata.
-- **Graph:** `graphVersion = "CJ-GRAPH-1.1"` with `nodes[]` + `edges[]`.
-- **Node registry:** `src/assets/nodeRegistry.json` is the JSON-first source of truth (labels, pins, configSchema, compile hints).
+- **Graph:** `graphVersion = "CJ-GRAPH-1.0"` (A1 baseline) with forward-compatible support for `"CJ-GRAPH-1.1"` metadata; validation warns when loading non-latest versions but accepts both.
+- **Node registry:** `src/assets/nodeRegistry.json` is the JSON-first source of truth (labels, pins, configSchema, compile hints, grouping).
 
 ## Node registry (CJ-NODEDEF-1.0)
 - Location: `src/assets/nodeRegistry.json`.
@@ -13,6 +13,7 @@ Version: MVP (EXEC_START, SHOW_TEXT, IF/ELSEIF/ELSE, CONST_BOOL, CONST_NUMBER)
 - Palette categories and canvas rendering both resolve directly from the registry (no hardcoded lists in `App.tsx`); categories and node labels are sorted alphabetically for deterministic palettes.
 - Dynamic pins support the ELSEIF template on IF nodes. Pin ids are deterministic (`elseIfCondIn_{i}` / `elseIfExecOut_{i}`) and always appended after static pins. Changing `elseIfCount` live re-materializes pins.
 - Duplicate pin ids during materialization throw immediately to surface registry drift.
+- React Flow adapters live in `src/lib/graphIR/adapters.ts` to translate between Graph IR nodes/edges and the React Flow canvas shapes while keeping the registry-driven `data` payload intact.
 
 ## Pin materialization rules
 - Static pins keep the order declared in `nodeRegistry.json`.
@@ -34,17 +35,17 @@ Version: MVP (EXEC_START, SHOW_TEXT, IF/ELSEIF/ELSE, CONST_BOOL, CONST_NUMBER)
 - **Fan-out:** CONTROL OUT pins can fan out to multiple IN pins; multiplicity only constrains the target side.
 - **Start requirement:** `EXEC_START.execOut` should connect to at least one downstream control input (validated). Edge creation also records `edgeKind`, `dataType?`, and `createdAt` for editor diagnostics.
 
-## Graph IR (CJ-GRAPH-1.1)
+## Graph IR (CJ-GRAPH-1.x)
 - `GraphNode`: `{ id, nodeType, position {x,y}, config, pinsCache? }`
 - `GraphEdge`: `{ id, edgeKind: "CONTROL" | "DATA", dataType?, createdAt?, from {nodeId, pinId}, to {nodeId, pinId} }` — `dataType` is recorded for DATA edges.
-- `Graph`: `{ graphVersion: "CJ-GRAPH-1.1", id, label?, nodes: GraphNode[], edges: GraphEdge[] }`
+- `Graph`: `{ graphVersion: "CJ-GRAPH-1.0" | "CJ-GRAPH-1.1", id, label?, nodes: GraphNode[], edges: GraphEdge[] }`
 - Graph IR is **editor-only** in Phase A1; canonical runtime steps still live on the card until compilation phases land.
-- Graph IR currently lives in React state (in-memory) and is exported with the Forge Project JSON; refresh resets the canvas unless a project is re-imported.
+- Graph IR currently lives in React state (in-memory) and is exported with the Forge Project JSON; refresh resets the canvas unless a project is re-imported. Validation accepts CJ-GRAPH-1.0 and CJ-GRAPH-1.1, warning when a graph is on an older version.
 
 ## React Flow adapter (Phase A2)
 - Canvas state uses `useNodesState` / `useEdgesState` for stable selection (editing config no longer deselects).
 - React Flow node data: `{ nodeType, config, pinsCache }` and the `selected` flag is controlled by local inspector state.
-- Graph export/import is round-tripped from React Flow state → CJ-GRAPH-1.1 and back; imports repopulate pinsCache on load.
+- Graph export/import is round-tripped from React Flow state → CJ-GRAPH-1.x and back; imports repopulate pinsCache on load.
 - Unknown node types render as explicit error nodes on the canvas to expose registry drift, because the single `GraphNode` renderer pulls labels/pins straight from the registry for every node type.
 - Palette clicks instantiate new nodes with `getDefaultConfig(nodeType)`; dynamic pin ids are cached immediately for reconciliation.
 

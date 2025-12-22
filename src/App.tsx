@@ -59,12 +59,18 @@ import {
   upsertStep,
   type ActionLibrary
 } from "./lib/repository";
-import { listNodesByCategory, materializePins, arePinsCompatible, getDefaultConfig, getNodeDef } from "./lib/nodes/registry";
+import { listNodesByCategory, materializePins, getDefaultConfig, getNodeDef } from "./lib/nodes/registry";
 import { GraphNode as GenericGraphNode } from "./components/GraphNode";
 import { NodeConfigForm } from "./components/NodeConfigForm";
 import { compileAbilityGraph } from "./lib/graphIR/compiler";
 import { reconcileReactFlowEdgesAfterPinChange } from "./lib/graphIR/reconcile";
 import { validateConnect } from "./lib/graphIR/edgeRules";
+import {
+  graphEdgeToReactFlowEdge,
+  graphNodeToReactFlowNode,
+  reactFlowEdgeToGraphEdge,
+  reactFlowNodeToGraphNode
+} from "./lib/graphIR/adapters";
 import { PinKind, type ForgeProject, type Graph, type GraphEdge, type GraphNode as IRGraphNode } from "./lib/graphIR/types";
 
 type AppMode = "FORGE" | "LIBRARY" | "DECKS" | "SCENARIOS";
@@ -214,6 +220,11 @@ function safeJsonParse(text: string) {
   }
 }
 
+function ensurePinsCache(node: IRGraphNode): IRGraphNode {
+  if (node.pinsCache?.length) return node;
+  return { ...node, pinsCache: materializePins(node.nodeType, node.config).map((p) => p.id) };
+}
+
 type AiRefImage = { name: string; mime: string; dataUrl: string };
 
 export default function App() {
@@ -227,33 +238,19 @@ export default function App() {
     const migrated = loadMigratedCardOrDefault(makeDefaultCard);
     return coerceUnknownSteps(migrated) as CardEntity;
   });
-  // Graph editor state lives in CJ-GRAPH-1.1 IR and is adapted to React Flow nodes/edges.
+  // Graph editor state lives in CJ-GRAPH-1.x IR and is adapted to React Flow nodes/edges.
   const [graphMeta, setGraphMeta] = useState<Pick<Graph, "graphVersion" | "id" | "label">>(() => {
     const initialGraph = project.graphs[project.ui?.activeGraphId ?? "root"] ?? makeDefaultGraph();
     return { graphVersion: initialGraph.graphVersion, id: initialGraph.id, label: initialGraph.label };
   });
   const initialGraph = project.graphs[project.ui?.activeGraphId ?? "root"] ?? makeDefaultGraph();
-  const [nodes, setNodes, handleNodesChange] = useNodesState<Node>(
-    initialGraph.nodes.map((n) => ({
-      id: n.id,
-      type: "genericNode",
-      position: n.position,
-      data: { nodeType: n.nodeType, config: n.config, pinsCache: n.pinsCache },
-      selected: false
-    }))
-  );
-  const [edges, setEdges, handleEdgesChange] = useEdgesState<Edge>(
-    initialGraph.edges.map((e) => ({
-      id: e.id,
-      source: e.from.nodeId,
-      target: e.to.nodeId,
-      sourceHandle: e.from.pinId,
-      targetHandle: e.to.pinId,
-      label: e.edgeKind,
-      data: { edgeKind: e.edgeKind, dataType: e.dataType, createdAt: e.createdAt },
-      style: edgeStyle(e.edgeKind as PinKind)
-    }))
-  );
+  const initialNodes = initialGraph.nodes.map((n) => graphNodeToReactFlowNode(ensurePinsCache(n)));
+  const initialEdges = initialGraph.edges.map((e) => ({
+    ...graphEdgeToReactFlowEdge(e),
+    style: edgeStyle((e.edgeKind as PinKind) ?? PinKind.CONTROL)
+  }));
+  const [nodes, setNodes, handleNodesChange] = useNodesState<Node>(initialNodes);
+  const [edges, setEdges, handleEdgesChange] = useEdgesState<Edge>(initialEdges);
   const activeGraphId = project.ui?.activeGraphId ?? "root";
 
   const [issues, setIssues] = useState<ValidationIssue[]>([]);
@@ -350,24 +347,11 @@ export default function App() {
 
   const graph: Graph = useMemo(
     () => ({
-      graphVersion: graphMeta.graphVersion as Graph["graphVersion"],
+      graphVersion: graphMeta.graphVersion,
       id: graphMeta.id,
       label: graphMeta.label,
-      nodes: nodes.map((n) => ({
-        id: n.id,
-        nodeType: n.data.nodeType,
-        position: n.position,
-        config: n.data.config,
-        pinsCache: n.data.pinsCache
-      })),
-      edges: edges.map((e) => ({
-        id: e.id,
-        edgeKind: (e.data?.edgeKind as GraphEdge["edgeKind"]) ?? (e.label as GraphEdge["edgeKind"]) ?? PinKind.CONTROL,
-        dataType: e.data?.dataType,
-        from: { nodeId: e.source, pinId: e.sourceHandle ?? "" },
-        to: { nodeId: e.target, pinId: e.targetHandle ?? "" },
-        createdAt: e.data?.createdAt
-      }))
+      nodes: nodes.map((n) => ensurePinsCache(reactFlowNodeToGraphNode(n))),
+      edges: edges.map((e) => reactFlowEdgeToGraphEdge(e))
     }),
     [edges, graphMeta, nodes]
   );
@@ -446,36 +430,15 @@ export default function App() {
   }
 
   const toReactFlowNode = useCallback(
-    (n: IRGraphNode): Node => ({
-      id: n.id,
-      type: "genericNode",
-      position: n.position,
-      data: {
-        nodeType: n.nodeType,
-        config: n.config,
-        pinsCache: n.pinsCache?.length ? n.pinsCache : materializePins(n.nodeType, n.config).map((p) => p.id)
-      },
-      selected: selectedNodeId === n.id
-    }),
+    (n: IRGraphNode): Node => graphNodeToReactFlowNode(ensurePinsCache(n), selectedNodeId),
     [selectedNodeId]
   );
 
   const loadGraphIntoState = useCallback(
     (nextGraph: Graph) => {
       setGraphMeta({ graphVersion: nextGraph.graphVersion, id: nextGraph.id, label: nextGraph.label });
-      setNodes(nextGraph.nodes.map((n) => toReactFlowNode(n)));
-      setEdges(
-        nextGraph.edges.map((e) => ({
-          id: e.id,
-          source: e.from.nodeId,
-          target: e.to.nodeId,
-          sourceHandle: e.from.pinId,
-          targetHandle: e.to.pinId,
-          label: e.edgeKind,
-          data: { edgeKind: e.edgeKind, dataType: e.dataType, createdAt: e.createdAt },
-          style: edgeStyle(e.edgeKind as PinKind)
-        }))
-      );
+      setNodes(nextGraph.nodes.map((n) => toReactFlowNode(ensurePinsCache(n))));
+      setEdges(nextGraph.edges.map((e) => ({ ...graphEdgeToReactFlowEdge(e), style: edgeStyle((e.edgeKind as PinKind) ?? PinKind.CONTROL) })));
       setSelectedNodeId(null);
     },
     [setEdges, setNodes, toReactFlowNode]
@@ -483,22 +446,15 @@ export default function App() {
 
   function addNode(nodeType: string) {
     const config = getDefaultConfig(nodeType);
-    const node: IRGraphNode = {
+    const pinsCache = materializePins(nodeType, config).map((p) => p.id);
+    const node: IRGraphNode = ensurePinsCache({
       id: uuidv4(),
       nodeType,
       position: { x: 120 + nodes.length * 20, y: 120 + nodes.length * 40 },
-      config
-    };
-    setNodes((prev) => [
-      ...prev,
-      {
-        id: node.id,
-        type: "genericNode",
-        position: node.position,
-        data: { nodeType: node.nodeType, config: node.config, pinsCache: materializePins(nodeType, config).map((p) => p.id) },
-        selected: false
-      }
-    ]);
+      config,
+      pinsCache
+    });
+    setNodes((prev) => [...prev, graphNodeToReactFlowNode(node)]);
   }
 
   function updateNodeConfig(nodeId: string, nextConfig: Record<string, any>) {
@@ -545,21 +501,8 @@ export default function App() {
     if (!connection.source || !connection.target || !connection.sourceHandle || !connection.targetHandle) return;
 
     setEdges((prevEdges) => {
-      const graphNodes: IRGraphNode[] = nodes.map((n) => ({
-        id: n.id,
-        nodeType: n.data.nodeType,
-        position: n.position,
-        config: n.data.config,
-        pinsCache: n.data.pinsCache
-      }));
-      const graphEdges: GraphEdge[] = prevEdges.map((e) => ({
-        id: e.id,
-        edgeKind: (e.data?.edgeKind as GraphEdge["edgeKind"]) ?? (e.label as GraphEdge["edgeKind"]) ?? PinKind.CONTROL,
-        dataType: e.data?.dataType,
-        from: { nodeId: e.source, pinId: e.sourceHandle ?? "" },
-        to: { nodeId: e.target, pinId: e.targetHandle ?? "" },
-        createdAt: e.data?.createdAt
-      }));
+      const graphNodes: IRGraphNode[] = nodes.map((n) => ensurePinsCache(reactFlowNodeToGraphNode(n)));
+      const graphEdges: GraphEdge[] = prevEdges.map((e) => reactFlowEdgeToGraphEdge(e));
 
       const result = validateConnect({
         nodes: graphNodes,
@@ -576,13 +519,7 @@ export default function App() {
       }
 
       const newEdge: Edge = {
-        id: result.edge.id,
-        source: result.edge.from.nodeId,
-        target: result.edge.to.nodeId,
-        sourceHandle: result.edge.from.pinId,
-        targetHandle: result.edge.to.pinId,
-        label: result.edge.edgeKind,
-        data: { edgeKind: result.edge.edgeKind, dataType: result.edge.dataType, createdAt: result.edge.createdAt },
+        ...graphEdgeToReactFlowEdge(result.edge),
         style: edgeStyle(result.edge.edgeKind as PinKind)
       };
 
