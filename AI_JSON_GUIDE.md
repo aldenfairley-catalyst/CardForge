@@ -212,12 +212,13 @@ Trigger payload actions reuse **the same Step system** so scenarios can:
 # 6) Forge Project (graph editor) vs Canonical Card JSON
 Forge now stores a **CJ-FORGE-PROJECT-1.0** that includes:
 - `card` (canonical CJ-1.x card JSON — runtime truth)
-- `graphs` (CJ-GRAPH-1.0) with nodes/edges/layout
+- `graphs` (CJ-GRAPH-1.1) with nodes/edges/layout
 - `ui` (active graph id + layout prefs)
 
 Compile-on-change keeps `card.ability.execution.steps[]` in sync:
 - Graph validation blocks pin kind/type mismatches and missing required inputs.
-- Control pins allow **one outgoing edge per pin**; cycles are rejected.
+- Control pins allow **one outgoing edge per pin** by default; target pins enforce multiplicity (`multi:true` for fan-in). Cycles in CONTROL flow are rejected.
+- DATA pins require matching dataType (`any` wildcard when omitted).
 - `SHOW_TEXT`, `IF_ELSE`, `CONST_BOOL`, `CONST_NUMBER`, `EXEC_START` round-trip between graph and canonical steps.
 
 Node definitions live in `src/assets/nodeRegistry.json` (JSON-first source of truth). Add new nodes there, then extend compiler/validation accordingly.
@@ -236,7 +237,7 @@ Node definitions live in `src/assets/nodeRegistry.json` (JSON-first source of tr
   - `compile`: stub metadata for later compiler phases
 
 ### 6.2 Graph IR is editor-only in Phase A1
-- CJ-GRAPH-1.0 stores `{ nodes, edges }` with `edgeKind: CONTROL | DATA` for the editor.
+- CJ-GRAPH-1.1 stores `{ nodes, edges }` with `edgeKind: CONTROL | DATA`, `dataType?` (for DATA edges), and `createdAt?` metadata for the editor.
 - Canonical runtime truth remains the CJ card JSON; compilation will consume the graph in later phases. Graph IR currently lives in React state and is exported/imported with Forge Project JSON, but a browser refresh resets the canvas unless the project is reloaded.
 
 ### 6.3 Node config + pins cache (Phase A2)

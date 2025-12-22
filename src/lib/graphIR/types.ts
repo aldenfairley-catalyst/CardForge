@@ -14,6 +14,7 @@ export type DataType =
   | "number"
   | "string"
   | "boolean"
+  | "any"
   | "tokenMap"
   | "entityRef"
   | "targetSet"
@@ -36,6 +37,9 @@ export type PinDefinition = {
   dataType?: DataType;
   required?: boolean;
   defaultValue?: any;
+  multi?: boolean;
+  maxConnections?: number;
+  optional?: boolean;
 };
 
 export type DynamicPinTemplate =
@@ -80,8 +84,10 @@ export type PinEndpoint = {
 export type GraphEdge = {
   id: string;
   edgeKind: EdgeKind;
+  dataType?: string;
   from: PinEndpoint;
   to: PinEndpoint;
+  createdAt?: string;
 };
 
 export type GraphNode = {
@@ -93,7 +99,7 @@ export type GraphNode = {
 };
 
 export type Graph = {
-  graphVersion: "CJ-GRAPH-1.0";
+  graphVersion: "CJ-GRAPH-1.1";
   id: string;
   label?: string;
   nodes: GraphNode[];

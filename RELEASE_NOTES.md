@@ -1,5 +1,21 @@
 # RELEASE_NOTES
 
+# RELEASE_NOTES
+
+## Phase A3 Typed Connections + Edge Rules (2025-12-22)
+### Added
+- Graph IR bumped to **CJ-GRAPH-1.1** with edge metadata (`edgeKind`, optional `dataType`, `createdAt`) persisted through project exports.
+- Connection guardrail helper `validateConnect` enforces pin kind/direction, dataType compatibility, multiplicity (`multi`/`maxConnections`), duplicate prevention, and CONTROL cycle detection.
+- React Flow onConnect now uses the validator and surfaces specific error toasts; control vs data edges render with distinct stroke styles while preserving selection.
+- Inspector panels list incoming/outgoing edges with kind + dataType context to speed up debugging.
+- New cycle utility (`wouldCreateCycle`) and edge validation unit tests covering mismatches, multiplicity, duplicates, and cycles.
+
+### Changed
+- Graph export/import paths carry edge dataType/create timestamps, and React Flow adapters set styling based on edge kind for visual clarity.
+
+### Known Missing / Not Yet Implemented
+- Broader dataType lattice (e.g., integer subtype) and optional DATA cycles are out of scope for A3; compiler still covers the existing MVP nodes only.
+
 ## Phase A2 Config Editor + Dynamic Pins (2025-12-22)
 ### Added
 - Schema-driven node inspector renders Config/Pins/Node JSON tabs, generating fields from `configSchema` (string/number/integer/boolean/enum) and keeping selection stable while editing.

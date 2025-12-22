@@ -144,6 +144,15 @@ pre{
   background:rgba(15,26,46,.85);
   min-width:220px;
 }
+.handle--control{
+  border:2px solid rgba(99,179,255,.7) !important;
+  background: #0f172a !important;
+  box-shadow: 0 0 0 2px rgba(99,179,255,.25);
+}
+.handle--data{
+  border:1px solid rgba(255,255,255,.6) !important;
+  background: #1f2937 !important;
+}
 .nodeH{
   padding:8px 10px;
   border-bottom:1px solid var(--border);
@@ -396,6 +405,30 @@ pre{
   font-size: 11px;
   color: rgba(255,255,255,.78);
 }
+
+.toastHost{
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  z-index: 999;
+}
+.toast{
+  background: rgba(15,23,42,.92);
+  border: 1px solid rgba(255,255,255,.12);
+  padding: 10px 12px;
+  border-radius: 10px;
+  color: var(--text);
+  box-shadow: 0 8px 30px rgba(0,0,0,.35);
+  min-width: 240px;
+}
+.toastError{
+  border-color: rgba(248,113,113,.45);
+  box-shadow: 0 8px 30px rgba(248,113,113,.12);
+}
+.toastMsg{ font-size: 13px; line-height: 1.35; }
 
 /* ---------- Themes (color variation) ---------- */
 .theme-blue  { --cp-accent: #63b3ff; }

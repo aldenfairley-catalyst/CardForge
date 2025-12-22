@@ -1,10 +1,10 @@
-# CJ Graph Spec (CJ-GRAPH-1.0)
+# CJ Graph Spec (CJ-GRAPH-1.1)
 
 Version: MVP (EXEC_START, SHOW_TEXT, IF/ELSEIF/ELSE, CONST_BOOL, CONST_NUMBER)
 
 ## Formats
 - **Forge Project:** `schemaVersion = "CJ-FORGE-PROJECT-1.0"` containing `card`, `graphs`, and `ui` metadata.
-- **Graph:** `graphVersion = "CJ-GRAPH-1.0"` with `nodes[]` + `edges[]`.
+- **Graph:** `graphVersion = "CJ-GRAPH-1.1"` with `nodes[]` + `edges[]`.
 - **Node registry:** `src/assets/nodeRegistry.json` is the JSON-first source of truth (labels, pins, configSchema, compile hints).
 
 ## Node registry (CJ-NODEDEF-1.0)
@@ -21,26 +21,28 @@ Version: MVP (EXEC_START, SHOW_TEXT, IF/ELSEIF/ELSE, CONST_BOOL, CONST_NUMBER)
 
 ### Pin cache (Phase A2)
 - Graph nodes optionally store `pinsCache: string[]` (ids) to record the pin set last produced by `materializePins(nodeType, config)`.
-- The cache is refreshed whenever config changes and is persisted in CJ-GRAPH-1.0 exports for editor diagnostics.
+- The cache is refreshed whenever config changes and is persisted in CJ-GRAPH-1.1 exports for editor diagnostics.
 - Dynamic pin changes reconcile edges against the cached/just-computed ids to drop edges that now point at missing handles.
 
-## Control flow rules
-- CONTROL vs DATA pins are enforced at edge creation.
-- Each CONTROL **output pin** may have at most one outgoing edge (branching nodes expose multiple output pins instead).
-- Cycles in CONTROL edges are invalid.
+## Control & data connection rules
+- CONTROL vs DATA pins are enforced at edge creation (kind + direction must match).
+- DATA pins enforce dataType compatibility (`any` wildcard is allowed when a pin omits `dataType`; boolean→boolean, number→number, etc.).
+- Target IN pin multiplicity is enforced: default max 1 incoming edge unless `multi: true` or `maxConnections` is set on the pin.
+- CONTROL **output pins** may have many outgoing connections (fan-out), but CONTROL **input pins** default to 1 incoming edge unless marked `multi`.
+- Cycles in CONTROL edges are rejected at connect time.
 - `EXEC_START.execOut` must connect to at least one downstream control input.
 
-## Graph IR (CJ-GRAPH-1.0)
+## Graph IR (CJ-GRAPH-1.1)
 - `GraphNode`: `{ id, nodeType, position {x,y}, config, pinsCache? }`
-- `GraphEdge`: `{ id, edgeKind: "CONTROL" | "DATA", from {nodeId, pinId}, to {nodeId, pinId} }`
-- `Graph`: `{ graphVersion: "CJ-GRAPH-1.0", id, label?, nodes: GraphNode[], edges: GraphEdge[] }`
+- `GraphEdge`: `{ id, edgeKind: "CONTROL" | "DATA", dataType?, createdAt?, from {nodeId, pinId}, to {nodeId, pinId} }` — `dataType` is recorded for DATA edges.
+- `Graph`: `{ graphVersion: "CJ-GRAPH-1.1", id, label?, nodes: GraphNode[], edges: GraphEdge[] }`
 - Graph IR is **editor-only** in Phase A1; canonical runtime steps still live on the card until compilation phases land.
 - Graph IR currently lives in React state (in-memory) and is exported with the Forge Project JSON; refresh resets the canvas unless a project is re-imported.
 
 ## React Flow adapter (Phase A2)
 - Canvas state uses `useNodesState` / `useEdgesState` for stable selection (editing config no longer deselects).
 - React Flow node data: `{ nodeType, config, pinsCache }` and the `selected` flag is controlled by local inspector state.
-- Graph export/import is round-tripped from React Flow state → CJ-GRAPH-1.0 and back; imports repopulate pinsCache on load.
+- Graph export/import is round-tripped from React Flow state → CJ-GRAPH-1.1 and back; imports repopulate pinsCache on load.
 - Unknown node types render as explicit error nodes on the canvas to expose registry drift, because the single `GraphNode` renderer pulls labels/pins straight from the registry for every node type.
 - Palette clicks instantiate new nodes with `getDefaultConfig(nodeType)`; dynamic pin ids are cached immediately for reconciliation.
 

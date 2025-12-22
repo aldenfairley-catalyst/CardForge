@@ -1,6 +1,7 @@
 {
   "nodeRegistryVersion": "CJ-NODEDEF-1.0",
   "dataTypes": [
+    "any",
     "number",
     "string",
     "boolean",

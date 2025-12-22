@@ -89,13 +89,15 @@ export function arePinsCompatible(outPin?: PinDefinition, inPin?: PinDefinition)
   if (outPin.kind !== inPin.kind) return false;
 
   if (outPin.kind === PinKind.CONTROL) return true;
-  if (!outPin.dataType || !inPin.dataType) return false;
-  if (inPin.dataType === "json") return true;
-  if (outPin.dataType === inPin.dataType) return true;
+  const source = outPin.dataType ?? "any";
+  const target = inPin.dataType ?? "any";
+  if (source === "any" || target === "any") return true;
+  if (target === "json") return true;
+  if (source === target) return true;
   const inUnion = Array.isArray((inPin as any).dataType)
     ? ((inPin as any).dataType as DataType[])
-    : [inPin.dataType as DataType];
-  return inUnion.includes(outPin.dataType as DataType);
+    : [target as DataType];
+  return inUnion.includes(source as DataType);
 }
 
 export function getDefaultConfig(nodeType: string): Record<string, any> {
