@@ -7,14 +7,23 @@ export type NodeRegistry = {
   nodes: NodeDefinition[];
 };
 
+export type NodeDef = NodeDefinition;
+export type PinDef = PinDefinition;
+
 const registry = registryJson as NodeRegistry;
+
+function clampInt(value: any, min: number, max: number) {
+  const parsed = Number.isFinite(Number(value)) ? Number(value) : 0;
+  const bounded = Math.max(min, Math.min(max, Math.round(parsed)));
+  return bounded;
+}
 
 export function getRegistry(): NodeRegistry {
   return registry;
 }
 
-export function getNodeDef(nodeType: string): NodeDefinition | undefined {
-  return registry.nodes.find((n) => n.nodeType === nodeType);
+export function getNodeDef(nodeType: string): NodeDefinition | null {
+  return registry.nodes.find((n) => n.nodeType === nodeType) ?? null;
 }
 
 export function listNodesByCategory() {
@@ -26,9 +35,15 @@ export function listNodesByCategory() {
   return Object.entries(groups).map(([category, nodes]) => ({ category, nodes }));
 }
 
-function generateElseIfPins(template: NonNullable<NodeDefinition["pins"]["dynamic"]>, config: Record<string, any>) {
-  if (template.kind !== "ELSEIF_PINS") return [];
-  const count = Math.max(0, Math.min(6, Number(config?.[template.sourceField] ?? 0)));
+function generateElseIfPins(def: NodeDefinition, config: Record<string, any>) {
+  const template = def.pins?.dynamic;
+  if (!template || template.kind !== "ELSEIF_PINS") return [];
+
+  const propSchema = (def.configSchema?.properties ?? {})[template.sourceField] ?? {};
+  const min = Number.isFinite(propSchema.minimum) ? propSchema.minimum : 0;
+  const max = Number.isFinite(propSchema.maximum) ? propSchema.maximum : 6;
+  const count = clampInt(config?.[template.sourceField] ?? 0, min, max);
+
   const pins: PinDefinition[] = [];
   for (let i = 0; i < count; i++) {
     for (const t of template.pinsPerIndex) {
@@ -49,10 +64,19 @@ function generateElseIfPins(template: NonNullable<NodeDefinition["pins"]["dynami
 export function materializePins(nodeType: string, config: GraphNode["config"]): PinDefinition[] {
   const def = getNodeDef(nodeType);
   if (!def) return [];
-  const staticPins = def.pins?.static ?? [];
-  const dynamicTemplate = def.pins?.dynamic;
-  const dynPins = dynamicTemplate ? generateElseIfPins(dynamicTemplate, config) : [];
-  return [...staticPins, ...dynPins];
+
+  const pins: PinDefinition[] = [];
+  const seen = new Set<string>();
+  const addPin = (pin: PinDefinition) => {
+    if (seen.has(pin.id)) throw new Error(`Duplicate pin id "${pin.id}" for nodeType ${nodeType}`);
+    seen.add(pin.id);
+    pins.push(pin);
+  };
+
+  (def.pins?.static ?? []).forEach(addPin);
+  generateElseIfPins(def, config).forEach(addPin);
+
+  return pins;
 }
 
 export function arePinsCompatible(outPin?: PinDefinition, inPin?: PinDefinition): boolean {
@@ -70,13 +94,23 @@ export function arePinsCompatible(outPin?: PinDefinition, inPin?: PinDefinition)
   return inUnion.includes(outPin.dataType as DataType);
 }
 
-export function defaultConfigForNode(nodeType: string): Record<string, any> {
+export function getDefaultConfig(nodeType: string): Record<string, any> {
   const def = getNodeDef(nodeType);
   const schema = def?.configSchema ?? {};
   const props = schema.properties ?? {};
   const defaults: Record<string, any> = {};
   Object.entries(props).forEach(([key, value]: any) => {
-    if (value && Object.prototype.hasOwnProperty.call(value, "default")) defaults[key] = value.default;
+    if (value && Object.prototype.hasOwnProperty.call(value, "default")) {
+      defaults[key] = value.default;
+      return;
+    }
+    if (Array.isArray(schema.required) && schema.required.includes(key)) {
+      if (value?.type === "boolean") defaults[key] = false;
+      else if (value?.type === "number" || value?.type === "integer") defaults[key] = 0;
+      else if (value?.type === "string") defaults[key] = "";
+    }
   });
   return defaults;
 }
+
+export const defaultConfigForNode = getDefaultConfig;
