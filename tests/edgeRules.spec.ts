@@ -2,11 +2,22 @@
 
 import { describe, expect, it } from "vitest";
 import { validateConnect } from "../src/lib/graphIR/edgeRules";
-import { PinKind, type GraphEdge, type GraphNode } from "../src/lib/graphIR/types";
-import { getDefaultConfig } from "../src/lib/nodes/registry";
+import { PinKind, type GraphEdge, type GraphNode, type NodeDefinition } from "../src/lib/graphIR/types";
+import { getDefaultConfig, getRegistry } from "../src/lib/nodes/registry";
 
 function node(nodeType: string, id: string): GraphNode {
   return { id, nodeType, position: { x: 0, y: 0 }, config: getDefaultConfig(nodeType) };
+}
+
+function registerTempNodes(defs: NodeDefinition[]) {
+  const registry = getRegistry();
+  defs.forEach((def) => registry.nodes.push(def));
+  return () => {
+    defs.forEach((def) => {
+      const idx = registry.nodes.findIndex((n) => n.nodeType === def.nodeType);
+      if (idx >= 0) registry.nodes.splice(idx, 1);
+    });
+  };
 }
 
 describe("validateConnect rules", () => {
@@ -76,6 +87,50 @@ describe("validateConnect rules", () => {
     });
     expect(second.ok).toBe(false);
     if (!second.ok) expect(second.code).toBe("TARGET_AT_MAX");
+  });
+
+  it("treats missing dataType as any for DATA edges", () => {
+    const cleanup = registerTempNodes([
+      {
+        nodeType: "ANY_SOURCE",
+        label: "Any Source",
+        category: "Test",
+        description: "",
+        configSchema: { type: "object", properties: {} },
+        pins: { static: [{ id: "out", label: "Any", kind: PinKind.DATA, direction: "OUT", group: "Value" }] },
+        compile: { kind: "VALUE_EXPR", exprType: "TEST_ANY" }
+      },
+      {
+        nodeType: "BOOL_SINK",
+        label: "Bool Sink",
+        category: "Test",
+        description: "",
+        configSchema: { type: "object", properties: {} },
+        pins: {
+          static: [{ id: "in", label: "Bool", kind: PinKind.DATA, direction: "IN", group: "Value", dataType: "boolean" }]
+        },
+        compile: { kind: "VALUE_EXPR", exprType: "TEST_BOOL" }
+      }
+    ]);
+
+    try {
+      const nodes: GraphNode[] = [
+        { id: "a", nodeType: "ANY_SOURCE", position: { x: 0, y: 0 }, config: {} },
+        { id: "b", nodeType: "BOOL_SINK", position: { x: 0, y: 0 }, config: {} }
+      ];
+      const edges: GraphEdge[] = [];
+      const res = validateConnect({
+        nodes,
+        edges,
+        sourceNodeId: "a",
+        sourcePinId: "out",
+        targetNodeId: "b",
+        targetPinId: "in"
+      });
+      expect(res.ok).toBe(true);
+    } finally {
+      cleanup();
+    }
   });
 
   it("rejects cycles for CONTROL edges", () => {
