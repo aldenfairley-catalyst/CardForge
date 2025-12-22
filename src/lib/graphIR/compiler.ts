@@ -124,7 +124,7 @@ export function compileAbilityGraph({
   ability: AbilityComponent;
   card: CardEntity;
 }): { steps: Step[]; issues: ReturnType<typeof validateGraph> } {
-  const issues = validateGraph(graph);
+  const issues = validateGraph(graph, ability);
   const nodeIndex = new Map<string, GraphNode>();
   graph.nodes.forEach((n) => nodeIndex.set(n.id, n));
 

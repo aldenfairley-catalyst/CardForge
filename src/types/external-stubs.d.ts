@@ -57,6 +57,10 @@ declare module "reactflow" {
   export const useNodesState: any;
   export const useEdgesState: any;
   export const addEdge: any;
+  export const applyEdgeChanges: any;
+  export const applyNodeChanges: any;
+  export type Connection = any;
+  export type Edge = any;
   export const Handle: any;
   export const Position: any;
   export const MiniMap: any;
