@@ -4,10 +4,11 @@ import ReactFlow, {
   Background,
   Controls,
   MiniMap,
-  applyEdgeChanges,
-  applyNodeChanges,
+  useEdgesState,
+  useNodesState,
   type Connection,
-  type Edge
+  type Edge,
+  type Node
 } from "reactflow";
 import "reactflow/dist/style.css";
 import { v4 as uuidv4 } from "uuid";
@@ -59,9 +60,9 @@ import {
 } from "./lib/repository";
 import { listNodesByCategory, materializePins, arePinsCompatible, getDefaultConfig, getNodeDef } from "./lib/nodes/registry";
 import { GraphNode as GenericGraphNode } from "./components/GraphNode";
-import { NodeConfigForm, coerceConfig } from "./components/NodeConfigForm";
+import { NodeConfigForm } from "./components/NodeConfigForm";
 import { compileAbilityGraph } from "./lib/graphIR/compiler";
-import { reconcileEdgesAfterPinChange } from "./lib/graphIR/edgeUtils";
+import { reconcileReactFlowEdgesAfterPinChange } from "./lib/graphIR/reconcile";
 import { PinKind, type ForgeProject, type Graph, type GraphEdge, type GraphNode as IRGraphNode } from "./lib/graphIR/types";
 
 type AppMode = "FORGE" | "LIBRARY" | "DECKS" | "SCENARIOS";
@@ -219,12 +220,36 @@ export default function App() {
     return coerceUnknownSteps(migrated) as CardEntity;
   });
   // Graph editor state lives in CJ-GRAPH-1.0 IR and is adapted to React Flow nodes/edges.
-  const [graph, setGraph] = useState<Graph>(() => project.graphs[project.ui?.activeGraphId ?? "root"] ?? makeDefaultGraph());
+  const [graphMeta, setGraphMeta] = useState<Pick<Graph, "graphVersion" | "id" | "label">>(() => {
+    const initialGraph = project.graphs[project.ui?.activeGraphId ?? "root"] ?? makeDefaultGraph();
+    return { graphVersion: initialGraph.graphVersion, id: initialGraph.id, label: initialGraph.label };
+  });
+  const initialGraph = project.graphs[project.ui?.activeGraphId ?? "root"] ?? makeDefaultGraph();
+  const [nodes, setNodes, handleNodesChange] = useNodesState<Node>(
+    initialGraph.nodes.map((n) => ({
+      id: n.id,
+      type: "genericNode",
+      position: n.position,
+      data: { nodeType: n.nodeType, config: n.config, pinsCache: n.pinsCache },
+      selected: false
+    }))
+  );
+  const [edges, setEdges, handleEdgesChange] = useEdgesState<Edge>(
+    initialGraph.edges.map((e) => ({
+      id: e.id,
+      source: e.from.nodeId,
+      target: e.to.nodeId,
+      sourceHandle: e.from.pinId,
+      targetHandle: e.to.pinId,
+      label: e.edgeKind
+    }))
+  );
   const activeGraphId = project.ui?.activeGraphId ?? "root";
 
   const [issues, setIssues] = useState<ValidationIssue[]>([]);
   const [graphIssues, setGraphIssues] = useState<ValidationIssue[]>([]);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+  const [inspectorTab, setInspectorTab] = useState<"config" | "pins" | "json">("config");
 
   const [importOpen, setImportOpen] = useState(false);
   const [importText, setImportText] = useState("");
@@ -302,6 +327,28 @@ export default function App() {
     setProject((prev) => ({ ...prev, card }));
   }, [card]);
 
+  const graph: Graph = useMemo(
+    () => ({
+      graphVersion: graphMeta.graphVersion as Graph["graphVersion"],
+      id: graphMeta.id,
+      label: graphMeta.label,
+      nodes: nodes.map((n) => ({
+        id: n.id,
+        nodeType: n.data.nodeType,
+        position: n.position,
+        config: n.data.config,
+        pinsCache: n.data.pinsCache
+      })),
+      edges: edges.map((e) => ({
+        id: e.id,
+        edgeKind: (e.label as GraphEdge["edgeKind"]) ?? PinKind.CONTROL,
+        from: { nodeId: e.source, pinId: e.sourceHandle ?? "" },
+        to: { nodeId: e.target, pinId: e.targetHandle ?? "" }
+      }))
+    }),
+    [edges, graphMeta, nodes]
+  );
+
   useEffect(() => {
     setProject((prev) => ({
       ...prev,
@@ -375,91 +422,140 @@ export default function App() {
     });
   }
 
+  const toReactFlowNode = useCallback(
+    (n: IRGraphNode): Node => ({
+      id: n.id,
+      type: "genericNode",
+      position: n.position,
+      data: {
+        nodeType: n.nodeType,
+        config: n.config,
+        pinsCache: n.pinsCache?.length ? n.pinsCache : materializePins(n.nodeType, n.config).map((p) => p.id)
+      },
+      selected: selectedNodeId === n.id
+    }),
+    [selectedNodeId]
+  );
+
+  const loadGraphIntoState = useCallback(
+    (nextGraph: Graph) => {
+      setGraphMeta({ graphVersion: nextGraph.graphVersion, id: nextGraph.id, label: nextGraph.label });
+      setNodes(nextGraph.nodes.map((n) => toReactFlowNode(n)));
+      setEdges(
+        nextGraph.edges.map((e) => ({
+          id: e.id,
+          source: e.from.nodeId,
+          target: e.to.nodeId,
+          sourceHandle: e.from.pinId,
+          targetHandle: e.to.pinId,
+          label: e.edgeKind
+        }))
+      );
+      setSelectedNodeId(null);
+    },
+    [setEdges, setNodes, toReactFlowNode]
+  );
+
   function addNode(nodeType: string) {
     const config = getDefaultConfig(nodeType);
     const node: IRGraphNode = {
       id: uuidv4(),
       nodeType,
-      position: { x: 120 + graph.nodes.length * 20, y: 120 + graph.nodes.length * 40 },
+      position: { x: 120 + nodes.length * 20, y: 120 + nodes.length * 40 },
       config
     };
-    setGraph((g) => ({ ...g, nodes: [...g.nodes, node] }));
+    setNodes((prev) => [
+      ...prev,
+      {
+        id: node.id,
+        type: "genericNode",
+        position: node.position,
+        data: { nodeType: node.nodeType, config: node.config, pinsCache: materializePins(nodeType, config).map((p) => p.id) },
+        selected: false
+      }
+    ]);
   }
 
   function updateNodeConfig(nodeId: string, nextConfig: Record<string, any>) {
-    setGraph((g) => {
-      const node = g.nodes.find((n) => n.id === nodeId);
-      if (!node) return g;
-      const nextNodes = g.nodes.map((n) => (n.id === nodeId ? { ...n, config: nextConfig } : n));
-      const nextEdges = reconcileEdgesAfterPinChange(
-        g,
-        nodeId,
-        materializePins(node.nodeType, node.config),
-        materializePins(node.nodeType, nextConfig)
+    setNodes((prev) => {
+      const existing = prev.find((n) => n.id === nodeId);
+      if (!existing) return prev;
+      const oldPins = materializePins(existing.data.nodeType, existing.data.config);
+      const newPins = materializePins(existing.data.nodeType, nextConfig);
+
+      setEdges((eds) => reconcileReactFlowEdgesAfterPinChange(nodeId, oldPins, newPins, eds));
+
+      return prev.map((n) =>
+        n.id === nodeId
+          ? {
+              ...n,
+              data: { ...n.data, config: nextConfig, pinsCache: newPins.map((p) => p.id) }
+            }
+          : n
       );
-      return { ...g, nodes: nextNodes, edges: nextEdges };
     });
   }
 
   function deleteGraphNode(nodeId: string) {
-    setGraph((g) => ({
-      ...g,
-      nodes: g.nodes.filter((n) => n.id !== nodeId),
-      edges: g.edges.filter((e) => e.from.nodeId !== nodeId && e.to.nodeId !== nodeId)
-    }));
+    setNodes((prev) => prev.filter((n) => n.id !== nodeId));
+    setEdges((prev) => prev.filter((e) => e.source !== nodeId && e.target !== nodeId));
     setSelectedNodeId(null);
   }
 
-  function onNodesChange(changes: any) {
-    setGraph((g) => ({ ...g, nodes: applyNodeChanges(changes, g.nodes) }));
-  }
+  const onFlowNodesChange = useCallback(
+    (changes: any) => {
+      handleNodesChange(changes);
+    },
+    [handleNodesChange]
+  );
 
-  function onEdgesChange(changes: any) {
-    setGraph((g) => ({ ...g, edges: applyEdgeChanges(changes, g.edges) }));
-  }
+  const onFlowEdgesChange = useCallback(
+    (changes: any) => {
+      handleEdgesChange(changes);
+    },
+    [handleEdgesChange]
+  );
 
   function handleConnect(connection: Connection) {
     if (!connection.source || !connection.target || !connection.sourceHandle || !connection.targetHandle) return;
 
-    setGraph((g) => {
-      const sourceNode = g.nodes.find((n) => n.id === connection.source);
-      const targetNode = g.nodes.find((n) => n.id === connection.target);
-      if (!sourceNode || !targetNode) return g;
+    setEdges((prevEdges) => {
+      const sourceNode = nodes.find((n) => n.id === connection.source);
+      const targetNode = nodes.find((n) => n.id === connection.target);
+      if (!sourceNode || !targetNode) return prevEdges;
 
-      const sourcePin = materializePins(sourceNode.nodeType, sourceNode.config).find((p) => p.id === connection.sourceHandle);
-      const targetPin = materializePins(targetNode.nodeType, targetNode.config).find((p) => p.id === connection.targetHandle);
+      const sourcePin = materializePins(sourceNode.data.nodeType, sourceNode.data.config).find((p) => p.id === connection.sourceHandle);
+      const targetPin = materializePins(targetNode.data.nodeType, targetNode.data.config).find((p) => p.id === connection.targetHandle);
       if (!arePinsCompatible(sourcePin, targetPin)) {
         alert("Pins are not compatible (kind, direction, or data type mismatch).");
-        return g;
+        return prevEdges;
       }
 
       const edgeKind = sourcePin?.kind === PinKind.DATA ? PinKind.DATA : PinKind.CONTROL;
-      const duplicate = g.edges.some(
-        (e) =>
-          e.from.nodeId === connection.source &&
-          e.from.pinId === connection.sourceHandle &&
-          e.to.nodeId === connection.target &&
-          e.to.pinId === connection.targetHandle
+      const duplicate = prevEdges.some(
+        (e) => e.source === connection.source && e.sourceHandle === connection.sourceHandle && e.target === connection.target && e.targetHandle === connection.targetHandle
       );
-      if (duplicate) return g;
+      if (duplicate) return prevEdges;
 
       if (edgeKind === PinKind.CONTROL) {
-        const outgoingCount = g.edges.filter(
-          (e) => e.edgeKind === PinKind.CONTROL && e.from.nodeId === connection.source && e.from.pinId === connection.sourceHandle
+        const outgoingCount = prevEdges.filter(
+          (e) => (e.label as any) === PinKind.CONTROL && e.source === connection.source && e.sourceHandle === connection.sourceHandle
         ).length;
         if (outgoingCount >= 1) {
           alert("A control output pin can connect to at most one downstream control input.");
-          return g;
+          return prevEdges;
         }
       }
 
       const newEdge = {
         id: uuidv4(),
-        edgeKind,
-        from: { nodeId: connection.source, pinId: connection.sourceHandle },
-        to: { nodeId: connection.target, pinId: connection.targetHandle }
+        label: edgeKind,
+        source: connection.source,
+        target: connection.target,
+        sourceHandle: connection.sourceHandle,
+        targetHandle: connection.targetHandle
       };
-      return { ...g, edges: [...g.edges, newEdge] };
+      return [...prevEdges, newEdge as any];
     });
   }
 
@@ -500,14 +596,14 @@ export default function App() {
           ui: { ...(validated?.ui ?? {}), activeGraphId: activeId }
         });
         setCard(incoming);
-        setGraph(validated?.graphs[activeId] ?? makeDefaultGraph());
+        loadGraphIntoState(validated?.graphs[activeId] ?? makeDefaultGraph());
         const idxs = findAbilityIndexes(incoming);
         setActiveAbilityIdx(idxs[0] ?? 0);
       } else {
         const migrated = migrateCard(parsed);
         const incoming = coerceUnknownSteps(migrated) as CardEntity;
         setCard(incoming);
-        setGraph(makeDefaultGraph());
+        loadGraphIntoState(makeDefaultGraph());
         const idxs = findAbilityIndexes(incoming);
         setActiveAbilityIdx(idxs[0] ?? 0);
       }
@@ -583,43 +679,24 @@ export default function App() {
     }
   }
 
-  // Adapter: Graph IR → React Flow nodes/edges
-  const graphNodeToReactFlowNode = useCallback(
-    (n: IRGraphNode) => ({
-      id: n.id,
-      type: "genericNode",
-      position: n.position,
-      data: { nodeType: n.nodeType, config: n.config },
-      selected: selectedNodeId === n.id
-    }),
-    [selectedNodeId]
-  );
-
-  const graphEdgeToReactFlowEdge = useCallback((e: GraphEdge) => {
-    return {
-      id: e.id,
-      source: e.from.nodeId,
-      target: e.to.nodeId,
-      sourceHandle: e.from.pinId,
-      targetHandle: e.to.pinId,
-      label: e.edgeKind
-    } as Edge;
-  }, []);
-
-  const reactFlowNodes = useMemo(
-    () => graph.nodes.map((n) => graphNodeToReactFlowNode(n)),
-    [graph, graphNodeToReactFlowNode]
-  );
-
-  const reactFlowEdges = useMemo(
-    () => graph.edges.map((e) => graphEdgeToReactFlowEdge(e)),
-    [graph, graphEdgeToReactFlowEdge]
-  );
-
   useEffect(() => {
     if (!selectedNodeId) return;
-    if (!graph.nodes.some((n) => n.id === selectedNodeId)) setSelectedNodeId(null);
-  }, [graph, selectedNodeId]);
+    if (!nodes.some((n) => n.id === selectedNodeId)) setSelectedNodeId(null);
+  }, [nodes, selectedNodeId]);
+
+  useEffect(() => {
+    setNodes((prev) =>
+      prev.map((n) => {
+        const shouldSelect = selectedNodeId === n.id;
+        if (n.selected === shouldSelect) return n;
+        return { ...n, selected: shouldSelect };
+      })
+    );
+  }, [selectedNodeId, setNodes]);
+
+  useEffect(() => {
+    setInspectorTab("config");
+  }, [selectedNodeId]);
 
   const errorCount = issues.filter((i) => i.severity === "ERROR").length + graphIssues.filter((i) => i.severity === "ERROR").length;
 
@@ -635,8 +712,17 @@ export default function App() {
 
   const selectedGraphNode = useMemo(() => {
     if (!selectedNodeId) return null;
-    return graph.nodes.find((n) => n.id === selectedNodeId) ?? null;
-  }, [graph, selectedNodeId]);
+    const rfNode = nodes.find((n) => n.id === selectedNodeId);
+    if (!rfNode) return null;
+    return {
+      id: rfNode.id,
+      nodeType: rfNode.data.nodeType,
+      position: rfNode.position,
+      config: rfNode.data.config
+    } as IRGraphNode;
+  }, [nodes, selectedNodeId]);
+
+  const selectedReactFlowNode = useMemo(() => nodes.find((n) => n.id === selectedNodeId) ?? null, [nodes, selectedNodeId]);
 
   // ---- Target profile editing helpers ----
   const TARGETING_TYPES: TargetingType[] = [
@@ -993,7 +1079,7 @@ export default function App() {
             onClick={() => {
               const fresh = makeDefaultCard();
               setCard(fresh);
-              setGraph(makeDefaultGraph());
+              loadGraphIntoState(makeDefaultGraph());
               const idxs = findAbilityIndexes(fresh);
               setActiveAbilityIdx(idxs[0] ?? 0);
               setSelectedNodeId(null);
@@ -1007,7 +1093,7 @@ export default function App() {
               clearSaved();
               const fresh = makeDefaultCard();
               setCard(fresh);
-              setGraph(makeDefaultGraph());
+              loadGraphIntoState(makeDefaultGraph());
               const idxs = findAbilityIndexes(fresh);
               setActiveAbilityIdx(idxs[0] ?? 0);
               setSelectedNodeId(null);
@@ -1079,15 +1165,19 @@ export default function App() {
 
           <div className="rfWrap">
             <ReactFlow
-              nodes={reactFlowNodes as any}
-              edges={reactFlowEdges as any}
+              nodes={nodes as any}
+              edges={edges as any}
               nodeTypes={nodeTypes as any}
               fitView
               proOptions={{ hideAttribution: true }}
-              onNodesChange={onNodesChange}
-              onEdgesChange={onEdgesChange}
+              onNodesChange={onFlowNodesChange}
+              onEdgesChange={onFlowEdgesChange}
               onConnect={handleConnect}
               onNodeClick={(_, n) => setSelectedNodeId(n.id)}
+              onSelectionChange={(sel) => {
+                if (sel?.nodes?.length === 1) setSelectedNodeId(sel.nodes[0].id);
+                else setSelectedNodeId(null);
+              }}
               onPaneClick={() => setSelectedNodeId(null)}
             >
               <Background />
@@ -1205,22 +1295,63 @@ export default function App() {
 
               {selectedGraphNode ? (
                 <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 12 }}>
-                  <div className="small">Node Type</div>
+                  <div className="small">Node</div>
                   <div style={{ fontWeight: 900 }}>
                     {getNodeDef(selectedGraphNode.nodeType)?.label ?? selectedGraphNode.nodeType} ({selectedGraphNode.nodeType})
                   </div>
-                  <div className="small">Configuration</div>
-                  <NodeConfigForm
-                    schema={getNodeDef(selectedGraphNode.nodeType)?.configSchema ?? { type: "object", properties: {} }}
-                    value={selectedGraphNode.config}
-                    onChange={(cfg) => updateNodeConfig(selectedGraphNode.id, cfg)}
-                  />
-                  <details>
-                    <summary className="small" style={{ cursor: "pointer" }}>
-                      Pins
-                    </summary>
-                    <pre style={{ margin: 0 }}>{JSON.stringify(materializePins(selectedGraphNode.nodeType, selectedGraphNode.config), null, 2)}</pre>
-                  </details>
+                  <div className="small" style={{ color: "var(--muted)" }}>
+                    {selectedGraphNode.id}
+                  </div>
+
+                  <div style={{ display: "flex", gap: 6, marginTop: 4 }}>
+                    {["config", "pins", "json"].map((tab) => (
+                      <button
+                        key={tab}
+                        className={`btn ${inspectorTab === tab ? "btnPrimary" : ""}`}
+                        style={{ flex: 1 }}
+                        onClick={() => setInspectorTab(tab as any)}
+                      >
+                        {tab === "config" ? "Config" : tab === "pins" ? "Pins (debug)" : "Node JSON"}
+                      </button>
+                    ))}
+                  </div>
+
+                  {inspectorTab === "config" ? (
+                    <NodeConfigForm
+                      nodeId={selectedGraphNode.id}
+                      nodeType={selectedGraphNode.nodeType}
+                      config={selectedGraphNode.config}
+                      schema={getNodeDef(selectedGraphNode.nodeType)?.configSchema ?? { type: "object", properties: {} }}
+                      onChange={(cfg) => updateNodeConfig(selectedGraphNode.id, cfg)}
+                    />
+                  ) : null}
+
+                  {inspectorTab === "pins" ? (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                      {materializePins(selectedGraphNode.nodeType, selectedGraphNode.config).map((pin) => (
+                        <div key={pin.id} className="small" style={{ display: "flex", flexDirection: "column", padding: 6, border: "1px solid var(--border)", borderRadius: 6 }}>
+                          <div style={{ fontWeight: 700 }}>{pin.label}</div>
+                          <div>
+                            <b>id:</b> {pin.id}
+                          </div>
+                          <div>
+                            <b>kind:</b> {pin.kind} • <b>dir:</b> {pin.direction} • <b>group:</b> {pin.group ?? "Pins"}
+                          </div>
+                          <div>
+                            <b>data:</b> {pin.dataType ?? "—"} {pin.required ? "• required" : ""}
+                          </div>
+                        </div>
+                      ))}
+                      {!materializePins(selectedGraphNode.nodeType, selectedGraphNode.config).length ? <div className="small">No pins</div> : null}
+                    </div>
+                  ) : null}
+
+                  {inspectorTab === "json" ? (
+                    <pre style={{ margin: 0, background: "var(--code-bg)", padding: 10, borderRadius: 8, overflow: "auto" }}>
+                      {JSON.stringify(selectedReactFlowNode?.data ?? {}, null, 2)}
+                    </pre>
+                  ) : null}
+
                   <button className="btn btnDanger" onClick={() => deleteGraphNode(selectedGraphNode.id)}>
                     Delete Node
                   </button>

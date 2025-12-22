@@ -238,3 +238,8 @@ Node definitions live in `src/assets/nodeRegistry.json` (JSON-first source of tr
 ### 6.2 Graph IR is editor-only in Phase A1
 - CJ-GRAPH-1.0 stores `{ nodes, edges }` with `edgeKind: CONTROL | DATA` for the editor.
 - Canonical runtime truth remains the CJ card JSON; compilation will consume the graph in later phases. Graph IR currently lives in React state and is exported/imported with Forge Project JSON, but a browser refresh resets the canvas unless the project is reloaded.
+
+### 6.3 Node config + pins cache (Phase A2)
+- Each graph node persists `config` exactly as entered in the schema-driven inspector (types align with `configSchema` in `nodeRegistry.json`).
+- Nodes may include `pinsCache: string[]` (ids) to capture the pin set produced by the last `materializePins` call; this is used to reconcile edges after config changes remove pins.
+- Dynamic pin rules (e.g., IF `elseIfCount`) are applied immediately on config edits; edges targeting removed handles are pruned on save/update so exported graphs never contain dangling pin references.

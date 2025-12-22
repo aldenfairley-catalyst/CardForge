@@ -1,5 +1,16 @@
 # RELEASE_NOTES
 
+## Phase A2 Config Editor + Dynamic Pins (2025-12-22)
+### Added
+- Schema-driven node inspector renders Config/Pins/Node JSON tabs, generating fields from `configSchema` (string/number/integer/boolean/enum) and keeping selection stable while editing.
+- Dynamic pins now re-materialize live when config changes (e.g., IF `elseIfCount`), caching pin ids on each node for debugging and export.
+- Edge reconciliation removes edges that reference pins removed by config changes to prevent dangling handles.
+### Changed
+- Graph canvas state now uses controlled React Flow nodes/edges with selection mirrored into node objects to avoid deselection during edits.
+- Project export/import round-trips the new `pinsCache` field on nodes for faster diagnostics.
+### Known Missing / Not Yet Implemented
+- Typed edge validation and multiplicity enforcement beyond control-out degree will land in Phase A3 alongside compiler enhancements.
+
 ## Phase A1 Kickoff (2025-12-22)
 - Started Phase A1 to rebuild the graph palette around `src/assets/nodeRegistry.json` with generic rendering. This entry documents the planned scope for registry-driven nodes before wiring additional phases.
 

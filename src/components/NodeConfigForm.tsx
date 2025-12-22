@@ -1,83 +1,100 @@
-import React from "react";
+import React, { useMemo } from "react";
+import { NodeConfigField, type ConfigPropertySchema } from "./NodeConfigFields";
 
-type Schema = {
-  type: string;
-  properties?: Record<string, any>;
+type ConfigSchema = {
+  type?: string;
+  title?: string;
+  description?: string;
+  properties?: Record<string, ConfigPropertySchema>;
   required?: string[];
 };
 
 export type NodeConfigFormProps = {
-  schema: Schema;
-  value: Record<string, any>;
+  nodeId: string;
+  nodeType: string;
+  config: Record<string, any>;
+  schema: ConfigSchema;
   onChange: (next: Record<string, any>) => void;
+  onPatch?: (patch: Record<string, any>) => void;
+  errors?: Record<string, string>;
 };
 
-function ensureDefault(schema: Schema) {
-  const next: Record<string, any> = {};
-  Object.entries(schema.properties ?? {}).forEach(([key, prop]) => {
-    if (prop && Object.prototype.hasOwnProperty.call(prop, "default")) {
-      next[key] = prop.default;
-    }
+function mergeDefaults(schema: ConfigSchema, config: Record<string, any>) {
+  const defaults: Record<string, any> = {};
+  Object.entries(schema?.properties ?? {}).forEach(([key, prop]) => {
+    if (prop && Object.prototype.hasOwnProperty.call(prop, "default")) defaults[key] = (prop as any).default;
   });
-  return next;
+  return { ...defaults, ...(config ?? {}) };
 }
 
-export function coerceConfig(schema: Schema, value: Record<string, any>) {
-  return { ...ensureDefault(schema), ...(value ?? {}) };
+function coerceValue(value: any, prop: ConfigPropertySchema) {
+  if (prop.enum && Array.isArray(prop.enum)) {
+    return value;
+  }
+  if (prop.type === "boolean") return Boolean(value);
+  if (prop.type === "integer") {
+    const parsed = Math.floor(Number(value));
+    const min = Number.isFinite(prop.minimum) ? Number(prop.minimum) : undefined;
+    const max = Number.isFinite(prop.maximum) ? Number(prop.maximum) : undefined;
+    const clamped = Number.isFinite(parsed) ? parsed : 0;
+    if (min != null && clamped < min) return min;
+    if (max != null && clamped > max) return max;
+    return clamped;
+  }
+  if (prop.type === "number") {
+    const parsed = Number(value);
+    const min = Number.isFinite(prop.minimum) ? Number(prop.minimum) : undefined;
+    const max = Number.isFinite(prop.maximum) ? Number(prop.maximum) : undefined;
+    if (!Number.isFinite(parsed)) return prop.default ?? 0;
+    if (min != null && parsed < min) return min;
+    if (max != null && parsed > max) return max;
+    return parsed;
+  }
+  return value;
 }
 
-export function NodeConfigForm({ schema, value, onChange }: NodeConfigFormProps) {
+function validateField(value: any, prop: ConfigPropertySchema, required: boolean): string | null {
+  if (required && (value === null || value === undefined || value === "")) return "Required";
+  if ((prop.type === "number" || prop.type === "integer") && typeof value === "number") {
+    if (prop.minimum != null && value < prop.minimum) return `Min ${prop.minimum}`;
+    if (prop.maximum != null && value > prop.maximum) return `Max ${prop.maximum}`;
+  }
+  return null;
+}
+
+export function NodeConfigForm({ nodeId, nodeType, config, schema, onChange, onPatch, errors }: NodeConfigFormProps) {
   const props = schema?.properties ?? {};
-  const required = new Set(schema?.required ?? []);
-  const current = coerceConfig(schema, value);
+  const required = useMemo(() => new Set(schema?.required ?? []), [schema?.required]);
+  const merged = useMemo(() => mergeDefaults(schema, config ?? {}), [config, schema]);
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-      {Object.entries(props).map(([key, prop]: any) => {
-        const label = `${key}${required.has(key) ? " *" : ""}`;
-        if (prop.type === "string") {
-          return (
-            <label key={key} style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-              <span className="small">{label}</span>
-              <input
-                className="input"
-                value={current[key] ?? prop.default ?? ""}
-                onChange={(e) => onChange({ ...current, [key]: e.target.value })}
-              />
-            </label>
-          );
-        }
-        if (prop.type === "number" || prop.type === "integer") {
-          return (
-            <label key={key} style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-              <span className="small">{label}</span>
-              <input
-                className="input"
-                type="number"
-                value={current[key] ?? prop.default ?? 0}
-                onChange={(e) => onChange({ ...current, [key]: prop.type === "integer" ? Number(e.target.value) || 0 : Number(e.target.value) })}
-              />
-            </label>
-          );
-        }
-        if (prop.type === "boolean") {
-          return (
-            <label key={key} style={{ display: "flex", gap: 6, alignItems: "center" }}>
-              <input
-                type="checkbox"
-                checked={Boolean(current[key] ?? prop.default)}
-                onChange={(e) => onChange({ ...current, [key]: e.target.checked })}
-              />
-              <span className="small">{label}</span>
-            </label>
-          );
-        }
+    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      {Object.entries(props).map(([field, prop]) => {
+        const value = merged[field];
+        const requiredField = required.has(field);
+        const error = errors?.[field] ?? validateField(value, prop, requiredField);
+
+        const handleChange = (raw: any) => {
+          const nextVal = coerceValue(raw, prop);
+          const nextConfig = { ...merged, [field]: nextVal };
+          onChange(nextConfig);
+          onPatch?.({ [field]: nextVal });
+        };
+
         return (
-          <div key={key} className="small">
-            Unsupported field type for {key}
-          </div>
+          <NodeConfigField
+            key={`${nodeId}-${nodeType}-${field}`}
+            field={field}
+            schema={prop}
+            value={value}
+            required={requiredField}
+            error={error ?? undefined}
+            onChange={handleChange}
+          />
         );
       })}
+
+      {!Object.keys(props).length ? <div className="small">No configurable properties.</div> : null}
     </div>
   );
 }
