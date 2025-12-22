@@ -1,6 +1,7 @@
 import { v4 as uuidv4 } from "uuid";
 import { LATEST_SCHEMA_VERSION } from "./migrations";
 import type { CardEntity, AbilityComponent } from "./types";
+import { PinKind, type ForgeProject, type Graph } from "./graphIR/types";
 
 export function makeDefaultCard(): CardEntity {
   return {
@@ -29,6 +30,33 @@ export function makeDefaultCard(): CardEntity {
         execution: { steps: [{ type: "SHOW_TEXT", text: "Do something!" }] }
       }
     ]
+  };
+}
+
+export function makeDefaultGraph(): Graph {
+  return {
+    graphVersion: "CJ-GRAPH-1.0",
+    id: "root",
+    label: "Ability Graph",
+    nodes: [
+      { id: "n_start", nodeType: "EXEC_START", position: { x: 120, y: 120 }, config: {} },
+      { id: "n_text", nodeType: "SHOW_TEXT", position: { x: 420, y: 120 }, config: { text: "Do something!" } }
+    ],
+    edges: [
+      { id: uuidv4(), edgeKind: PinKind.CONTROL, from: { nodeId: "n_start", pinId: "execOut" }, to: { nodeId: "n_text", pinId: "execIn" } }
+    ]
+  };
+}
+
+export function makeDefaultProject(): ForgeProject {
+  const card = makeDefaultCard();
+  return {
+    schemaVersion: "CJ-FORGE-PROJECT-1.0",
+    projectVersion: "CJ-FORGE-PROJECT-1.0",
+    cardSchemaVersion: card.schemaVersion,
+    card,
+    graphs: { root: makeDefaultGraph() },
+    ui: { activeGraphId: "root" }
   };
 }
 
