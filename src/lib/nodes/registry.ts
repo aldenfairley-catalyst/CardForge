@@ -32,7 +32,11 @@ export function listNodesByCategory() {
     if (!groups[n.category]) groups[n.category] = [];
     groups[n.category].push(n);
   });
-  return Object.entries(groups).map(([category, nodes]) => ({ category, nodes }));
+  const grouped = Object.entries(groups).map(([category, nodes]) => ({
+    category,
+    nodes: [...nodes].sort((a, b) => a.label.localeCompare(b.label))
+  }));
+  return grouped.sort((a, b) => a.category.localeCompare(b.category));
 }
 
 function generateElseIfPins(def: NodeDefinition, config: Record<string, any>) {

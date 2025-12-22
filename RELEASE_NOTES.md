@@ -20,3 +20,14 @@
 - Checkpoint 0 (pre-flight installs): `npm ci` / `npm install` attempted but blocked by upstream 403 responses in this environment.
 - Checkpoints A1-1 & A1-2: `nodeRegistry.json` present with EXEC_START, SHOW_TEXT, IF, CONST_BOOL, CONST_NUMBER and parses cleanly.
 - Checkpoints A1-3 through A1-6: Palette is fully registry-driven, generic renderer shows grouped pins (including IF dynamic pins), and drag/add flows keep Graph IR state updated while handling unknown node types visibly.
+
+## Phase A1 Polish (2025-12-22)
+### Added
+- Palette grouping now sorts categories and node labels alphabetically for deterministic presentation across sessions.
+- Generic GraphNode renderer is documented inline to clarify required `data` payloads and its registry-driven error handling.
+
+### Changed
+- Root docs clarified the JSON-first palette contract, Graph IR storage notes, and the A1 in-memory persistence expectations.
+
+### Checkpoint Outcomes
+- Build/dev commands (`npm run dev`, `npm run build`) remain blocked without `node_modules` because registry access to `@types/react` returns HTTP 403 in this environment.
