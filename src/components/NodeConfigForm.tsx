@@ -28,11 +28,14 @@ function mergeDefaults(schema: ConfigSchema, config: Record<string, any>) {
 }
 
 function coerceValue(value: any, prop: ConfigPropertySchema) {
+  const isEmpty = typeof value === "string" && value.trim() === "";
+
   if (prop.enum && Array.isArray(prop.enum)) {
     return value;
   }
   if (prop.type === "boolean") return Boolean(value);
   if (prop.type === "integer") {
+    if (isEmpty) return prop.default ?? undefined;
     const parsed = Math.floor(Number(value));
     const min = Number.isFinite(prop.minimum) ? Number(prop.minimum) : undefined;
     const max = Number.isFinite(prop.maximum) ? Number(prop.maximum) : undefined;
@@ -42,6 +45,7 @@ function coerceValue(value: any, prop: ConfigPropertySchema) {
     return clamped;
   }
   if (prop.type === "number") {
+    if (isEmpty) return prop.default ?? undefined;
     const parsed = Number(value);
     const min = Number.isFinite(prop.minimum) ? Number(prop.minimum) : undefined;
     const max = Number.isFinite(prop.maximum) ? Number(prop.maximum) : undefined;

@@ -142,6 +142,12 @@ Use SCHEDULE_STEPS with stored marker + scatter.
 ### Pattern D: “minigame / complex loop” (Storm Convergence)
 Use SUBSYSTEM_RUN with a dedicated resolver.
 
+## 2.5 Graph + node config payloads (Forge project JSON)
+- Forge projects store the authored graph under `graphs[graphId]` with nodes shaped as `{ id, nodeType, position, config, pinsCache? }`.
+- Node config objects must follow the `configSchema` from `src/assets/nodeRegistry.json`; the editor auto-generates the inspector UI from this schema (supports string/number/integer/boolean/enum with min/max).
+- Dynamic pins (e.g., IF `elseIfCount`) are recomputed from `config` and cached in `pinsCache` to reconcile edges on load/import. Keep config values explicit (do not drop keys) so agents and the inspector agree on pin shape.
+- Edges reference pins by id (`from.pinId` / `to.pinId`); if a config change removes a pin, the editor automatically drops edges pointing at the missing handles.
+
 ---
 
 # 3) Deck JSON (CJ-DECK-1.0)
