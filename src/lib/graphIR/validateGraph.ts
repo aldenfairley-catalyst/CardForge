@@ -35,6 +35,35 @@ function buildNodeIndex(graph: Graph): NodeIndex {
   return nodeIndex;
 }
 
+function validateRequiredConfigFields(
+  issues: ValidationIssue[],
+  node: GraphNode,
+  def: ReturnType<typeof getNodeDef>,
+  nodeIdx: number
+) {
+  const requiredFields = Array.isArray(def?.configSchema?.required) ? def?.configSchema?.required : [];
+  const props = def?.configSchema?.properties ?? {};
+
+  requiredFields.forEach((field) => {
+    const value = node.config?.[field];
+    const schema = props[field] ?? {};
+    const missing =
+      value === undefined ||
+      value === null ||
+      (schema?.type === "string" && typeof value === "string" && value.trim().length === 0);
+
+    if (missing) {
+      push(
+        issues,
+        "ERROR",
+        "CONFIG_REQUIRED",
+        `Config field '${field}' is required for ${node.nodeType}.`,
+        `nodes[${nodeIdx}].config.${field}`
+      );
+    }
+  });
+}
+
 function isPinConnected(graph: Graph, nodeId: string, pin: PinDefinition) {
   return graph.edges.some((e) => {
     if (e.edgeKind !== pin.kind) return false;
@@ -179,11 +208,13 @@ export function validateGraph(
       return;
     }
 
+    validateRequiredConfigFields(issues, node, def, idx);
+
     const pins = pinIndex.get(node.id) ?? [];
     pins.forEach((pin) => {
       if (!pin.required) return;
       const connected = isPinConnected(graph, node.id, pin);
-      if (!connected && pin.defaultValue === undefined) {
+      if (!connected) {
         push(
           issues,
           "ERROR",

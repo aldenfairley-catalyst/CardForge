@@ -21,9 +21,17 @@ function findEdgesTo(ctx: CompileCtx, nodeId: string, pinId: string, kind: PinKi
   return ctx.graph.edges.filter((e) => e.edgeKind === kind && e.to.nodeId === nodeId && e.to.pinId === pinId);
 }
 
-function compileConditionFromPin(ctx: CompileCtx, nodeId: string, pinId: string): Condition | null {
-  const incoming = findEdgesTo(ctx, nodeId, pinId, PinKind.DATA);
-  if (!incoming.length) return null;
+function compileConditionFromPin(ctx: CompileCtx, node: GraphNode, pinId: string): Condition | null {
+  const incoming = findEdgesTo(ctx, node.id, pinId, PinKind.DATA);
+  if (!incoming.length) {
+    ctx.issues.push({
+      severity: "ERROR",
+      code: "MISSING_CONDITION_CONNECTION",
+      message: `Condition pin '${pinId}' on ${node.nodeType} must be connected.`,
+      path: `nodes.${node.id}.pins.${pinId}`
+    });
+    return null;
+  }
   const edge = incoming[0];
   const sourceNode = ctx.nodeIndex.get(edge.from.nodeId);
   if (!sourceNode) return null;
@@ -64,7 +72,8 @@ function compileNode(ctx: CompileCtx, node: GraphNode): Step[] {
   }
 
   if (node.nodeType === "IF") {
-    const condition = compileConditionFromPin(ctx, node.id, "ifCondIn") ?? { type: "ALWAYS" };
+    const condition = compileConditionFromPin(ctx, node, "ifCondIn");
+    if (!condition) return [];
 
     const thenEdge = findEdgesFrom(ctx, node.id, "thenExecOut", PinKind.CONTROL)[0];
     const elseEdge = findEdgesFrom(ctx, node.id, "elseExecOut", PinKind.CONTROL)[0];
@@ -76,15 +85,18 @@ function compileNode(ctx: CompileCtx, node: GraphNode): Step[] {
     const elseSteps =
       elseEdge && ctx.nodeIndex.get(elseEdge.to.nodeId) ? compileNode(ctx, ctx.nodeIndex.get(elseEdge.to.nodeId)!) : [];
 
-    const elseIf = elseIfPins.map((pin) => {
-      const idx = pin.id.split("_")[1];
-      const condPinId = `elseIfCondIn_${idx}`;
-      const cond = compileConditionFromPin(ctx, node.id, condPinId) ?? { type: "ALWAYS" };
-      const branchEdge = findEdgesFrom(ctx, node.id, pin.id, PinKind.CONTROL)[0];
-      const branchSteps =
-        branchEdge && ctx.nodeIndex.get(branchEdge.to.nodeId) ? compileNode(ctx, ctx.nodeIndex.get(branchEdge.to.nodeId)!) : [];
-      return { condition: cond, then: branchSteps };
-    });
+    const elseIf = elseIfPins
+      .map((pin) => {
+        const idx = pin.id.split("_")[1];
+        const condPinId = `elseIfCondIn_${idx}`;
+        const cond = compileConditionFromPin(ctx, node, condPinId);
+        if (!cond) return null;
+        const branchEdge = findEdgesFrom(ctx, node.id, pin.id, PinKind.CONTROL)[0];
+        const branchSteps =
+          branchEdge && ctx.nodeIndex.get(branchEdge.to.nodeId) ? compileNode(ctx, ctx.nodeIndex.get(branchEdge.to.nodeId)!) : [];
+        return { condition: cond, then: branchSteps };
+      })
+      .filter((entry): entry is NonNullable<typeof entry> => Boolean(entry));
 
     const step: Step = {
       type: "IF_ELSE",
@@ -143,6 +155,10 @@ export function compileAbilityGraph({
       return nextNode ? compileNode(ctx, nextNode) : [];
     });
   });
+
+  if (issues.some((i) => i.severity === "ERROR")) {
+    return { steps: (ability as any).execution?.steps ?? [], issues };
+  }
 
   return { steps, issues };
 }
