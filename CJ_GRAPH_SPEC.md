@@ -50,7 +50,8 @@ Version: MVP (EXEC_START, SHOW_TEXT, IF/ELSEIF/ELSE, CONST_BOOL, CONST_NUMBER)
 - Palette clicks instantiate new nodes with `getDefaultConfig(nodeType)`; dynamic pin ids are cached immediately for reconciliation.
 
 ## Config inspector (Phase A2)
-- Selecting a node opens a schema-driven config form. Fields are generated from `configSchema` (string, number, integer, boolean, enum) with min/max clamping and required hints.
+- Selecting a node opens a schema-driven config form. Fields are generated from `configSchema` (string, number, integer, boolean, enum) with min/max clamping and required hints. The renderer lives in `src/components/NodeConfigForm.tsx` and reuses helpers in `src/lib/nodes/configSchema.ts` for default merging, coercion, and validation.
+- Supported `configSchema` facets (A2 subset): `properties`, `required`, property `type` (string/number/integer/boolean), `enum`, `default`, `minimum`, `maximum`, `title`, `description`. Nested objects/arrays/oneOf are out of scope for A2 and fall back to the JSON debug view.
 - Numeric fields treat blank input as “reset to default” (or `undefined` if no default) instead of forcing zero, while still clamping to min/max when present.
 - Inspector tabs: Config, Pins (debug view of `materializePins`), and Node JSON (read-only `data` payload including `config` + `pinsCache`).
 - Editing config keeps selection stable and immediately re-renders dynamic pins.

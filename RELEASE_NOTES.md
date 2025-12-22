@@ -2,6 +2,14 @@
 
 # RELEASE_NOTES
 
+## Phase A2 Config Editor + Dynamic Pins (refresh 2025-12-28)
+### Added
+- Shared config schema helpers (`src/lib/nodes/configSchema.ts`) now power the inspector’s default merging, coercion, and validation so every registry field uses the same clamping/required logic.
+- Documentation clarifies the A2-supported configSchema facets (string/number/integer/boolean/enum with title/description/default/min/max) and calls out that deeper object/array/oneOf structures remain outside the current form generator.
+
+### Changed
+- Inspector messaging and docs reiterate that the Node JSON tab is the fallback for unsupported schema shapes while keeping selection stable during edits.
+
 ## Phase A3 Typed Connections + Edge Rules (refresh 2025-12-27)
 ### Added
 - React Flow `onConnect` now funnels every new edge through `validateConnect`, returning clear toasts for kind/direction mismatches, data type errors, multiplicity caps, duplicates, and CONTROL cycle attempts while preserving the current selection.

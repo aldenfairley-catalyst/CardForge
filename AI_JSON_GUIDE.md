@@ -145,7 +145,7 @@ Use SUBSYSTEM_RUN with a dedicated resolver.
 ## 2.5 Graph + node config payloads (Forge project JSON)
 - Forge projects store the authored graph under `graphs[graphId]` with nodes shaped as `{ id, nodeType, position, config, pinsCache? }`.
 - Edges are `{ id, edgeKind: "CONTROL" | "DATA", dataType?, createdAt?, from { nodeId, pinId }, to { nodeId, pinId } }` with `edgeKind` and `dataType` mirrored in React Flow edge labels for debugging. New exports default to `graphVersion = "CJ-GRAPH-1.1"` but load `"CJ-GRAPH-1.0"` with a warning.
-- Node config objects must follow the `configSchema` from `src/assets/nodeRegistry.json`; the editor auto-generates the inspector UI from this schema (supports string/number/integer/boolean/enum with min/max).
+- Node config objects must follow the `configSchema` from `src/assets/nodeRegistry.json`; the editor auto-generates the inspector UI from this schema (supports string/number/integer/boolean/enum with min/max, titles, descriptions, defaults). Nested objects/arrays/oneOf are not yet rendered as fields in A2; keep configs flat or use the Node JSON debug tab to inspect raw data.
 - Dynamic pins (e.g., IF `elseIfCount`) are recomputed from `config` and cached in `pinsCache` to reconcile edges on load/import. Keep config values explicit (do not drop keys) so agents and the inspector agree on pin shape.
 - Edges reference pins by id (`from.pinId` / `to.pinId`); if a config change removes a pin, the editor automatically drops edges pointing at the missing handles.
 

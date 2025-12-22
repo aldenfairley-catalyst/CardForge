@@ -1,14 +1,5 @@
 import React from "react";
-
-export type ConfigPropertySchema = {
-  type?: "string" | "number" | "integer" | "boolean";
-  title?: string;
-  description?: string;
-  default?: any;
-  enum?: any[];
-  minimum?: number;
-  maximum?: number;
-};
+import type { ConfigPropertySchema } from "../lib/nodes/configSchema";
 
 export type NodeConfigFieldProps = {
   field: string;
