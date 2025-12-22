@@ -58,7 +58,11 @@ function generateElseIfPins(def: NodeDefinition, config: Record<string, any>) {
         kind: t.kind,
         direction: t.direction,
         dataType: t.dataType,
-        required: t.required
+        required: t.required,
+        multi: t.multi,
+        maxConnections: t.maxConnections,
+        optional: t.optional,
+        defaultValue: t.defaultValue
       });
     }
   }

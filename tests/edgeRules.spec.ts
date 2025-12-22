@@ -89,6 +89,124 @@ describe("validateConnect rules", () => {
     if (!second.ok) expect(second.code).toBe("TARGET_AT_MAX");
   });
 
+  it("allows multi:true pins to fan in beyond one edge", () => {
+    const cleanup = registerTempNodes([
+      {
+        nodeType: "BOOL_MULTI_SINK",
+        label: "Bool Multi Sink",
+        category: "Test",
+        description: "",
+        configSchema: { type: "object", properties: {} },
+        pins: {
+          static: [
+            {
+              id: "in",
+              label: "In",
+              kind: PinKind.DATA,
+              dataType: "boolean",
+              direction: "IN",
+              group: "Value",
+              multi: true
+            }
+          ]
+        },
+        compile: { kind: "VALUE_EXPR", exprType: "TEST_BOOL" }
+      }
+    ]);
+
+    try {
+      const nodes = [node("CONST_BOOL", "b1"), node("CONST_BOOL", "b2"), node("BOOL_MULTI_SINK", "sink")];
+      const first = validateConnect({
+        nodes,
+        edges: [],
+        sourceNodeId: "b1",
+        sourcePinId: "out",
+        targetNodeId: "sink",
+        targetPinId: "in"
+      });
+      expect(first.ok).toBe(true);
+      const edges: GraphEdge[] = first.ok ? [first.edge] : [];
+      const second = validateConnect({
+        nodes,
+        edges,
+        sourceNodeId: "b2",
+        sourcePinId: "out",
+        targetNodeId: "sink",
+        targetPinId: "in"
+      });
+      expect(second.ok).toBe(true);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("honors maxConnections caps on IN pins", () => {
+    const cleanup = registerTempNodes([
+      {
+        nodeType: "CAPPED_SINK",
+        label: "Capped Sink",
+        category: "Test",
+        description: "",
+        configSchema: { type: "object", properties: {} },
+        pins: {
+          static: [
+            {
+              id: "in",
+              label: "In",
+              kind: PinKind.DATA,
+              dataType: "boolean",
+              direction: "IN",
+              group: "Value",
+              maxConnections: 2
+            }
+          ]
+        },
+        compile: { kind: "VALUE_EXPR", exprType: "TEST_BOOL" }
+      }
+    ]);
+
+    try {
+      const nodes = [
+        node("CONST_BOOL", "b1"),
+        node("CONST_BOOL", "b2"),
+        node("CONST_BOOL", "b3"),
+        node("CAPPED_SINK", "sink")
+      ];
+      const first = validateConnect({
+        nodes,
+        edges: [],
+        sourceNodeId: "b1",
+        sourcePinId: "out",
+        targetNodeId: "sink",
+        targetPinId: "in"
+      });
+      expect(first.ok).toBe(true);
+      const edges: GraphEdge[] = first.ok ? [first.edge] : [];
+      const second = validateConnect({
+        nodes,
+        edges,
+        sourceNodeId: "b2",
+        sourcePinId: "out",
+        targetNodeId: "sink",
+        targetPinId: "in"
+      });
+      expect(second.ok).toBe(true);
+      const edges2: GraphEdge[] = second.ok ? [...edges, second.edge] : edges;
+      const third = validateConnect({
+        nodes,
+        edges: edges2,
+        sourceNodeId: "b3",
+        sourcePinId: "out",
+        targetNodeId: "sink",
+        targetPinId: "in"
+      });
+      expect(third.ok).toBe(false);
+      if (!third.ok) expect(third.code).toBe("TARGET_AT_MAX");
+    } finally {
+      cleanup();
+    }
+  });
+
   it("treats missing dataType as any for DATA edges", () => {
     const cleanup = registerTempNodes([
       {

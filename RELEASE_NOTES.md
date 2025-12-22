@@ -2,6 +2,19 @@
 
 # RELEASE_NOTES
 
+## Phase A3 Typed Connections + Edge Rules (refresh 2025-12-27)
+### Added
+- React Flow `onConnect` now funnels every new edge through `validateConnect`, returning clear toasts for kind/direction mismatches, data type errors, multiplicity caps, duplicates, and CONTROL cycle attempts while preserving the current selection.
+- DATA edges inherit `dataType` into Graph IR and React Flow labels for quick scanning; handle badges show `multi`/`max` hints so designers can see fan-in policy without opening the registry JSON.
+- Edge rules are documented across `CJ_GRAPH_SPEC.md` and `AI_JSON_GUIDE.md`, including the default `graphVersion = "CJ-GRAPH-1.1"` and the new edge metadata (`edgeKind`, `dataType?`, `createdAt?`) expected in exports.
+- Additional edgeRule tests cover `multi:true` fan-in and explicit `maxConnections` caps to guard against regressions.
+
+### Changed
+- Dynamic pin materialization now carries `multi`, `maxConnections`, and optional metadata from templates so ELSEIF branches can opt into richer connection policies as the registry evolves.
+
+### Known Missing / Not Yet Implemented
+- Data-edge cycle detection and richer type lattices (e.g., integer subtypes) remain out of scope for this refresh; compiler coverage is still scoped to the MVP node set.
+
 ## Phase A1 Registry Palette Stabilization (2025-12-23)
 ### Added
 - React Flow adapters (`src/lib/graphIR/adapters.ts`) map CJ-GRAPH-1.x nodes/edges to canvas shapes while preserving registry-driven `data` payloads and cached pin ids, keeping the palette renderer generic.

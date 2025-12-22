@@ -57,6 +57,10 @@ export type DynamicPinTemplate =
         direction: PinDirection;
         dataType?: DataType;
         required?: boolean;
+        multi?: boolean;
+        maxConnections?: number;
+        optional?: boolean;
+        defaultValue?: any;
       }>;
     };
 
