@@ -1,0 +1,114 @@
+{
+  "nodeRegistryVersion": "CJ-NODEDEF-1.0",
+  "dataTypes": [
+    "number",
+    "string",
+    "boolean",
+    "tokenMap",
+    "entityRef",
+    "targetSet",
+    "position",
+    "damageType",
+    "statusKey",
+    "tokenKey",
+    "zoneKey",
+    "distanceMetric",
+    "json"
+  ],
+  "nodes": [
+    {
+      "nodeType": "EXEC_START",
+      "label": "Start",
+      "category": "Control",
+      "description": "Entry point for an ability graph.",
+      "configSchema": { "type": "object", "properties": {} },
+      "pins": {
+        "static": [
+          { "id": "execOut", "kind": "CONTROL", "direction": "OUT", "label": "Exec", "group": "Flow" }
+        ]
+      },
+      "compile": { "kind": "SUBGRAPH_ENTRY" }
+    },
+    {
+      "nodeType": "SHOW_TEXT",
+      "label": "Show Text",
+      "category": "Core",
+      "description": "Display text in the game log.",
+      "configSchema": {
+        "type": "object",
+        "properties": { "text": { "type": "string", "default": "..." } },
+        "required": ["text"]
+      },
+      "pins": {
+        "static": [
+          { "id": "execIn", "kind": "CONTROL", "direction": "IN", "label": "In", "group": "Flow", "required": true },
+          { "id": "execOut", "kind": "CONTROL", "direction": "OUT", "label": "Out", "group": "Flow" }
+        ]
+      },
+      "compile": { "kind": "CANONICAL_STEP", "stepType": "SHOW_TEXT" }
+    },
+    {
+      "nodeType": "CONST_BOOL",
+      "label": "Boolean",
+      "category": "Data",
+      "description": "Boolean constant.",
+      "configSchema": {
+        "type": "object",
+        "properties": { "value": { "type": "boolean", "default": true } },
+        "required": ["value"]
+      },
+      "pins": {
+        "static": [
+          { "id": "out", "kind": "DATA", "dataType": "boolean", "direction": "OUT", "label": "Bool", "group": "Value" }
+        ]
+      },
+      "compile": { "kind": "CONDITION_EXPR", "exprType": "CONST_BOOL" }
+    },
+    {
+      "nodeType": "CONST_NUMBER",
+      "label": "Number",
+      "category": "Data",
+      "description": "Number constant.",
+      "configSchema": {
+        "type": "object",
+        "properties": { "value": { "type": "number", "default": 1 } },
+        "required": ["value"]
+      },
+      "pins": {
+        "static": [
+          { "id": "out", "kind": "DATA", "dataType": "number", "direction": "OUT", "label": "Num", "group": "Value" }
+        ]
+      },
+      "compile": { "kind": "VALUE_EXPR", "exprType": "CONST_NUMBER" }
+    },
+    {
+      "nodeType": "IF",
+      "label": "If / ElseIf / Else",
+      "category": "Control",
+      "description": "Branch execution based on a condition.",
+      "configSchema": {
+        "type": "object",
+        "properties": { "elseIfCount": { "type": "integer", "minimum": 0, "maximum": 6, "default": 0 } },
+        "required": ["elseIfCount"]
+      },
+      "pins": {
+        "static": [
+          { "id": "execIn", "kind": "CONTROL", "direction": "IN", "label": "In", "group": "Flow", "required": true },
+          { "id": "thenExecOut", "kind": "CONTROL", "direction": "OUT", "label": "Then", "group": "Branches" },
+          { "id": "elseExecOut", "kind": "CONTROL", "direction": "OUT", "label": "Else", "group": "Branches" },
+
+          { "id": "ifCondIn", "kind": "DATA", "dataType": "boolean", "direction": "IN", "label": "If", "group": "Conditions", "required": true }
+        ],
+        "dynamic": {
+          "kind": "ELSEIF_PINS",
+          "sourceField": "elseIfCount",
+          "pinsPerIndex": [
+            { "idTemplate": "elseIfCondIn_{i}", "kind": "DATA", "dataType": "boolean", "direction": "IN", "labelTemplate": "ElseIf {n}", "group": "Conditions", "required": true },
+            { "idTemplate": "elseIfExecOut_{i}", "kind": "CONTROL", "direction": "OUT", "labelTemplate": "ElseIf {n}", "group": "Branches" }
+          ]
+        }
+      },
+      "compile": { "kind": "CANONICAL_STEP", "stepType": "IF_ELSE" }
+    }
+  ]
+}

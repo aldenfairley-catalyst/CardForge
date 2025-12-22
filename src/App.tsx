@@ -1,7 +1,16 @@
 // src/App.tsx
-import React, { useEffect, useMemo, useState } from "react";
-import ReactFlow, { Background, Controls, MiniMap, Handle, Position } from "reactflow";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import ReactFlow, {
+  Background,
+  Controls,
+  MiniMap,
+  applyEdgeChanges,
+  applyNodeChanges,
+  type Connection,
+  type Edge
+} from "reactflow";
 import "reactflow/dist/style.css";
+import { v4 as uuidv4 } from "uuid";
 
 import { CardLibraryManager } from "./features/library/CardLibraryManager";
 import { DeckBuilder } from "./features/decks/DeckBuilder";
@@ -20,9 +29,7 @@ import type {
   LoSMode,
   LoSBlockPolicy
 } from "./lib/types";
-import { makeDefaultStep } from "./lib/stepFactory";
-
-import { makeDefaultCard, canonicalToGraph, abilitySummary } from "./lib/graph";
+import { makeDefaultCard, makeDefaultGraph, makeDefaultProject } from "./lib/graph";
 import { loadMigratedCardOrDefault, saveCardJson, clearSaved } from "./lib/storage";
 import { validateCard, type ValidationIssue } from "./lib/schemas";
 import { migrateCard } from "./lib/migrations";
@@ -30,11 +37,9 @@ import {
   blockRegistry,
   blockRegistryCacheBustingUrl,
   blockRegistryVersion,
-  getStepGroups,
   isStepTypeAllowed
 } from "./lib/registry";
 
-import { ExpressionEditor } from "./components/ExpressionEditor";
 import { ConditionEditor } from "./components/ConditionEditor";
 import { CardPreview } from "./components/CardPreview";
 
@@ -51,6 +56,11 @@ import {
   upsertStep,
   type ActionLibrary
 } from "./lib/repository";
+import { listNodesByCategory, materializePins, arePinsCompatible, defaultConfigForNode, getNodeDef } from "./lib/nodes/registry";
+import { GraphNode as GenericGraphNode } from "./components/GraphNode";
+import { NodeConfigForm, coerceConfig } from "./components/NodeConfigForm";
+import { compileAbilityGraph } from "./lib/graphIR/compiler";
+import { PinKind, type ForgeProject, type Graph, type GraphNode as IRGraphNode } from "./lib/graphIR/types";
 
 type AppMode = "FORGE" | "LIBRARY" | "DECKS" | "SCENARIOS";
 
@@ -172,84 +182,6 @@ function Modal(props: {
   );
 }
 
-// ---- React Flow node renderers ----
-function AbilityRootNode({ data, selected, card }: any) {
-  const ability = card.components[data.abilityIdx] as AbilityComponent | undefined;
-  return (
-    <div className="node" style={{ borderColor: selected ? "rgba(99,179,255,.6)" : undefined }}>
-      <div className="nodeH">
-        <div>
-          <div className="nodeT">ABILITY_ROOT</div>
-          <div className="nodeS">{ability?.name ?? "—"}</div>
-        </div>
-        <span className="badge">required</span>
-      </div>
-      <div className="nodeB">{ability ? abilitySummary(ability) : "No ability"}</div>
-      <Handle type="source" position={Position.Right} />
-    </div>
-  );
-}
-
-function MetaNode({ data, selected, card }: any) {
-  const ability = card.components[data.abilityIdx] as AbilityComponent | undefined;
-  const title = data.kind === "COST" ? "COST" : "TARGETING";
-  const desc =
-    data.kind === "COST"
-      ? `AP: ${ability?.cost?.ap ?? 0}`
-      : `${ability?.targetingProfiles?.length ?? 0} profiles`;
-  return (
-    <div className="node" style={{ borderColor: selected ? "rgba(99,179,255,.6)" : undefined }}>
-      <div className="nodeH">
-        <div>
-          <div className="nodeT">{title}</div>
-          <div className="nodeS">{desc}</div>
-        </div>
-        <span className="badge">select to edit</span>
-      </div>
-      <div className="nodeB">This is a field group.</div>
-      <Handle type="target" position={Position.Left} />
-    </div>
-  );
-}
-
-function ExecNode({ data, selected, card }: any) {
-  const ability = card.components[data.abilityIdx] as AbilityComponent | undefined;
-  const count = ability?.execution?.steps?.length ?? 0;
-  return (
-    <div className="node" style={{ borderColor: selected ? "rgba(99,179,255,.6)" : undefined }}>
-      <div className="nodeH">
-        <div>
-          <div className="nodeT">EXECUTION</div>
-          <div className="nodeS">{count} steps</div>
-        </div>
-        <span className="badge">ordered</span>
-      </div>
-      <div className="nodeB">Steps are nodes below.</div>
-      <Handle type="target" position={Position.Top} />
-      <Handle type="source" position={Position.Bottom} />
-    </div>
-  );
-}
-
-function StepNode({ data, selected, card }: any) {
-  const ability = card.components[data.abilityIdx] as AbilityComponent | undefined;
-  const step = ability?.execution?.steps?.[data.stepIdx] as Step | undefined;
-  return (
-    <div className="node" style={{ borderColor: selected ? "rgba(99,179,255,.6)" : undefined, minWidth: 240 }}>
-      <div className="nodeH">
-        <div>
-          <div className="nodeT">STEP {data.stepIdx + 1}</div>
-          <div className="nodeS">{(step as any)?.type ?? "—"}</div>
-        </div>
-        <span className="badge">{(step as any)?.type ?? "—"}</span>
-      </div>
-      <div className="nodeB">{(step as any)?.type === "SHOW_TEXT" ? `“${(step as any).text}”` : "Select to edit"}</div>
-      <Handle type="target" position={Position.Top} />
-      <Handle type="source" position={Position.Bottom} />
-    </div>
-  );
-}
-
 function cardFileName(card: CardEntity, suffix: string) {
   const safe = card.name.trim().length ? card.name.trim() : "card";
   return `${safe.replace(/\s+/g, "_").toLowerCase()}_${suffix}.json`;
@@ -276,12 +208,18 @@ type AiRefImage = { name: string; mime: string; dataUrl: string };
 export default function App() {
   const [mode, setMode] = useState<AppMode>("FORGE");
 
+  const initialProjectRef = useRef<ForgeProject | null>(null);
+  if (!initialProjectRef.current) initialProjectRef.current = makeDefaultProject();
+
+  const [project, setProject] = useState<ForgeProject>(initialProjectRef.current);
   const [card, setCard] = useState<CardEntity>(() => {
     const migrated = loadMigratedCardOrDefault(makeDefaultCard);
     return coerceUnknownSteps(migrated) as CardEntity;
   });
+  const [graph, setGraph] = useState<Graph>(() => project.graphs[project.ui?.activeGraphId ?? "root"] ?? makeDefaultGraph());
 
   const [issues, setIssues] = useState<ValidationIssue[]>([]);
+  const [graphIssues, setGraphIssues] = useState<ValidationIssue[]>([]);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
 
   const [importOpen, setImportOpen] = useState(false);
@@ -355,7 +293,16 @@ export default function App() {
   useEffect(() => {
     setIssues(validateCard(card));
     saveCardJson(JSON.stringify(card));
+    setProject((prev) => ({ ...prev, card }));
   }, [card]);
+
+  useEffect(() => {
+    setProject((prev) => ({
+      ...prev,
+      graphs: { ...(prev.graphs ?? {}), [activeGraphId]: graph },
+      ui: { ...(prev.ui ?? {}), activeGraphId }
+    }));
+  }, [graph, activeGraphId]);
 
   useEffect(() => {
     saveLibrary(library);
@@ -376,6 +323,16 @@ export default function App() {
 
   const ability = getAbilityByIndex(activeAbilityIdx);
 
+  useEffect(() => {
+    if (!ability) return;
+    const { steps, issues: gIssues } = compileAbilityGraph({ graph, ability, card });
+    setGraphIssues(gIssues);
+    const existing = (ability as any).execution?.steps ?? [];
+    if (JSON.stringify(existing) !== JSON.stringify(steps)) {
+      setAbility({ execution: { steps } } as any);
+    }
+  }, [graph, ability, card]);
+
   // keep activeProfileId valid for current ability
   useEffect(() => {
     const profiles = (ability as any)?.targetingProfiles ?? [];
@@ -392,53 +349,111 @@ export default function App() {
     });
   }
 
-  function setStep(stepIdx: number, patch: any) {
-    if (!ability) return;
-    const steps = ((ability as any).execution?.steps ?? []).slice();
-    steps[stepIdx] = { ...(steps[stepIdx] as any), ...patch };
-    setAbility({ execution: { steps } } as any);
+  function addNode(nodeType: string) {
+    const def = getNodeDef(nodeType);
+    const config = defaultConfigForNode(nodeType);
+    const node: IRGraphNode = {
+      id: uuidv4(),
+      nodeType,
+      position: { x: 120 + graph.nodes.length * 20, y: 120 + graph.nodes.length * 40 },
+      config
+    };
+    setGraph((g) => ({ ...g, nodes: [...g.nodes, node] }));
   }
 
-  function deleteStep(stepIdx: number) {
-    if (!ability) return;
-    const steps = ((ability as any).execution?.steps ?? []).slice();
-    steps.splice(stepIdx, 1);
-    setAbility({ execution: { steps } } as any);
+  function updateNodeConfig(nodeId: string, nextConfig: Record<string, any>) {
+    setGraph((g) => {
+      const node = g.nodes.find((n) => n.id === nodeId);
+      if (!node) return g;
+      const nextNodes = g.nodes.map((n) => (n.id === nodeId ? { ...n, config: nextConfig } : n));
+      const validPins = new Set(materializePins(node.nodeType, nextConfig).map((p) => p.id));
+      const nextEdges = g.edges.filter(
+        (e) => !(e.from.nodeId === nodeId && !validPins.has(e.from.pinId)) && !(e.to.nodeId === nodeId && !validPins.has(e.to.pinId))
+      );
+      return { ...g, nodes: nextNodes, edges: nextEdges };
+    });
   }
 
-  function moveStep(stepIdx: number, dir: -1 | 1) {
-    if (!ability) return;
-    const steps = ((ability as any).execution?.steps ?? []).slice();
-    const j = stepIdx + dir;
-    if (j < 0 || j >= steps.length) return;
-    const tmp = steps[stepIdx];
-    steps[stepIdx] = steps[j];
-    steps[j] = tmp;
-    setAbility({ execution: { steps } } as any);
+  function deleteGraphNode(nodeId: string) {
+    setGraph((g) => ({
+      ...g,
+      nodes: g.nodes.filter((n) => n.id !== nodeId),
+      edges: g.edges.filter((e) => e.from.nodeId !== nodeId && e.to.nodeId !== nodeId)
+    }));
+    setSelectedNodeId(null);
   }
 
-  function addStep(stepType: string) {
-    if (!ability) return;
-    const steps = ((ability as any).execution?.steps ?? []).slice();
+  function onNodesChange(changes: any) {
+    setGraph((g) => ({ ...g, nodes: applyNodeChanges(changes, g.nodes) }));
+  }
 
-    const profiles = ((ability as any).targetingProfiles ?? []).map((p: any) => p?.id).filter(Boolean) as string[];
-    steps.push(makeDefaultStep(stepType, { abilityProfiles: profiles }));
-    setAbility({ execution: { steps } } as any);
+  function onEdgesChange(changes: any) {
+    setGraph((g) => ({ ...g, edges: applyEdgeChanges(changes, g.edges) }));
+  }
+
+  function handleConnect(connection: Connection) {
+    if (!connection.source || !connection.target || !connection.sourceHandle || !connection.targetHandle) return;
+
+    setGraph((g) => {
+      const sourceNode = g.nodes.find((n) => n.id === connection.source);
+      const targetNode = g.nodes.find((n) => n.id === connection.target);
+      if (!sourceNode || !targetNode) return g;
+
+      const sourcePin = materializePins(sourceNode.nodeType, sourceNode.config).find((p) => p.id === connection.sourceHandle);
+      const targetPin = materializePins(targetNode.nodeType, targetNode.config).find((p) => p.id === connection.targetHandle);
+      if (!arePinsCompatible(sourcePin, targetPin)) {
+        alert("Pins are not compatible (kind, direction, or data type mismatch).");
+        return g;
+      }
+
+      const edgeKind = sourcePin?.kind === PinKind.DATA ? PinKind.DATA : PinKind.CONTROL;
+      const newEdge = {
+        id: uuidv4(),
+        edgeKind,
+        from: { nodeId: connection.source, pinId: connection.sourceHandle },
+        to: { nodeId: connection.target, pinId: connection.targetHandle }
+      };
+      return { ...g, edges: [...g.edges, newEdge] };
+    });
   }
 
   function exportCardJson() {
     download(cardFileName(card, card.schemaVersion ?? "CJ"), JSON.stringify(card, null, 2));
   }
 
+  function exportProjectJson() {
+    const payload: ForgeProject = {
+      ...project,
+      schemaVersion: "CJ-FORGE-PROJECT-1.0",
+      cardSchemaVersion: card.schemaVersion,
+      card,
+      graphs: { ...(project.graphs ?? {}), [activeGraphId]: graph },
+      ui: { ...(project.ui ?? {}), activeGraphId }
+    };
+    download(cardFileName(card, "forge_project"), JSON.stringify(payload, null, 2));
+  }
+
   function doImport() {
     setImportError(null);
     try {
       const parsed = JSON.parse(importText);
-      const migrated = migrateCard(parsed);
-      const incoming = coerceUnknownSteps(migrated) as CardEntity;
-      setCard(incoming);
-      const idxs = findAbilityIndexes(incoming);
-      setActiveAbilityIdx(idxs[0] ?? 0);
+      if (parsed?.schemaVersion === "CJ-FORGE-PROJECT-1.0" && parsed?.card && parsed?.graphs) {
+        const migrated = migrateCard(parsed.card);
+        const incoming = coerceUnknownSteps(migrated) as CardEntity;
+        const activeId = parsed?.ui?.activeGraphId ?? Object.keys(parsed.graphs)[0] ?? "root";
+        setProject({ ...(parsed as ForgeProject), card: incoming, ui: { ...(parsed.ui ?? {}), activeGraphId: activeId } });
+        setCard(incoming);
+        setGraph(parsed.graphs[activeId] ?? makeDefaultGraph());
+        const idxs = findAbilityIndexes(incoming);
+        setActiveAbilityIdx(idxs[0] ?? 0);
+      } else {
+        const migrated = migrateCard(parsed);
+        const incoming = coerceUnknownSteps(migrated) as CardEntity;
+        setCard(incoming);
+        setGraph(makeDefaultGraph());
+        const idxs = findAbilityIndexes(incoming);
+        setActiveAbilityIdx(idxs[0] ?? 0);
+      }
       setSelectedNodeId(null);
       setImportOpen(false);
       setImportText("");
@@ -494,12 +509,6 @@ export default function App() {
     setLibrary(next);
   }
 
-  function saveSelectedStepToLibrary(selectedStep: Step) {
-    const id = `${card.id}::step::${(selectedStep as any).type}::${Date.now()}`;
-    const next = upsertStep(library, { id, name: (selectedStep as any).type, step: selectedStep });
-    setLibrary(next);
-  }
-
   function insertAbilityFromLibrary(libId: string) {
     const entry = library.abilities.find((a) => a.id === libId);
     if (!entry) return;
@@ -517,64 +526,54 @@ export default function App() {
     }
   }
 
-  // --- ReactFlow graph (persistent selection) ---
-  const { nodes, edges } = useMemo(() => {
-    const comps = card.components.slice();
-    const firstAbilityIdx = comps.findIndex((c: any) => c?.componentType === "ABILITY");
-    const viewCard =
-      firstAbilityIdx < 0 || activeAbilityIdx === firstAbilityIdx
-        ? card
-        : (() => {
-            const tmp = comps[firstAbilityIdx];
-            comps[firstAbilityIdx] = comps[activeAbilityIdx];
-            comps[activeAbilityIdx] = tmp;
-            return { ...card, components: comps } as CardEntity;
-          })();
+  const activeGraphId = project.ui?.activeGraphId ?? "root";
 
-    const g = canonicalToGraph(viewCard);
-
-    const patchedNodes = g.nodes.map((n: any) => {
-      const selected = selectedNodeId === n.id;
-      const patched = { ...n, selected };
-
-      if (typeof patched?.data?.abilityIdx === "number") {
-        patched.data = { ...patched.data, abilityIdx: activeAbilityIdx };
-      }
-      return patched;
+  const reactFlowNodes = useMemo(() => {
+    return graph.nodes.map((n) => {
+      const def = getNodeDef(n.nodeType);
+      const pins = materializePins(n.nodeType, n.config);
+      return {
+        id: n.id,
+        type: "forgeNode",
+        position: n.position,
+        data: { label: def?.label ?? n.nodeType, category: def?.category ?? "Node", pins },
+        selected: selectedNodeId === n.id
+      };
     });
+  }, [graph, selectedNodeId]);
 
-    return { nodes: patchedNodes, edges: g.edges };
-  }, [card, activeAbilityIdx, selectedNodeId]);
+  const reactFlowEdges = useMemo(() => {
+    return graph.edges.map((e) => ({
+      id: e.id,
+      source: e.from.nodeId,
+      target: e.to.nodeId,
+      sourceHandle: e.from.pinId,
+      targetHandle: e.to.pinId,
+      label: e.edgeKind
+    })) as Edge[];
+  }, [graph]);
 
-  // selection cleanup if node disappears
   useEffect(() => {
     if (!selectedNodeId) return;
-    if (!(nodes as any[]).some((n) => n.id === selectedNodeId)) setSelectedNodeId(null);
-  }, [nodes, selectedNodeId]);
+    if (!graph.nodes.some((n) => n.id === selectedNodeId)) setSelectedNodeId(null);
+  }, [graph, selectedNodeId]);
 
-  const errorCount = issues.filter((i) => i.severity === "ERROR").length;
+  const errorCount = issues.filter((i) => i.severity === "ERROR").length + graphIssues.filter((i) => i.severity === "ERROR").length;
 
   const nodeTypes = useMemo(
     () => ({
-      abilityRoot: (p: any) => <AbilityRootNode {...p} card={card} />,
-      meta: (p: any) => <MetaNode {...p} card={card} />,
-      exec: (p: any) => <ExecNode {...p} card={card} />,
-      step: (p: any) => <StepNode {...p} card={card} />
+      forgeNode: GenericGraphNode
     }),
-    [card]
+    []
   );
 
-  const selectedNode = useMemo(() => {
+  const nodeGroups = useMemo(() => listNodesByCategory(), []);
+  const nodeCount = useMemo(() => nodeGroups.reduce((sum, g) => sum + g.nodes.length, 0), [nodeGroups]);
+
+  const selectedGraphNode = useMemo(() => {
     if (!selectedNodeId) return null;
-    return (nodes as any[]).find((n) => n.id === selectedNodeId) ?? null;
-  }, [nodes, selectedNodeId]);
-
-  const selectedInfo = (selectedNode as any)?.data ?? null;
-  const selectedKind = selectedInfo?.kind ?? null;
-
-  const selectedStepIdx = selectedKind === "STEP" ? selectedInfo.stepIdx : null;
-  const selectedStep =
-    selectedStepIdx != null && (ability as any)?.execution?.steps ? ((ability as any).execution.steps[selectedStepIdx] as Step) : null;
+    return graph.nodes.find((n) => n.id === selectedNodeId) ?? null;
+  }, [graph, selectedNodeId]);
 
   // ---- Target profile editing helpers ----
   const TARGETING_TYPES: TargetingType[] = [
@@ -914,6 +913,9 @@ export default function App() {
           <button className="btn" onClick={() => setImportOpen(true)}>
             Import JSON
           </button>
+          <button className="btn" onClick={exportProjectJson}>
+            Export Project JSON
+          </button>
           <button className="btn" onClick={exportCardJson}>
             Export Card JSON
           </button>
@@ -928,6 +930,7 @@ export default function App() {
             onClick={() => {
               const fresh = makeDefaultCard();
               setCard(fresh);
+              setGraph(makeDefaultGraph());
               const idxs = findAbilityIndexes(fresh);
               setActiveAbilityIdx(idxs[0] ?? 0);
               setSelectedNodeId(null);
@@ -941,6 +944,7 @@ export default function App() {
               clearSaved();
               const fresh = makeDefaultCard();
               setCard(fresh);
+              setGraph(makeDefaultGraph());
               const idxs = findAbilityIndexes(fresh);
               setActiveAbilityIdx(idxs[0] ?? 0);
               setSelectedNodeId(null);
@@ -957,9 +961,9 @@ export default function App() {
           <div className="ph">
             <div>
               <div className="h2">Palette</div>
-              <div className="small">Grouped steps (accordion)</div>
+              <div className="small">Nodes from registry (JSON-driven)</div>
             </div>
-            <span className="badge">{(blockRegistry.steps.types as string[]).length}</span>
+            <span className="badge">{nodeCount}</span>
           </div>
 
           <div className="pb">
@@ -979,22 +983,19 @@ export default function App() {
               <button className="btn btnPrimary" style={{ flex: 1 }} onClick={saveActiveAbilityToLibrary}>
                 Save Ability → Library
               </button>
-              <button className="btn" style={{ flex: 1 }} onClick={() => selectedStep && saveSelectedStepToLibrary(selectedStep)} disabled={!selectedStep}>
-                Save Step → Library
-              </button>
             </div>
 
             <hr style={{ borderColor: "var(--border)", opacity: 0.5, margin: "12px 0" }} />
 
-            {getStepGroups().map((g) => (
-              <details key={g.id} open={g.id === "core"} style={{ marginBottom: 10 }}>
+            {nodeGroups.map((g) => (
+              <details key={g.category} open={g.category === "Control"} style={{ marginBottom: 10 }}>
                 <summary className="small" style={{ cursor: "pointer", fontWeight: 900 }}>
-                  {g.label}
+                  {g.category}
                 </summary>
                 <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 8 }}>
-                  {g.types.map((t) => (
-                    <div key={t} className="item" onClick={() => addStep(t)}>
-                      <b>{t}</b> <span className="small">step</span>
+                  {g.nodes.map((n) => (
+                    <div key={n.nodeType} className="item" onClick={() => addNode(n.nodeType)}>
+                      <b>{n.label}</b> <span className="small">{n.nodeType}</span>
                     </div>
                   ))}
                 </div>
@@ -1015,11 +1016,14 @@ export default function App() {
 
           <div className="rfWrap">
             <ReactFlow
-              nodes={nodes as any}
-              edges={edges as any}
+              nodes={reactFlowNodes as any}
+              edges={reactFlowEdges as any}
               nodeTypes={nodeTypes as any}
               fitView
               proOptions={{ hideAttribution: true }}
+              onNodesChange={onNodesChange}
+              onEdgesChange={onEdgesChange}
+              onConnect={handleConnect}
               onNodeClick={(_, n) => setSelectedNodeId(n.id)}
               onPaneClick={() => setSelectedNodeId(null)}
             >
@@ -1036,7 +1040,9 @@ export default function App() {
             <div className="ph">
               <div>
                 <div className="h2">Inspector</div>
-                <div className="small">{selectedKind ?? "No selection"}</div>
+                <div className="small">
+                  {selectedGraphNode ? getNodeDef(selectedGraphNode.nodeType)?.label ?? selectedGraphNode.nodeType : "No selection"}
+                </div>
               </div>
               <span className="badge">{card.schemaVersion}</span>
             </div>
@@ -1134,6 +1140,30 @@ export default function App() {
 
               <hr style={{ borderColor: "var(--border)", opacity: 0.5, margin: "12px 0" }} />
 
+              {selectedGraphNode ? (
+                <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 12 }}>
+                  <div className="small">Node Type</div>
+                  <div style={{ fontWeight: 900 }}>
+                    {getNodeDef(selectedGraphNode.nodeType)?.label ?? selectedGraphNode.nodeType} ({selectedGraphNode.nodeType})
+                  </div>
+                  <div className="small">Configuration</div>
+                  <NodeConfigForm
+                    schema={getNodeDef(selectedGraphNode.nodeType)?.configSchema ?? { type: "object", properties: {} }}
+                    value={selectedGraphNode.config}
+                    onChange={(cfg) => updateNodeConfig(selectedGraphNode.id, cfg)}
+                  />
+                  <details>
+                    <summary className="small" style={{ cursor: "pointer" }}>
+                      Pins
+                    </summary>
+                    <pre style={{ margin: 0 }}>{JSON.stringify(materializePins(selectedGraphNode.nodeType, selectedGraphNode.config), null, 2)}</pre>
+                  </details>
+                  <button className="btn btnDanger" onClick={() => deleteGraphNode(selectedGraphNode.id)}>
+                    Delete Node
+                  </button>
+                </div>
+              ) : null}
+
               {!ability ? (
                 <div className="err">
                   <b>No ABILITY component</b>
@@ -1141,21 +1171,88 @@ export default function App() {
                 </div>
               ) : (
                 <>
-                  {(selectedKind === "ABILITY_ROOT" || !selectedKind) && (
-                    <>
-                      <div className="small">Ability Name</div>
-                      <input className="input" value={(ability as any).name} onChange={(e) => setAbility({ name: e.target.value })} />
+                  <div className="small">Ability Name</div>
+                  <input className="input" value={(ability as any).name} onChange={(e) => setAbility({ name: e.target.value })} />
 
-                      <div className="small" style={{ marginTop: 8 }}>
-                        Description
+                  <div className="small" style={{ marginTop: 8 }}>
+                    Description
+                  </div>
+                  <textarea className="textarea" value={(ability as any).description ?? ""} onChange={(e) => setAbility({ description: e.target.value })} />
+
+                  <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+                    <div style={{ flex: 1 }}>
+                      <div className="small">Trigger</div>
+                      <select className="select" value={(ability as any).trigger} onChange={(e) => setAbility({ trigger: e.target.value as any })}>
+                        {(blockRegistry.triggers as string[]).map((t) => (
+                          <option key={t} value={t}>
+                            {t}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div style={{ flex: 1 }}>
+                      <div className="small">AP Cost</div>
+                      <input
+                        className="input"
+                        type="number"
+                        value={(ability as any).cost?.ap ?? 0}
+                        onChange={(e) => setAbility({ cost: { ...((ability as any).cost ?? { ap: 0 }), ap: Number(e.target.value) } } as any)}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="small" style={{ marginTop: 8 }}>
+                    Requirements (Condition)
+                  </div>
+                  <ConditionEditor value={(ability as any).requirements ?? { type: "ALWAYS" }} onChange={(requirements) => setAbility({ requirements } as any)} />
+
+                  <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center", marginTop: 12 }}>
+                    <div>
+                      <div className="small">Target Profiles</div>
+                      <div className="small">Use multiple profiles for primary + secondary targets.</div>
+                    </div>
+                    <button className="btn btnPrimary" onClick={addProfile}>
+                      + Add Profile
+                    </button>
+                  </div>
+
+                  <div className="small" style={{ marginTop: 8 }}>
+                    Active Profile
+                  </div>
+                  <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                    <select className="select" value={activeProfile?.id ?? ""} onChange={(e) => setActiveProfileId(e.target.value)} style={{ flex: 1 }}>
+                      {(profiles ?? []).map((p: any) => (
+                        <option key={p.id} value={p.id}>
+                          {p.id} — {p.label ?? ""}
+                        </option>
+                      ))}
+                    </select>
+                    <button className="btn btnDanger" onClick={() => removeProfile(activeProfile?.id)} disabled={(profiles?.length ?? 0) <= 1}>
+                      Remove
+                    </button>
+                  </div>
+
+                  {activeProfile ? (
+                    <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 8 }}>
+                      <div>
+                        <div className="small">Label</div>
+                        <input
+                          className="input"
+                          value={activeProfile.label ?? ""}
+                          onChange={(e) => updateActiveProfile((p) => ({ ...p, label: e.target.value || undefined }))}
+                          placeholder="Primary Target"
+                        />
                       </div>
-                      <textarea className="textarea" value={(ability as any).description ?? ""} onChange={(e) => setAbility({ description: e.target.value })} />
 
-                      <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+                      <div style={{ display: "flex", gap: 8 }}>
                         <div style={{ flex: 1 }}>
-                          <div className="small">Trigger</div>
-                          <select className="select" value={(ability as any).trigger} onChange={(e) => setAbility({ trigger: e.target.value as any })}>
-                            {(blockRegistry.triggers as string[]).map((t) => (
+                          <div className="small">Type</div>
+                          <select
+                            className="select"
+                            value={activeProfile.type ?? "SELF"}
+                            onChange={(e) => updateActiveProfile((p) => ({ ...p, type: e.target.value as TargetingType }))}
+                          >
+                            {TARGETING_TYPES.map((t) => (
                               <option key={t} value={t}>
                                 {t}
                               </option>
@@ -1163,393 +1260,250 @@ export default function App() {
                           </select>
                         </div>
                         <div style={{ flex: 1 }}>
-                          <div className="small">AP Cost</div>
+                          <div className="small">Origin</div>
+                          <select
+                            className="select"
+                            value={activeProfile.origin ?? "SOURCE"}
+                            onChange={(e) => updateActiveProfile((p) => ({ ...p, origin: e.target.value as TargetOrigin }))}
+                          >
+                            {TARGET_ORIGINS.map((o) => (
+                              <option key={o} value={o}>
+                                {o}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      </div>
+
+                      <div>
+                        <div className="small">Origin Ref (for chained targeting)</div>
+                        <input
+                          className="input"
+                          value={activeProfile.originRef ?? ""}
+                          onChange={(e) => updateActiveProfile((p) => ({ ...p, originRef: e.target.value || undefined }))}
+                          placeholder="targets"
+                        />
+                      </div>
+
+                      <div>
+                        <div className="small">Range</div>
+                        <div style={{ display: "flex", gap: 8 }}>
+                          <div style={{ flex: 1 }}>
+                            <div className="small">Base</div>
+                            <input
+                              className="input"
+                              type="number"
+                              value={activeProfile.range?.base ?? 0}
+                              onChange={(e) =>
+                                updateActiveProfile((p) => ({
+                                  ...p,
+                                  range: { ...(p.range ?? {}), base: Number(e.target.value) }
+                                }))
+                              }
+                            />
+                          </div>
+                          <div style={{ flex: 1 }}>
+                            <div className="small">Min</div>
+                            <input
+                              className="input"
+                              type="number"
+                              value={activeProfile.range?.min ?? 0}
+                              onChange={(e) =>
+                                updateActiveProfile((p) => ({
+                                  ...p,
+                                  range: { ...(p.range ?? {}), min: Number(e.target.value) }
+                                }))
+                              }
+                            />
+                          </div>
+                          <div style={{ flex: 1 }}>
+                            <div className="small">Max</div>
+                            <input
+                              className="input"
+                              type="number"
+                              value={activeProfile.range?.max ?? 0}
+                              onChange={(e) =>
+                                updateActiveProfile((p) => ({
+                                  ...p,
+                                  range: { ...(p.range ?? {}), max: Number(e.target.value) }
+                                }))
+                              }
+                            />
+                          </div>
+                        </div>
+                      </div>
+
+                      <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                        <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
                           <input
-                            className="input"
-                            type="number"
-                            value={(ability as any).cost?.ap ?? 0}
-                            onChange={(e) => setAbility({ cost: { ...((ability as any).cost ?? { ap: 0 }), ap: Number(e.target.value) } } as any)}
+                            type="checkbox"
+                            checked={Boolean(activeProfile.lineOfSight)}
+                            onChange={(e) => updateActiveProfile((p) => ({ ...p, lineOfSight: e.target.checked }))}
                           />
-                        </div>
+                          Line of Sight Required
+                        </label>
+                        <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                          <input
+                            type="checkbox"
+                            checked={Boolean(activeProfile.los?.required)}
+                            onChange={(e) =>
+                              updateActiveProfile((p) => ({
+                                ...p,
+                                los: { ...(p.los ?? { mode: "HEX_RAYCAST", blockers: [] }), required: e.target.checked }
+                              }))
+                            }
+                          />
+                          Strict LOS
+                        </label>
                       </div>
 
-                      <div className="small" style={{ marginTop: 8 }}>
-                        Requirements (Condition)
-                      </div>
-                      <ConditionEditor value={(ability as any).requirements ?? { type: "ALWAYS" }} onChange={(requirements) => setAbility({ requirements } as any)} />
-                    </>
-                  )}
-
-                  {/* TARGETING editor */}
-                  {selectedKind === "TARGETING" && (
-                    <>
-                      <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center" }}>
-                        <div>
-                          <div className="small">Target Profiles</div>
-                          <div className="small">Use multiple profiles for primary + secondary targets.</div>
-                        </div>
-                        <button className="btn btnPrimary" onClick={addProfile}>
-                          + Add Profile
-                        </button>
-                      </div>
-
-                      <div className="small" style={{ marginTop: 8 }}>
-                        Active Profile
-                      </div>
-                      <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                        <select className="select" value={activeProfile?.id ?? ""} onChange={(e) => setActiveProfileId(e.target.value)} style={{ flex: 1 }}>
-                          {(profiles ?? []).map((p: any) => (
-                            <option key={p.id} value={p.id}>
-                              {p.id} — {p.label ?? ""}
-                            </option>
-                          ))}
-                        </select>
-                        <button className="btn btnDanger" onClick={() => removeProfile(activeProfile?.id)} disabled={(profiles?.length ?? 0) <= 1}>
-                          Remove
-                        </button>
-                      </div>
-
-                      {activeProfile ? (
-                        <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 8 }}>
-                          <div>
-                            <div className="small">Label</div>
-                            <input
-                              className="input"
-                              value={activeProfile.label ?? ""}
-                              onChange={(e) => updateActiveProfile((p) => ({ ...p, label: e.target.value || undefined }))}
-                              placeholder="Primary Target"
-                            />
-                          </div>
-
-                          <div style={{ display: "flex", gap: 8 }}>
-                            <div style={{ flex: 1 }}>
-                              <div className="small">Type</div>
-                              <select
-                                className="select"
-                                value={activeProfile.type ?? "SELF"}
-                                onChange={(e) => updateActiveProfile((p) => ({ ...p, type: e.target.value as TargetingType }))}
-                              >
-                                {TARGETING_TYPES.map((t) => (
-                                  <option key={t} value={t}>
-                                    {t}
-                                  </option>
-                                ))}
-                              </select>
-                            </div>
-                            <div style={{ flex: 1 }}>
-                              <div className="small">Origin</div>
-                              <select
-                                className="select"
-                                value={activeProfile.origin ?? "SOURCE"}
-                                onChange={(e) => updateActiveProfile((p) => ({ ...p, origin: e.target.value as TargetOrigin }))}
-                              >
-                                {TARGET_ORIGINS.map((o) => (
-                                  <option key={o} value={o}>
-                                    {o}
-                                  </option>
-                                ))}
-                              </select>
-                            </div>
-                          </div>
-
-                          <div>
-                            <div className="small">Origin Ref (for chained targeting)</div>
-                            <input
-                              className="input"
-                              value={activeProfile.originRef ?? ""}
-                              onChange={(e) => updateActiveProfile((p) => ({ ...p, originRef: e.target.value || undefined }))}
-                              placeholder="targets"
-                            />
-                          </div>
-
-                          <div>
-                            <div className="small">Range</div>
-                            <div style={{ display: "flex", gap: 8 }}>
-                              <div style={{ flex: 1 }}>
-                                <div className="small">Base</div>
-                                <input
-                                  className="input"
-                                  type="number"
-                                  value={activeProfile.range?.base ?? 0}
-                                  onChange={(e) =>
-                                    updateActiveProfile((p) => ({
-                                      ...p,
-                                      range: { ...(p.range ?? {}), base: Number(e.target.value) }
-                                    }))
-                                  }
-                                />
-                              </div>
-                              <div style={{ flex: 1 }}>
-                                <div className="small">Min</div>
-                                <input
-                                  className="input"
-                                  type="number"
-                                  value={activeProfile.range?.min ?? 0}
-                                  onChange={(e) =>
-                                    updateActiveProfile((p) => ({
-                                      ...p,
-                                      range: { ...(p.range ?? {}), min: Number(e.target.value) }
-                                    }))
-                                  }
-                                />
-                              </div>
-                              <div style={{ flex: 1 }}>
-                                <div className="small">Max</div>
-                                <input
-                                  className="input"
-                                  type="number"
-                                  value={activeProfile.range?.max ?? 0}
-                                  onChange={(e) =>
-                                    updateActiveProfile((p) => ({
-                                      ...p,
-                                      range: { ...(p.range ?? {}), max: Number(e.target.value) }
-                                    }))
-                                  }
-                                />
-                              </div>
-                            </div>
-                          </div>
-
-                          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                            <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                              <input
-                                type="checkbox"
-                                checked={Boolean(activeProfile.lineOfSight)}
-                                onChange={(e) => updateActiveProfile((p) => ({ ...p, lineOfSight: e.target.checked }))}
-                              />
-                              Line of Sight Required
-                            </label>
-                            <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                              <input
-                                type="checkbox"
-                                checked={Boolean(activeProfile.los?.required)}
-                                onChange={(e) =>
-                                  updateActiveProfile((p) => ({
-                                    ...p,
-                                    los: { ...(p.los ?? { mode: "HEX_RAYCAST", blockers: [] }), required: e.target.checked }
-                                  }))
-                                }
-                              />
-                              Strict LOS
-                            </label>
-                          </div>
-
-                          <div style={{ display: "flex", gap: 8 }}>
-                            <div style={{ flex: 1 }}>
-                              <div className="small">LOS Mode</div>
-                              <select
-                                className="select"
-                                value={activeProfile.los?.mode ?? "HEX_RAYCAST"}
-                                onChange={(e) =>
-                                  updateActiveProfile((p) => ({
-                                    ...p,
-                                    los: { ...(p.los ?? { required: true, blockers: [] }), mode: e.target.value as LoSMode }
-                                  }))
-                                }
-                              >
-                                {LOS_MODES.map((m) => (
-                                  <option key={m} value={m}>
-                                    {m}
-                                  </option>
-                                ))}
-                              </select>
-                            </div>
-                            <div style={{ flex: 2 }}>
-                              <div className="small">LOS Blockers</div>
-                              {Array.isArray(activeProfile.los?.blockers) && activeProfile.los.blockers.length
-                                ? activeProfile.los.blockers.map((b: any, i: number) => (
-                                    <div key={i} style={{ display: "flex", gap: 6, marginBottom: 6, alignItems: "center" }}>
-                                      <select
-                                        className="select"
-                                        value={b.policy}
-                                        onChange={(e) =>
-                                          updateActiveProfile((p) => {
-                                            const blockers = Array.isArray(p.los?.blockers) ? p.los.blockers.slice() : [];
-                                            blockers[i] = { ...(blockers[i] ?? {}), policy: e.target.value as LoSBlockPolicy };
-                                            return { ...p, los: { ...(p.los ?? {}), blockers } };
-                                          })
-                                        }
-                                        style={{ flex: 1 }}
-                                      >
-                                        {LOS_POLICIES.map((pol) => (
-                                          <option key={pol} value={pol}>
-                                            {pol}
-                                          </option>
-                                        ))}
-                                      </select>
-                                      <input
-                                        className="input"
-                                        style={{ flex: 2 }}
-                                        placeholder="tags comma separated"
-                                        value={(b.tags ?? []).join(", ")}
-                                        onChange={(e) =>
-                                          updateActiveProfile((p) => {
-                                            const blockers = Array.isArray(p.los?.blockers) ? p.los.blockers.slice() : [];
-                                            blockers[i] = {
-                                              ...(blockers[i] ?? {}),
-                                              tags: e.target.value
-                                                .split(",")
-                                                .map((t) => t.trim())
-                                                .filter(Boolean)
-                                            };
-                                            return { ...p, los: { ...(p.los ?? {}), blockers } };
-                                          })
-                                        }
-                                      />
-                                      <button
-                                        className="btn btnDanger"
-                                        onClick={() =>
-                                          updateActiveProfile((p) => {
-                                            const blockers = Array.isArray(p.los?.blockers) ? p.los.blockers.slice() : [];
-                                            blockers.splice(i, 1);
-                                            return { ...p, los: { ...(p.los ?? {}), blockers } };
-                                          })
-                                        }
-                                      >
-                                        ✕
-                                      </button>
-                                    </div>
-                                  ))
-                                : null}
-                              <button
-                                className="btn"
-                                onClick={() =>
-                                  updateActiveProfile((p) => {
-                                    const blockers = Array.isArray(p.los?.blockers) ? p.los.blockers.slice() : [];
-                                    blockers.push({ policy: LOS_POLICIES[0], tags: [] });
-                                    return { ...p, los: { ...(p.los ?? { mode: "HEX_RAYCAST", required: true }), blockers } };
-                                  })
-                                }
-                              >
-                                + Add Blocker
-                              </button>
-                            </div>
-                          </div>
-
-                          <div>
-                            <div className="small">Area</div>
-                            <div style={{ display: "flex", gap: 8 }}>
-                              <div style={{ flex: 1 }}>
-                                <div className="small">Radius</div>
-                                <input
-                                  className="input"
-                                  type="number"
-                                  value={activeProfile.area?.radius ?? 0}
-                                  onChange={(e) =>
-                                    updateActiveProfile((p) => ({
-                                      ...p,
-                                      area: { ...(p.area ?? {}), radius: Number(e.target.value) }
-                                    }))
-                                  }
-                                />
-                              </div>
-                              <div style={{ flex: 1 }}>
-                                <div className="small">Max Targets</div>
-                                <input
-                                  className="input"
-                                  type="number"
-                                  value={activeProfile.area?.maxTargets ?? 0}
-                                  onChange={(e) =>
-                                    updateActiveProfile((p) => ({
-                                      ...p,
-                                      area: { ...(p.area ?? {}), maxTargets: Number(e.target.value) }
-                                    }))
-                                  }
-                                />
-                              </div>
-                              <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                                <input
-                                  type="checkbox"
-                                  checked={Boolean(activeProfile.area?.includeCenter)}
-                                  onChange={(e) =>
-                                    updateActiveProfile((p) => ({
-                                      ...p,
-                                      area: { ...(p.area ?? {}), includeCenter: e.target.checked }
-                                    }))
-                                  }
-                                />
-                                Include Center
-                              </label>
-                            </div>
-                          </div>
-                        </div>
-                      ) : null}
-
-                      <details style={{ marginTop: 10 }}>
-                        <summary className="small" style={{ cursor: "pointer" }}>
-                          Raw Profiles JSON
-                        </summary>
-                        <pre style={{ margin: 0 }}>{JSON.stringify(profiles, null, 2)}</pre>
-                      </details>
-                    </>
-                  )}
-
-                  {/* STEP EDITOR */}
-                  {selectedKind === "STEP" && selectedStep && (
-                    <>
-                      <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                      <div style={{ display: "flex", gap: 8 }}>
                         <div style={{ flex: 1 }}>
-                          <div className="small">Step Type</div>
-                          <div style={{ fontWeight: 900 }}>{(selectedStep as any).type}</div>
+                          <div className="small">LOS Mode</div>
+                          <select
+                            className="select"
+                            value={activeProfile.los?.mode ?? "HEX_RAYCAST"}
+                            onChange={(e) =>
+                              updateActiveProfile((p) => ({
+                                ...p,
+                                los: { ...(p.los ?? { required: true, blockers: [] }), mode: e.target.value as LoSMode }
+                              }))
+                            }
+                          >
+                            {LOS_MODES.map((m) => (
+                              <option key={m} value={m}>
+                                {m}
+                              </option>
+                            ))}
+                          </select>
                         </div>
-                        <button className="btn" onClick={() => moveStep(selectedStepIdx, -1)} disabled={selectedStepIdx === 0}>
-                          ↑
-                        </button>
-                        <button className="btn" onClick={() => moveStep(selectedStepIdx, +1)} disabled={((ability as any).execution?.steps?.length ?? 0) - 1 === selectedStepIdx}>
-                          ↓
-                        </button>
-                        <button className="btn btnDanger" onClick={() => deleteStep(selectedStepIdx)}>
-                          Delete
-                        </button>
+                        <div style={{ flex: 2 }}>
+                          <div className="small">LOS Blockers</div>
+                          {Array.isArray(activeProfile.los?.blockers) && activeProfile.los.blockers.length
+                            ? activeProfile.los.blockers.map((b: any, i: number) => (
+                                <div key={i} style={{ display: "flex", gap: 6, marginBottom: 6, alignItems: "center" }}>
+                                  <select
+                                    className="select"
+                                    value={b.policy}
+                                    onChange={(e) =>
+                                      updateActiveProfile((p) => {
+                                        const blockers = Array.isArray(p.los?.blockers) ? p.los.blockers.slice() : [];
+                                        blockers[i] = { ...(blockers[i] ?? {}), policy: e.target.value as LoSBlockPolicy };
+                                        return { ...p, los: { ...(p.los ?? {}), blockers } };
+                                      })
+                                    }
+                                    style={{ flex: 1 }}
+                                  >
+                                    {LOS_POLICIES.map((pol) => (
+                                      <option key={pol} value={pol}>
+                                        {pol}
+                                      </option>
+                                    ))}
+                                  </select>
+                                  <input
+                                    className="input"
+                                    style={{ flex: 2 }}
+                                    placeholder="tags comma separated"
+                                    value={(b.tags ?? []).join(", ")}
+                                    onChange={(e) =>
+                                      updateActiveProfile((p) => {
+                                        const blockers = Array.isArray(p.los?.blockers) ? p.los.blockers.slice() : [];
+                                        blockers[i] = {
+                                          ...(blockers[i] ?? {}),
+                                          tags: e.target.value
+                                            .split(",")
+                                            .map((t) => t.trim())
+                                            .filter(Boolean)
+                                        };
+                                        return { ...p, los: { ...(p.los ?? {}), blockers } };
+                                      })
+                                    }
+                                  />
+                                  <button
+                                    className="btn btnDanger"
+                                    onClick={() =>
+                                      updateActiveProfile((p) => {
+                                        const blockers = Array.isArray(p.los?.blockers) ? p.los.blockers.slice() : [];
+                                        blockers.splice(i, 1);
+                                        return { ...p, los: { ...(p.los ?? {}), blockers } };
+                                      })
+                                    }
+                                  >
+                                    ✕
+                                  </button>
+                                </div>
+                              ))
+                            : null}
+                          <button
+                            className="btn"
+                            onClick={() =>
+                              updateActiveProfile((p) => {
+                                const blockers = Array.isArray(p.los?.blockers) ? p.los.blockers.slice() : [];
+                                blockers.push({ policy: LOS_POLICIES[0], tags: [] });
+                                return { ...p, los: { ...(p.los ?? { mode: "HEX_RAYCAST", required: true }), blockers } };
+                              })
+                            }
+                          >
+                            + Add Blocker
+                          </button>
+                        </div>
                       </div>
 
-                      <div style={{ marginTop: 10 }}>
-                        {(selectedStep as any).type === "SHOW_TEXT" && (
-                          <>
-                            <div className="small">Text</div>
-                            <textarea className="textarea" value={(selectedStep as any).text} onChange={(e) => setStep(selectedStepIdx, { text: e.target.value })} />
-                          </>
-                        )}
-
-                        {(selectedStep as any).type === "DEAL_DAMAGE" && (
-                          <>
-                            <div className="small">Damage Type</div>
-                            <select className="select" value={(selectedStep as any).damageType} onChange={(e) => setStep(selectedStepIdx, { damageType: e.target.value as DamageType })}>
-                              {(blockRegistry.keys.DamageType as string[]).map((d) => (
-                                <option key={d} value={d}>
-                                  {d}
-                                </option>
-                              ))}
-                            </select>
-                            <div className="small" style={{ marginTop: 8 }}>
-                              Amount Expression
-                            </div>
-                            <ExpressionEditor value={(selectedStep as any).amountExpr} onChange={(amountExpr) => setStep(selectedStepIdx, { amountExpr })} />
-                          </>
-                        )}
-
-                        {(selectedStep as any).type === "APPLY_STATUS" && (
-                          <>
-                            <div className="small">Status</div>
-                            <select className="select" value={(selectedStep as any).status} onChange={(e) => setStep(selectedStepIdx, { status: e.target.value as StatusKey })}>
-                              {(blockRegistry.keys.StatusKey as string[]).map((s) => (
-                                <option key={s} value={s}>
-                                  {s}
-                                </option>
-                              ))}
-                            </select>
-                          </>
-                        )}
+                      <div>
+                        <div className="small">Area</div>
+                        <div style={{ display: "flex", gap: 8 }}>
+                          <div style={{ flex: 1 }}>
+                            <div className="small">Radius</div>
+                            <input
+                              className="input"
+                              type="number"
+                              value={activeProfile.area?.radius ?? 0}
+                              onChange={(e) =>
+                                updateActiveProfile((p) => ({
+                                  ...p,
+                                  area: { ...(p.area ?? {}), radius: Number(e.target.value) }
+                                }))
+                              }
+                            />
+                          </div>
+                          <div style={{ flex: 1 }}>
+                            <div className="small">Max Targets</div>
+                            <input
+                              className="input"
+                              type="number"
+                              value={activeProfile.area?.maxTargets ?? 0}
+                              onChange={(e) =>
+                                updateActiveProfile((p) => ({
+                                  ...p,
+                                  area: { ...(p.area ?? {}), maxTargets: Number(e.target.value) }
+                                }))
+                              }
+                            />
+                          </div>
+                          <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                            <input
+                              type="checkbox"
+                              checked={Boolean(activeProfile.area?.includeCenter)}
+                              onChange={(e) =>
+                                updateActiveProfile((p) => ({
+                                  ...p,
+                                  area: { ...(p.area ?? {}), includeCenter: e.target.checked }
+                                }))
+                              }
+                            />
+                            Include Center
+                          </label>
+                        </div>
                       </div>
+                    </div>
+                  ) : null}
 
-                      <details style={{ marginTop: 10 }}>
-                        <summary className="small" style={{ cursor: "pointer" }}>
-                          Raw Step JSON
-                        </summary>
-                        <pre style={{ margin: 0 }}>{JSON.stringify(selectedStep, null, 2)}</pre>
-                      </details>
-                    </>
-                  )}
+                  <details style={{ marginTop: 10 }}>
+                    <summary className="small" style={{ cursor: "pointer" }}>
+                      Raw Profiles JSON
+                    </summary>
+                    <pre style={{ margin: 0 }}>{JSON.stringify(profiles, null, 2)}</pre>
+                  </details>
                 </>
               )}
             </div>
@@ -1577,8 +1531,8 @@ export default function App() {
               <span className="badge">{errorCount} errors</span>
             </div>
             <div className="pb">
-              {issues.some((i) => i.severity === "ERROR") ? (
-                issues
+              {(issues.some((i) => i.severity === "ERROR") || graphIssues.some((i) => i.severity === "ERROR")) ? (
+                [...issues, ...graphIssues]
                   .filter((i) => i.severity === "ERROR")
                   .map((i, idx) => (
                     <div key={idx} className="err">
@@ -1594,7 +1548,7 @@ export default function App() {
               ) : (
                 <div className="ok">
                   <b>✅ OK</b>
-                  <div className="small">{issues[0]?.message ?? "No issues."}</div>
+                  <div className="small">{issues[0]?.message ?? graphIssues[0]?.message ?? "No issues."}</div>
                 </div>
               )}
             </div>

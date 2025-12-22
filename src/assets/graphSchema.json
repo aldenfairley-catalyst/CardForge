@@ -1,0 +1,61 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "CJ Forge Project",
+  "type": "object",
+  "required": ["schemaVersion", "card", "graphs"],
+  "properties": {
+    "schemaVersion": { "type": "string", "const": "CJ-FORGE-PROJECT-1.0" },
+    "card": { "type": "object" },
+    "graphs": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["graphVersion", "id", "nodes", "edges"],
+        "properties": {
+          "graphVersion": { "type": "string", "const": "CJ-GRAPH-1.0" },
+          "id": { "type": "string" },
+          "label": { "type": "string" },
+          "nodes": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["id", "nodeType", "position", "config"],
+              "properties": {
+                "id": { "type": "string" },
+                "nodeType": { "type": "string" },
+                "position": {
+                  "type": "object",
+                  "required": ["x", "y"],
+                  "properties": { "x": { "type": "number" }, "y": { "type": "number" } }
+                },
+                "config": { "type": "object" }
+              }
+            }
+          },
+          "edges": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["id", "edgeKind", "from", "to"],
+              "properties": {
+                "id": { "type": "string" },
+                "edgeKind": { "type": "string", "enum": ["CONTROL", "DATA"] },
+                "from": {
+                  "type": "object",
+                  "required": ["nodeId", "pinId"],
+                  "properties": { "nodeId": { "type": "string" }, "pinId": { "type": "string" } }
+                },
+                "to": {
+                  "type": "object",
+                  "required": ["nodeId", "pinId"],
+                  "properties": { "nodeId": { "type": "string" }, "pinId": { "type": "string" } }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "ui": { "type": "object" }
+  }
+}
