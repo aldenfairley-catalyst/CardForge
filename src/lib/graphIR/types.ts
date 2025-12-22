@@ -89,6 +89,7 @@ export type GraphNode = {
   nodeType: string;
   position: { x: number; y: number };
   config: Record<string, any>;
+  pinsCache?: string[];
 };
 
 export type Graph = {
