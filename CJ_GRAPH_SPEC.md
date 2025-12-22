@@ -10,7 +10,7 @@ Version: MVP (EXEC_START, SHOW_TEXT, IF/ELSEIF/ELSE, CONST_BOOL, CONST_NUMBER)
 ## Node registry (CJ-NODEDEF-1.0)
 - Location: `src/assets/nodeRegistry.json`.
 - Each node definition includes `nodeType`, `label`, `category`, `description`, `configSchema`, `pins.static[]`, optional `pins.dynamic`, and stub `compile` metadata.
-- Palette categories and canvas rendering both resolve directly from the registry (no hardcoded lists in `App.tsx`).
+- Palette categories and canvas rendering both resolve directly from the registry (no hardcoded lists in `App.tsx`); categories and node labels are sorted alphabetically for deterministic palettes.
 - Dynamic pins in Phase A1 only support the ELSEIF template on IF nodes. Pin ids are deterministic (`elseIfCondIn_{i}` / `elseIfExecOut_{i}`) and always appended after static pins.
 - Duplicate pin ids during materialization throw immediately to surface registry drift.
 
@@ -35,7 +35,8 @@ Version: MVP (EXEC_START, SHOW_TEXT, IF/ELSEIF/ELSE, CONST_BOOL, CONST_NUMBER)
 ## React Flow adapter (Phase A1)
 - `graphNodeToReactFlowNode` maps Graph IR nodes to `{ id, type: "genericNode", position, data: { nodeType, config } }`.
 - `graphEdgeToReactFlowEdge` maps Graph IR edges to `{ id, source, target, sourceHandle, targetHandle, label }`.
-- Unknown node types render as explicit error nodes on the canvas to expose registry drift.
+- Unknown node types render as explicit error nodes on the canvas to expose registry drift, because the single `GraphNode` renderer pulls labels/pins straight from the registry for every node type.
+- Palette clicks instantiate Graph IR nodes with `getDefaultConfig(nodeType)` and store them in React state; positions are updated via React Flow change events to keep CJ-GRAPH-1.0 in sync.
 
 ## Compile mapping (MVP)
 - `EXEC_START` → subgraph entry (no step emitted).

@@ -227,7 +227,14 @@ Node definitions live in `src/assets/nodeRegistry.json` (JSON-first source of tr
 - `configSchema` drives defaults; `pins.static[]` list control/data pins and their groups; `pins.dynamic` (Phase A1: ELSEIF generator) expands deterministic ids using `{i}` and labels using `{n}`.
 - Includes placeholder `compile` metadata even when unused so compiler phases can align later.
 - Default configs are derived from schema defaults (e.g., IF → `{ elseIfCount: 0 }`).
+- Field summary for agents:
+  - `nodeType`: stable id (palette key + ReactFlow renderer key)
+  - `label` / `category`: palette display, categories sorted alphabetically in the UI
+  - `configSchema`: JSON-schema-like object with `properties`, `required`, and defaults
+  - `pins.static[]`: ordered pins with `id`, `kind` (CONTROL/DATA), `direction`, `group`, `dataType?`, `required?`
+  - `pins.dynamic`: deterministic generator descriptor (A1 supports only `ELSEIF_PINS` from `elseIfCount`)
+  - `compile`: stub metadata for later compiler phases
 
 ### 6.2 Graph IR is editor-only in Phase A1
 - CJ-GRAPH-1.0 stores `{ nodes, edges }` with `edgeKind: CONTROL | DATA` for the editor.
-- Canonical runtime truth remains the CJ card JSON; compilation will consume the graph in later phases.
+- Canonical runtime truth remains the CJ card JSON; compilation will consume the graph in later phases. Graph IR currently lives in React state and is exported/imported with Forge Project JSON, but a browser refresh resets the canvas unless the project is reloaded.

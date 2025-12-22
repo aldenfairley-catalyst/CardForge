@@ -25,6 +25,17 @@ function handlePosition(pin: PinDefinition) {
   return Position.Right;
 }
 
+/**
+ * Generic ReactFlow node renderer driven entirely by the node registry.
+ *
+ * Inputs (via ReactFlow node.data):
+ * - `nodeType`: string key that must exist in `nodeRegistry.json`.
+ * - `config`: config object for materializing dynamic pins (e.g., IF elseIfCount).
+ *
+ * Output:
+ * - Renders grouped pin panels and ReactFlow Handles with stable ids matching the registry.
+ * - Falls back to a visible error card when the node type is unknown to surface registry drift.
+ */
 export function GraphNode({ data, selected }: GraphNodeProps) {
   const nodeDef = useMemo(() => getNodeDef(data.nodeType), [data.nodeType]);
   const { pins, error } = useMemo(() => {
