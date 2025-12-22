@@ -92,7 +92,13 @@ export function GraphNode({ data, selected }: GraphNodeProps) {
               return (
                 <div key={pin.id} style={{ display: "flex", alignItems: "center", gap: 6, position: "relative" }}>
                   {pin.direction === "IN" ? null : (
-                    <Handle type="source" position={handlePosition(pin)} id={pin.id} style={{ background: color, width: size, height: size }} />
+                    <Handle
+                      type="source"
+                      position={handlePosition(pin)}
+                      id={pin.id}
+                      className={`handle--${pin.kind === PinKind.CONTROL ? "control" : "data"}`}
+                      style={{ background: color, width: size, height: size }}
+                    />
                   )}
                   <div className="small" style={{ flex: 1 }}>
                     {pin.label}
@@ -100,7 +106,13 @@ export function GraphNode({ data, selected }: GraphNodeProps) {
                     {pin.required ? <span style={{ marginLeft: 6, color: "#ef4444" }}>*</span> : null}
                   </div>
                   {pin.direction === "IN" ? (
-                    <Handle type="target" position={handlePosition(pin)} id={pin.id} style={{ background: color, width: size, height: size }} />
+                    <Handle
+                      type="target"
+                      position={handlePosition(pin)}
+                      id={pin.id}
+                      className={`handle--${pin.kind === PinKind.CONTROL ? "control" : "data"}`}
+                      style={{ background: color, width: size, height: size }}
+                    />
                   ) : null}
                 </div>
               );

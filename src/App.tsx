@@ -12,6 +12,7 @@ import ReactFlow, {
 } from "reactflow";
 import "reactflow/dist/style.css";
 import { v4 as uuidv4 } from "uuid";
+import { ToastHost, type ToastMessage } from "./components/Toast";
 
 import { CardLibraryManager } from "./features/library/CardLibraryManager";
 import { DeckBuilder } from "./features/decks/DeckBuilder";
@@ -63,6 +64,7 @@ import { GraphNode as GenericGraphNode } from "./components/GraphNode";
 import { NodeConfigForm } from "./components/NodeConfigForm";
 import { compileAbilityGraph } from "./lib/graphIR/compiler";
 import { reconcileReactFlowEdgesAfterPinChange } from "./lib/graphIR/reconcile";
+import { validateConnect } from "./lib/graphIR/edgeRules";
 import { PinKind, type ForgeProject, type Graph, type GraphEdge, type GraphNode as IRGraphNode } from "./lib/graphIR/types";
 
 type AppMode = "FORGE" | "LIBRARY" | "DECKS" | "SCENARIOS";
@@ -198,6 +200,12 @@ function findAbilityIndexes(card: CardEntity): number[] {
   return out;
 }
 
+function edgeStyle(kind: PinKind) {
+  return kind === PinKind.CONTROL
+    ? { strokeWidth: 2.4 }
+    : { strokeDasharray: "6 3", strokeWidth: 1.6, opacity: 0.9 };
+}
+
 function safeJsonParse(text: string) {
   try {
     return { ok: true as const, value: JSON.parse(text) };
@@ -219,7 +227,7 @@ export default function App() {
     const migrated = loadMigratedCardOrDefault(makeDefaultCard);
     return coerceUnknownSteps(migrated) as CardEntity;
   });
-  // Graph editor state lives in CJ-GRAPH-1.0 IR and is adapted to React Flow nodes/edges.
+  // Graph editor state lives in CJ-GRAPH-1.1 IR and is adapted to React Flow nodes/edges.
   const [graphMeta, setGraphMeta] = useState<Pick<Graph, "graphVersion" | "id" | "label">>(() => {
     const initialGraph = project.graphs[project.ui?.activeGraphId ?? "root"] ?? makeDefaultGraph();
     return { graphVersion: initialGraph.graphVersion, id: initialGraph.id, label: initialGraph.label };
@@ -241,7 +249,9 @@ export default function App() {
       target: e.to.nodeId,
       sourceHandle: e.from.pinId,
       targetHandle: e.to.pinId,
-      label: e.edgeKind
+      label: e.edgeKind,
+      data: { edgeKind: e.edgeKind, dataType: e.dataType, createdAt: e.createdAt },
+      style: edgeStyle(e.edgeKind as PinKind)
     }))
   );
   const activeGraphId = project.ui?.activeGraphId ?? "root";
@@ -250,6 +260,7 @@ export default function App() {
   const [graphIssues, setGraphIssues] = useState<ValidationIssue[]>([]);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [inspectorTab, setInspectorTab] = useState<"config" | "pins" | "json">("config");
+  const [toasts, setToasts] = useState<ToastMessage[]>([]);
 
   const [importOpen, setImportOpen] = useState(false);
   const [importText, setImportText] = useState("");
@@ -257,6 +268,16 @@ export default function App() {
   const [importIssues, setImportIssues] = useState<ValidationIssue[]>([]);
 
   const [previewOpen, setPreviewOpen] = useState(false);
+  const pushToast = useCallback(
+    (message: string, kind: ToastMessage["kind"] = "error") => {
+      setToasts((prev) => [...prev, { id: uuidv4(), message, kind }]);
+    },
+    [setToasts]
+  );
+  const removeToast = useCallback(
+    (id: string) => setToasts((prev) => prev.filter((t) => t.id !== id)),
+    [setToasts]
+  );
 
   // Action Library
   const [libraryOpen, setLibraryOpen] = useState(false);
@@ -341,9 +362,11 @@ export default function App() {
       })),
       edges: edges.map((e) => ({
         id: e.id,
-        edgeKind: (e.label as GraphEdge["edgeKind"]) ?? PinKind.CONTROL,
+        edgeKind: (e.data?.edgeKind as GraphEdge["edgeKind"]) ?? (e.label as GraphEdge["edgeKind"]) ?? PinKind.CONTROL,
+        dataType: e.data?.dataType,
         from: { nodeId: e.source, pinId: e.sourceHandle ?? "" },
-        to: { nodeId: e.target, pinId: e.targetHandle ?? "" }
+        to: { nodeId: e.target, pinId: e.targetHandle ?? "" },
+        createdAt: e.data?.createdAt
       }))
     }),
     [edges, graphMeta, nodes]
@@ -448,7 +471,9 @@ export default function App() {
           target: e.to.nodeId,
           sourceHandle: e.from.pinId,
           targetHandle: e.to.pinId,
-          label: e.edgeKind
+          label: e.edgeKind,
+          data: { edgeKind: e.edgeKind, dataType: e.dataType, createdAt: e.createdAt },
+          style: edgeStyle(e.edgeKind as PinKind)
         }))
       );
       setSelectedNodeId(null);
@@ -520,42 +545,48 @@ export default function App() {
     if (!connection.source || !connection.target || !connection.sourceHandle || !connection.targetHandle) return;
 
     setEdges((prevEdges) => {
-      const sourceNode = nodes.find((n) => n.id === connection.source);
-      const targetNode = nodes.find((n) => n.id === connection.target);
-      if (!sourceNode || !targetNode) return prevEdges;
+      const graphNodes: IRGraphNode[] = nodes.map((n) => ({
+        id: n.id,
+        nodeType: n.data.nodeType,
+        position: n.position,
+        config: n.data.config,
+        pinsCache: n.data.pinsCache
+      }));
+      const graphEdges: GraphEdge[] = prevEdges.map((e) => ({
+        id: e.id,
+        edgeKind: (e.data?.edgeKind as GraphEdge["edgeKind"]) ?? (e.label as GraphEdge["edgeKind"]) ?? PinKind.CONTROL,
+        dataType: e.data?.dataType,
+        from: { nodeId: e.source, pinId: e.sourceHandle ?? "" },
+        to: { nodeId: e.target, pinId: e.targetHandle ?? "" },
+        createdAt: e.data?.createdAt
+      }));
 
-      const sourcePin = materializePins(sourceNode.data.nodeType, sourceNode.data.config).find((p) => p.id === connection.sourceHandle);
-      const targetPin = materializePins(targetNode.data.nodeType, targetNode.data.config).find((p) => p.id === connection.targetHandle);
-      if (!arePinsCompatible(sourcePin, targetPin)) {
-        alert("Pins are not compatible (kind, direction, or data type mismatch).");
+      const result = validateConnect({
+        nodes: graphNodes,
+        edges: graphEdges,
+        sourceNodeId: connection.source,
+        sourcePinId: connection.sourceHandle,
+        targetNodeId: connection.target,
+        targetPinId: connection.targetHandle
+      });
+
+      if (!result.ok) {
+        pushToast(`Connection blocked: ${result.reason}`, "error");
         return prevEdges;
       }
 
-      const edgeKind = sourcePin?.kind === PinKind.DATA ? PinKind.DATA : PinKind.CONTROL;
-      const duplicate = prevEdges.some(
-        (e) => e.source === connection.source && e.sourceHandle === connection.sourceHandle && e.target === connection.target && e.targetHandle === connection.targetHandle
-      );
-      if (duplicate) return prevEdges;
-
-      if (edgeKind === PinKind.CONTROL) {
-        const outgoingCount = prevEdges.filter(
-          (e) => (e.label as any) === PinKind.CONTROL && e.source === connection.source && e.sourceHandle === connection.sourceHandle
-        ).length;
-        if (outgoingCount >= 1) {
-          alert("A control output pin can connect to at most one downstream control input.");
-          return prevEdges;
-        }
-      }
-
-      const newEdge = {
-        id: uuidv4(),
-        label: edgeKind,
-        source: connection.source,
-        target: connection.target,
-        sourceHandle: connection.sourceHandle,
-        targetHandle: connection.targetHandle
+      const newEdge: Edge = {
+        id: result.edge.id,
+        source: result.edge.from.nodeId,
+        target: result.edge.to.nodeId,
+        sourceHandle: result.edge.from.pinId,
+        targetHandle: result.edge.to.pinId,
+        label: result.edge.edgeKind,
+        data: { edgeKind: result.edge.edgeKind, dataType: result.edge.dataType, createdAt: result.edge.createdAt },
+        style: edgeStyle(result.edge.edgeKind as PinKind)
       };
-      return [...prevEdges, newEdge as any];
+
+      return [...prevEdges, newEdge];
     });
   }
 
@@ -723,6 +754,11 @@ export default function App() {
   }, [nodes, selectedNodeId]);
 
   const selectedReactFlowNode = useMemo(() => nodes.find((n) => n.id === selectedNodeId) ?? null, [nodes, selectedNodeId]);
+  const nodeLabelById = useMemo(() => {
+    const map = new Map<string, string>();
+    nodes.forEach((n) => map.set(n.id, getNodeDef(n.data.nodeType)?.label ?? n.data.nodeType));
+    return map;
+  }, [nodes]);
 
   // ---- Target profile editing helpers ----
   const TARGETING_TYPES: TargetingType[] = [
@@ -1027,6 +1063,7 @@ export default function App() {
   // ---- FORGE UI ----
   return (
     <div className="app">
+      <ToastHost messages={toasts} onExpire={removeToast} />
       <div className="topbar">
         <div className="brand">
           <span style={{ width: 10, height: 10, borderRadius: 999, background: "var(--accent)" }} />
@@ -1351,6 +1388,48 @@ export default function App() {
                       {JSON.stringify(selectedReactFlowNode?.data ?? {}, null, 2)}
                     </pre>
                   ) : null}
+
+                  <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 10 }}>
+                    <div className="small" style={{ fontWeight: 700 }}>
+                      Incoming edges
+                    </div>
+                    {graph.edges.filter((e) => e.to.nodeId === selectedGraphNode.id).length ? null : (
+                      <div className="small">None</div>
+                    )}
+                    {graph.edges
+                      .filter((e) => e.to.nodeId === selectedGraphNode.id)
+                      .map((edge) => {
+                        const fromLabel = nodeLabelById.get(edge.from.nodeId) ?? edge.from.nodeId;
+                        const kind = `${edge.edgeKind}${
+                          edge.edgeKind === PinKind.DATA && edge.dataType ? ` (${edge.dataType})` : ""
+                        }`;
+                        return (
+                          <div key={edge.id} className="small" style={{ padding: 6, border: "1px solid var(--border)", borderRadius: 6 }}>
+                            {kind}: {fromLabel}.{edge.from.pinId} → {edge.to.pinId}
+                          </div>
+                        );
+                      })}
+
+                    <div className="small" style={{ fontWeight: 700, marginTop: 4 }}>
+                      Outgoing edges
+                    </div>
+                    {graph.edges.filter((e) => e.from.nodeId === selectedGraphNode.id).length ? null : (
+                      <div className="small">None</div>
+                    )}
+                    {graph.edges
+                      .filter((e) => e.from.nodeId === selectedGraphNode.id)
+                      .map((edge) => {
+                        const toLabel = nodeLabelById.get(edge.to.nodeId) ?? edge.to.nodeId;
+                        const kind = `${edge.edgeKind}${
+                          edge.edgeKind === PinKind.DATA && edge.dataType ? ` (${edge.dataType})` : ""
+                        }`;
+                        return (
+                          <div key={edge.id} className="small" style={{ padding: 6, border: "1px solid var(--border)", borderRadius: 6 }}>
+                            {kind}: {edge.from.pinId} → {toLabel}.{edge.to.pinId}
+                          </div>
+                        );
+                      })}
+                  </div>
 
                   <button className="btn btnDanger" onClick={() => deleteGraphNode(selectedGraphNode.id)}>
                     Delete Node

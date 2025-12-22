@@ -11,7 +11,7 @@ export const forgeProjectProjectVersion: string = String(
   (forgeProjectSchema?.properties?.projectVersion?.const as string | undefined) ?? forgeProjectSchemaVersion
 );
 export const forgeGraphVersion: string = String(
-  (forgeProjectSchema?.definitions?.Graph?.properties?.graphVersion?.const as string | undefined) ?? "CJ-GRAPH-1.0"
+  (forgeProjectSchema?.definitions?.Graph?.properties?.graphVersion?.const as string | undefined) ?? "CJ-GRAPH-1.1"
 );
 export const forgeProjectSchemaUrl = `${schemaUrl}${schemaUrl.includes("?") ? "&" : "?"}v=${encodeURIComponent(
   forgeProjectSchemaVersion

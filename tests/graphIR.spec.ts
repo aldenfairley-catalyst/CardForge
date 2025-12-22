@@ -32,7 +32,7 @@ describe("nodeRegistry integrity", () => {
 
 describe("graph compile pipeline", () => {
   function baseGraph(): Graph {
-    return { graphVersion: "CJ-GRAPH-1.0", id: "g", label: "test", nodes: [], edges: [] };
+    return { graphVersion: "CJ-GRAPH-1.1", id: "g", label: "test", nodes: [], edges: [] };
   }
 
   it("compiles Start → Show Text", () => {
@@ -99,7 +99,7 @@ describe("graph validation rules", () => {
   it("flags multiple control edges from a single execOut pin", () => {
     const { ability, card } = buildAbility();
     const graph: Graph = {
-      graphVersion: "CJ-GRAPH-1.0",
+      graphVersion: "CJ-GRAPH-1.1",
       id: "g",
       label: "multi",
       nodes: [
@@ -126,7 +126,7 @@ describe("graph validation rules", () => {
   it("rejects missing required IF condition connections during compilation", () => {
     const { ability, card } = buildAbility();
     const graph: Graph = {
-      graphVersion: "CJ-GRAPH-1.0",
+      graphVersion: "CJ-GRAPH-1.1",
       id: "g",
       label: "missing-cond",
       nodes: [
@@ -149,7 +149,7 @@ describe("graph validation rules", () => {
   it("flags missing required config fields per node schema", () => {
     const { ability } = buildAbility();
     const graph: Graph = {
-      graphVersion: "CJ-GRAPH-1.0",
+      graphVersion: "CJ-GRAPH-1.1",
       id: "g",
       label: "missing-config",
       nodes: [

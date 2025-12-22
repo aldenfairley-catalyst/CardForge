@@ -16,9 +16,9 @@ function makeAbilityFixture(): AbilityGraphFixture {
   return { card, ability };
 }
 
-function baseGraph(): Graph {
-  return { graphVersion: "CJ-GRAPH-1.0", id: "g", label: "test", nodes: [], edges: [] };
-}
+  function baseGraph(): Graph {
+    return { graphVersion: "CJ-GRAPH-1.1", id: "g", label: "test", nodes: [], edges: [] };
+  }
 
 describe("nodeRegistry.json integrity", () => {
   const registry = nodeRegistry as any;
