@@ -201,9 +201,9 @@ function findAbilityIndexes(card: CardEntity): number[] {
 }
 
 function edgeStyle(kind: PinKind) {
-  return kind === PinKind.CONTROL
-    ? { strokeWidth: 2.4 }
-    : { strokeDasharray: "6 3", strokeWidth: 1.6, opacity: 0.9 };
+  const controlStyle = { strokeWidth: 2.4, stroke: "var(--accent)", opacity: 0.95 };
+  const dataStyle = { strokeDasharray: "6 3", strokeWidth: 1.6, stroke: "#9ca3af", opacity: 0.9 };
+  return kind === PinKind.CONTROL ? controlStyle : dataStyle;
 }
 
 function safeJsonParse(text: string) {

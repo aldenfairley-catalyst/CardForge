@@ -9,6 +9,7 @@ export function wouldCreateCycle(_nodes: { id: string }[], edges: GraphEdge[], n
 
   const adj = new Map<string, string[]>();
   const addEdge = (edge: GraphEdge) => {
+    if (edge.edgeKind !== PinKind.CONTROL) return;
     const list = adj.get(edge.from.nodeId) ?? [];
     list.push(edge.to.nodeId);
     adj.set(edge.from.nodeId, list);

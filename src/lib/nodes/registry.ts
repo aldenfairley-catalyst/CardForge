@@ -92,7 +92,6 @@ export function arePinsCompatible(outPin?: PinDefinition, inPin?: PinDefinition)
   const source = outPin.dataType ?? "any";
   const target = inPin.dataType ?? "any";
   if (source === "any" || target === "any") return true;
-  if (target === "json") return true;
   if (source === target) return true;
   const inUnion = Array.isArray((inPin as any).dataType)
     ? ((inPin as any).dataType as DataType[])

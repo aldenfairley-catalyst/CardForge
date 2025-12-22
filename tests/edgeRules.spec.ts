@@ -122,4 +122,49 @@ describe("validateConnect rules", () => {
     expect(res.ok).toBe(false);
     if (!res.ok) expect(res.code).toBe("DUPLICATE");
   });
+
+  it("rejects IN → IN connections", () => {
+    const nodes = [node("IF", "if1"), node("SHOW_TEXT", "text")];
+    const edges: GraphEdge[] = [];
+    const res = validateConnect({
+      nodes,
+      edges,
+      sourceNodeId: "if1",
+      sourcePinId: "ifCondIn",
+      targetNodeId: "text",
+      targetPinId: "execIn"
+    });
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.code).toBe("SOURCE_NOT_OUT");
+  });
+
+  it("rejects OUT → OUT connections", () => {
+    const nodes = [node("EXEC_START", "start"), node("SHOW_TEXT", "text")];
+    const edges: GraphEdge[] = [];
+    const res = validateConnect({
+      nodes,
+      edges,
+      sourceNodeId: "start",
+      sourcePinId: "execOut",
+      targetNodeId: "text",
+      targetPinId: "execOut"
+    });
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.code).toBe("TARGET_NOT_IN");
+  });
+
+  it("rejects unknown pins with clear codes", () => {
+    const nodes = [node("EXEC_START", "start"), node("IF", "if1")];
+    const edges: GraphEdge[] = [];
+    const res = validateConnect({
+      nodes,
+      edges,
+      sourceNodeId: "start",
+      sourcePinId: "missingPin",
+      targetNodeId: "if1",
+      targetPinId: "ifCondIn"
+    });
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.code).toBe("SOURCE_PIN_MISSING");
+  });
 });

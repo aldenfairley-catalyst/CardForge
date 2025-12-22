@@ -153,6 +153,25 @@ pre{
   border:1px solid rgba(255,255,255,.6) !important;
   background: #1f2937 !important;
 }
+.pinBadge{
+  display:inline-flex;
+  align-items:center;
+  gap:4px;
+  padding:2px 6px;
+  border-radius:999px;
+  font-size:10px;
+  font-weight:700;
+  letter-spacing:.02em;
+  background:rgba(255,255,255,.08);
+  color:var(--muted);
+}
+.pinBadge--control{
+  border:1px solid rgba(99,179,255,.6);
+  color:#9cc6ff;
+}
+.pinBadge--data{
+  border:1px solid rgba(255,255,255,.2);
+}
 .nodeH{
   padding:8px 10px;
   border-bottom:1px solid var(--border);
