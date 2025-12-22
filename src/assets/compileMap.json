@@ -1,0 +1,10 @@
+{
+  "compileMapVersion": "CJ-COMPILEMAP-1.0",
+  "nodes": {
+    "EXEC_START": { "strategy": "SUBGRAPH_ENTRY" },
+    "SHOW_TEXT": { "strategy": "CANONICAL_STEP", "stepType": "SHOW_TEXT" },
+    "IF": { "strategy": "CANONICAL_STEP", "stepType": "IF_ELSE" },
+    "CONST_BOOL": { "strategy": "CONDITION_EXPR", "exprType": "CONST_BOOL" },
+    "CONST_NUMBER": { "strategy": "VALUE_EXPR", "exprType": "CONST_NUMBER" }
+  }
+}

@@ -217,6 +217,7 @@ export default function App() {
     return coerceUnknownSteps(migrated) as CardEntity;
   });
   const [graph, setGraph] = useState<Graph>(() => project.graphs[project.ui?.activeGraphId ?? "root"] ?? makeDefaultGraph());
+  const activeGraphId = project.ui?.activeGraphId ?? "root";
 
   const [issues, setIssues] = useState<ValidationIssue[]>([]);
   const [graphIssues, setGraphIssues] = useState<ValidationIssue[]>([]);
@@ -425,6 +426,7 @@ export default function App() {
     const payload: ForgeProject = {
       ...project,
       schemaVersion: "CJ-FORGE-PROJECT-1.0",
+      projectVersion: project.projectVersion ?? "CJ-FORGE-PROJECT-1.0",
       cardSchemaVersion: card.schemaVersion,
       card,
       graphs: { ...(project.graphs ?? {}), [activeGraphId]: graph },
@@ -441,7 +443,13 @@ export default function App() {
         const migrated = migrateCard(parsed.card);
         const incoming = coerceUnknownSteps(migrated) as CardEntity;
         const activeId = parsed?.ui?.activeGraphId ?? Object.keys(parsed.graphs)[0] ?? "root";
-        setProject({ ...(parsed as ForgeProject), card: incoming, ui: { ...(parsed.ui ?? {}), activeGraphId: activeId } });
+        setProject({
+          ...(parsed as ForgeProject),
+          schemaVersion: "CJ-FORGE-PROJECT-1.0",
+          projectVersion: (parsed as ForgeProject).projectVersion ?? "CJ-FORGE-PROJECT-1.0",
+          card: incoming,
+          ui: { ...(parsed.ui ?? {}), activeGraphId: activeId }
+        });
         setCard(incoming);
         setGraph(parsed.graphs[activeId] ?? makeDefaultGraph());
         const idxs = findAbilityIndexes(incoming);
@@ -525,8 +533,6 @@ export default function App() {
       setLibraryError(e.message ?? String(e));
     }
   }
-
-  const activeGraphId = project.ui?.activeGraphId ?? "root";
 
   const reactFlowNodes = useMemo(() => {
     return graph.nodes.map((n) => {
