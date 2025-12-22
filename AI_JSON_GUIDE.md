@@ -207,3 +207,17 @@ Trigger payload actions reuse **the same Step system** so scenarios can:
 - Include `schemaVersion` always.
 - Provide migrations in `/src/lib/migrations.ts`.
 
+---
+
+# 6) Forge Project (graph editor) vs Canonical Card JSON
+Forge now stores a **CJ-FORGE-PROJECT-1.0** that includes:
+- `card` (canonical CJ-1.x card JSON — runtime truth)
+- `graphs` (CJ-GRAPH-1.0) with nodes/edges/layout
+- `ui` (active graph id + layout prefs)
+
+Compile-on-change keeps `card.ability.execution.steps[]` in sync:
+- Graph validation blocks pin kind/type mismatches and missing required inputs.
+- Control pins allow **one outgoing edge per pin**; cycles are rejected.
+- `SHOW_TEXT`, `IF_ELSE`, `CONST_BOOL`, `CONST_NUMBER`, `EXEC_START` round-trip between graph and canonical steps.
+
+Node definitions live in `src/assets/nodeRegistry.json` (JSON-first source of truth). Add new nodes there, then extend compiler/validation accordingly.

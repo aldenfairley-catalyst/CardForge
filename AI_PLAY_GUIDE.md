@@ -92,3 +92,10 @@ Vehicles require:
 - Movement constraints (no diagonal/side-slip)
 - Collision and ram resolution steps
 
+---
+
+## 9) Ability flow expectations (graph editor parity)
+- Control chains terminate when a control output pin has no outgoing edge; non-branch pins may only have **one** outgoing control edge.
+- Cycles in control flow are rejected in validation to prevent infinite loops.
+- `SHOW_TEXT` steps surface narrative/log output and are the simplest proof that compile→runtime works.
+- Graphs compile continuously into canonical `execution.steps[]`; invalid graphs preserve the last known good compiled steps so playtests do not regress.

@@ -60,6 +60,7 @@ import { listNodesByCategory, materializePins, arePinsCompatible, defaultConfigF
 import { GraphNode as GenericGraphNode } from "./components/GraphNode";
 import { NodeConfigForm, coerceConfig } from "./components/NodeConfigForm";
 import { compileAbilityGraph } from "./lib/graphIR/compiler";
+import { reconcileEdgesAfterPinChange } from "./lib/graphIR/edgeUtils";
 import { PinKind, type ForgeProject, type Graph, type GraphNode as IRGraphNode } from "./lib/graphIR/types";
 
 type AppMode = "FORGE" | "LIBRARY" | "DECKS" | "SCENARIOS";
@@ -234,6 +235,7 @@ export default function App() {
   const [library, setLibrary] = useState(() => loadLibrary());
   const [libraryError, setLibraryError] = useState<string | null>(null);
   const [libraryUrl, setLibraryUrl] = useState(() => getLibrarySource().url ?? "");
+  const lastGoodStepsRef = useRef<Step[] | null>(null);
 
   // Registry upgrades: reload cached cards/libraries and prefetch cache-busted registry asset
   useEffect(() => {
@@ -325,13 +327,33 @@ export default function App() {
   const ability = getAbilityByIndex(activeAbilityIdx);
 
   useEffect(() => {
-    if (!ability) return;
-    const { steps, issues: gIssues } = compileAbilityGraph({ graph, ability, card });
-    setGraphIssues(gIssues);
-    const existing = (ability as any).execution?.steps ?? [];
-    if (JSON.stringify(existing) !== JSON.stringify(steps)) {
-      setAbility({ execution: { steps } } as any);
+    if (ability?.execution?.steps) {
+      lastGoodStepsRef.current = ability.execution.steps;
     }
+  }, [ability]);
+
+  useEffect(() => {
+    if (!ability) return;
+    const handle = window.setTimeout(() => {
+      const { steps, issues: gIssues } = compileAbilityGraph({ graph, ability, card });
+      setGraphIssues(gIssues);
+      const hasErrors = gIssues.some((i) => i.severity === "ERROR");
+      if (hasErrors) {
+        const fallback = lastGoodStepsRef.current ?? ((ability as any).execution?.steps ?? []);
+        if (JSON.stringify((ability as any).execution?.steps ?? []) !== JSON.stringify(fallback)) {
+          setAbility({ execution: { steps: fallback } } as any);
+        }
+        return;
+      }
+
+      lastGoodStepsRef.current = steps;
+      const existing = (ability as any).execution?.steps ?? [];
+      if (JSON.stringify(existing) !== JSON.stringify(steps)) {
+        setAbility({ execution: { steps } } as any);
+      }
+    }, 350);
+
+    return () => window.clearTimeout(handle);
   }, [graph, ability, card]);
 
   // keep activeProfileId valid for current ability
@@ -367,9 +389,11 @@ export default function App() {
       const node = g.nodes.find((n) => n.id === nodeId);
       if (!node) return g;
       const nextNodes = g.nodes.map((n) => (n.id === nodeId ? { ...n, config: nextConfig } : n));
-      const validPins = new Set(materializePins(node.nodeType, nextConfig).map((p) => p.id));
-      const nextEdges = g.edges.filter(
-        (e) => !(e.from.nodeId === nodeId && !validPins.has(e.from.pinId)) && !(e.to.nodeId === nodeId && !validPins.has(e.to.pinId))
+      const nextEdges = reconcileEdgesAfterPinChange(
+        g,
+        nodeId,
+        materializePins(node.nodeType, node.config),
+        materializePins(node.nodeType, nextConfig)
       );
       return { ...g, nodes: nextNodes, edges: nextEdges };
     });
@@ -408,6 +432,25 @@ export default function App() {
       }
 
       const edgeKind = sourcePin?.kind === PinKind.DATA ? PinKind.DATA : PinKind.CONTROL;
+      const duplicate = g.edges.some(
+        (e) =>
+          e.from.nodeId === connection.source &&
+          e.from.pinId === connection.sourceHandle &&
+          e.to.nodeId === connection.target &&
+          e.to.pinId === connection.targetHandle
+      );
+      if (duplicate) return g;
+
+      if (edgeKind === PinKind.CONTROL) {
+        const outgoingCount = g.edges.filter(
+          (e) => e.edgeKind === PinKind.CONTROL && e.from.nodeId === connection.source && e.from.pinId === connection.sourceHandle
+        ).length;
+        if (outgoingCount >= 1) {
+          alert("A control output pin can connect to at most one downstream control input.");
+          return g;
+        }
+      }
+
       const newEdge = {
         id: uuidv4(),
         edgeKind,
