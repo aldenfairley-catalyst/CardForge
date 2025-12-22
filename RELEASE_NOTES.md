@@ -2,6 +2,15 @@
 
 # RELEASE_NOTES
 
+# Phase A2 Config Editor + Dynamic Pins (refresh 2025-12-30)
+### Added
+- `NodeConfigForm` now renders a generic schema-driven form (string/number/integer/boolean/enum) with required warnings so IF `elseIfCount` appears as an integer input without bespoke wiring.
+- Config edits recompute dynamic pins, refresh each node’s `pinsCache`, and run `reconcileEdgesForPinRemoval` to drop edges that referenced removed handles.
+- Inspector tabs keep selection stable while editing and expose debug panels for `materializePins` output and the raw node `data` JSON to speed up troubleshooting.
+
+### Changed
+- Graph canvas relies on controlled React Flow state (`useNodesState`/`useEdgesState` + `selectedNodeId` from `onSelectionChange`) and updates only the edited node, preventing deselection flicker while typing.
+
 ## Phase A2 Config Editor + Dynamic Pins (refresh 2025-12-28)
 ### Added
 - Shared config schema helpers (`src/lib/nodes/configSchema.ts`) now power the inspector’s default merging, coercion, and validation so every registry field uses the same clamping/required logic.
