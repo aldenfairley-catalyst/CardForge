@@ -50,6 +50,7 @@ Version: MVP (EXEC_START, SHOW_TEXT, IF/ELSEIF/ELSE, CONST_BOOL, CONST_NUMBER)
 
 ## Config inspector (Phase A2)
 - Selecting a node opens a schema-driven config form. Fields are generated from `configSchema` (string, number, integer, boolean, enum) with min/max clamping and required hints.
+- Numeric fields treat blank input as “reset to default” (or `undefined` if no default) instead of forcing zero, while still clamping to min/max when present.
 - Inspector tabs: Config, Pins (debug view of `materializePins`), and Node JSON (read-only `data` payload including `config` + `pinsCache`).
 - Editing config keeps selection stable and immediately re-renders dynamic pins.
 - Incoming/outgoing edge debug panes list connected edges with `edgeKind`, `dataType`, source/target pin ids, and peer node labels so designers can trace wiring without leaving the inspector.
