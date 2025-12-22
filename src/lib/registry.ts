@@ -1,10 +1,11 @@
 import registry from "../assets/blockRegistry.json";
 import registryUrl from "../assets/blockRegistry.json?url";
+import { forgeProjectSchemaVersion } from "./graphIR/graphSchema";
 
 export const blockRegistry = registry as any;
 export const blockRegistryVersion = String((blockRegistry as any)?.schemaVersion ?? "BR-UNKNOWN");
 export const blockRegistryCacheBustingUrl = `${registryUrl}${registryUrl.includes("?") ? "&" : "?"}v=${encodeURIComponent(
-  blockRegistryVersion
+  `${blockRegistryVersion}-${forgeProjectSchemaVersion}`
 )}`;
 
 export function isStepTypeAllowed(t: string) {

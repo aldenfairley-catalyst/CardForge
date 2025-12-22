@@ -1,61 +1,80 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "CJ Forge Project",
+  "description": "Schema for CJ-FORGE-PROJECT-1.0 graph projects (card + graphs + UI metadata).",
   "type": "object",
-  "required": ["schemaVersion", "card", "graphs"],
+  "required": [
+    "schemaVersion",
+    "projectVersion",
+    "cardSchemaVersion",
+    "card",
+    "graphs"
+  ],
   "properties": {
     "schemaVersion": { "type": "string", "const": "CJ-FORGE-PROJECT-1.0" },
+    "projectVersion": { "type": "string", "const": "CJ-FORGE-PROJECT-1.0" },
+    "cardSchemaVersion": { "type": "string" },
     "card": { "type": "object" },
     "graphs": {
       "type": "object",
-      "additionalProperties": {
-        "type": "object",
-        "required": ["graphVersion", "id", "nodes", "edges"],
-        "properties": {
-          "graphVersion": { "type": "string", "const": "CJ-GRAPH-1.0" },
-          "id": { "type": "string" },
-          "label": { "type": "string" },
-          "nodes": {
-            "type": "array",
-            "items": {
-              "type": "object",
-              "required": ["id", "nodeType", "position", "config"],
-              "properties": {
-                "id": { "type": "string" },
-                "nodeType": { "type": "string" },
-                "position": {
-                  "type": "object",
-                  "required": ["x", "y"],
-                  "properties": { "x": { "type": "number" }, "y": { "type": "number" } }
-                },
-                "config": { "type": "object" }
-              }
-            }
-          },
-          "edges": {
-            "type": "array",
-            "items": {
-              "type": "object",
-              "required": ["id", "edgeKind", "from", "to"],
-              "properties": {
-                "id": { "type": "string" },
-                "edgeKind": { "type": "string", "enum": ["CONTROL", "DATA"] },
-                "from": {
-                  "type": "object",
-                  "required": ["nodeId", "pinId"],
-                  "properties": { "nodeId": { "type": "string" }, "pinId": { "type": "string" } }
-                },
-                "to": {
-                  "type": "object",
-                  "required": ["nodeId", "pinId"],
-                  "properties": { "nodeId": { "type": "string" }, "pinId": { "type": "string" } }
-                }
-              }
-            }
-          }
-        }
+      "description": "Map of graph id → graph definition.",
+      "minProperties": 1,
+      "additionalProperties": { "$ref": "#/definitions/Graph" }
+    },
+    "ui": { "$ref": "#/definitions/UIState" }
+  },
+  "definitions": {
+    "PinEndpoint": {
+      "type": "object",
+      "required": ["nodeId", "pinId"],
+      "properties": {
+        "nodeId": { "type": "string" },
+        "pinId": { "type": "string" }
       }
     },
-    "ui": { "type": "object" }
+    "GraphEdge": {
+      "type": "object",
+      "required": ["id", "edgeKind", "from", "to"],
+      "properties": {
+        "id": { "type": "string" },
+        "edgeKind": { "type": "string", "enum": ["CONTROL", "DATA"] },
+        "from": { "$ref": "#/definitions/PinEndpoint" },
+        "to": { "$ref": "#/definitions/PinEndpoint" }
+      }
+    },
+    "GraphNode": {
+      "type": "object",
+      "required": ["id", "nodeType", "position", "config"],
+      "properties": {
+        "id": { "type": "string" },
+        "nodeType": { "type": "string" },
+        "position": {
+          "type": "object",
+          "required": ["x", "y"],
+          "properties": { "x": { "type": "number" }, "y": { "type": "number" } }
+        },
+        "config": { "type": "object" }
+      }
+    },
+    "Graph": {
+      "type": "object",
+      "required": ["graphVersion", "id", "nodes", "edges"],
+      "properties": {
+        "graphVersion": { "type": "string", "const": "CJ-GRAPH-1.0" },
+        "id": { "type": "string" },
+        "label": { "type": "string" },
+        "nodes": { "type": "array", "items": { "$ref": "#/definitions/GraphNode" } },
+        "edges": { "type": "array", "items": { "$ref": "#/definitions/GraphEdge" } }
+      }
+    },
+    "UIState": {
+      "type": "object",
+      "properties": {
+        "activeGraphId": { "type": "string" },
+        "panels": { "type": "object" },
+        "selection": { "type": "object" }
+      },
+      "additionalProperties": true
+    }
   }
 }

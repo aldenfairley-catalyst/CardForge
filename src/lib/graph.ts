@@ -1,6 +1,7 @@
 import { v4 as uuidv4 } from "uuid";
 import { LATEST_SCHEMA_VERSION } from "./migrations";
 import type { CardEntity, AbilityComponent } from "./types";
+import { forgeGraphVersion, forgeProjectProjectVersion, forgeProjectSchemaVersion } from "./graphIR/graphSchema";
 import { PinKind, type ForgeProject, type Graph } from "./graphIR/types";
 
 export function makeDefaultCard(): CardEntity {
@@ -35,7 +36,7 @@ export function makeDefaultCard(): CardEntity {
 
 export function makeDefaultGraph(): Graph {
   return {
-    graphVersion: "CJ-GRAPH-1.0",
+    graphVersion: forgeGraphVersion as Graph["graphVersion"],
     id: "root",
     label: "Ability Graph",
     nodes: [
@@ -51,8 +52,8 @@ export function makeDefaultGraph(): Graph {
 export function makeDefaultProject(): ForgeProject {
   const card = makeDefaultCard();
   return {
-    schemaVersion: "CJ-FORGE-PROJECT-1.0",
-    projectVersion: "CJ-FORGE-PROJECT-1.0",
+    schemaVersion: forgeProjectSchemaVersion as ForgeProject["schemaVersion"],
+    projectVersion: forgeProjectProjectVersion as ForgeProject["projectVersion"],
     cardSchemaVersion: card.schemaVersion,
     card,
     graphs: { root: makeDefaultGraph() },

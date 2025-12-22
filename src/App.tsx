@@ -39,6 +39,7 @@ import {
   blockRegistryVersion,
   isStepTypeAllowed
 } from "./lib/registry";
+import { forgeProjectSchemaVersion, forgeProjectProjectVersion, validateForgeProject } from "./lib/graphIR/graphSchema";
 
 import { ConditionEditor } from "./components/ConditionEditor";
 import { CardPreview } from "./components/CardPreview";
@@ -227,6 +228,7 @@ export default function App() {
   const [importOpen, setImportOpen] = useState(false);
   const [importText, setImportText] = useState("");
   const [importError, setImportError] = useState<string | null>(null);
+  const [importIssues, setImportIssues] = useState<ValidationIssue[]>([]);
 
   const [previewOpen, setPreviewOpen] = useState(false);
 
@@ -468,8 +470,8 @@ export default function App() {
   function exportProjectJson() {
     const payload: ForgeProject = {
       ...project,
-      schemaVersion: "CJ-FORGE-PROJECT-1.0",
-      projectVersion: project.projectVersion ?? "CJ-FORGE-PROJECT-1.0",
+      schemaVersion: forgeProjectSchemaVersion as ForgeProject["schemaVersion"],
+      projectVersion: project.projectVersion ?? forgeProjectProjectVersion,
       cardSchemaVersion: card.schemaVersion,
       card,
       graphs: { ...(project.graphs ?? {}), [activeGraphId]: graph },
@@ -480,21 +482,25 @@ export default function App() {
 
   function doImport() {
     setImportError(null);
+    setImportIssues([]);
     try {
       const parsed = JSON.parse(importText);
-      if (parsed?.schemaVersion === "CJ-FORGE-PROJECT-1.0" && parsed?.card && parsed?.graphs) {
-        const migrated = migrateCard(parsed.card);
+      if (parsed?.schemaVersion === forgeProjectSchemaVersion && parsed?.card && parsed?.graphs) {
+        const { project: validated, issues: projectIssues } = validateForgeProject(parsed);
+        setImportIssues(projectIssues);
+        if (projectIssues.some((i) => i.severity === "ERROR")) return;
+
+        const migrated = migrateCard(validated!.card);
         const incoming = coerceUnknownSteps(migrated) as CardEntity;
-        const activeId = parsed?.ui?.activeGraphId ?? Object.keys(parsed.graphs)[0] ?? "root";
+        const activeId = validated?.ui?.activeGraphId ?? Object.keys(validated!.graphs)[0] ?? "root";
         setProject({
-          ...(parsed as ForgeProject),
-          schemaVersion: "CJ-FORGE-PROJECT-1.0",
-          projectVersion: (parsed as ForgeProject).projectVersion ?? "CJ-FORGE-PROJECT-1.0",
+          ...(validated as ForgeProject),
+          projectVersion: validated?.projectVersion ?? forgeProjectProjectVersion,
           card: incoming,
-          ui: { ...(parsed.ui ?? {}), activeGraphId: activeId }
+          ui: { ...(validated?.ui ?? {}), activeGraphId: activeId }
         });
         setCard(incoming);
-        setGraph(parsed.graphs[activeId] ?? makeDefaultGraph());
+        setGraph(validated?.graphs[activeId] ?? makeDefaultGraph());
         const idxs = findAbilityIndexes(incoming);
         setActiveAbilityIdx(idxs[0] ?? 0);
       } else {
@@ -1612,6 +1618,7 @@ export default function App() {
         onClose={() => {
           setImportOpen(false);
           setImportError(null);
+          setImportIssues([]);
         }}
         footer={
           <button className="btn btnPrimary" onClick={doImport}>
@@ -1622,6 +1629,29 @@ export default function App() {
         <div className="small" style={{ marginBottom: 8 }}>
           Unknown step types become <code>UNKNOWN_STEP</code> (and will auto-recover if registry later adds the type).
         </div>
+        {importIssues.length ? (
+          <div className="panel" style={{ background: "#f6f8ff", border: "1px solid #dfe3f0" }}>
+            <div className="ph">
+              <div className="h3" style={{ margin: 0 }}>
+                Project validation
+              </div>
+              <span className="badge">{importIssues.filter((i) => i.severity === "ERROR").length} errors</span>
+            </div>
+            <div className="pb" style={{ maxHeight: 200, overflow: "auto", gap: 6, display: "flex", flexDirection: "column" }}>
+              {importIssues.map((i, idx) => (
+                <div key={idx} className={i.severity === "ERROR" ? "err" : "warn"}>
+                  <b>{i.code}</b>
+                  <div className="small">{i.message}</div>
+                  {i.path ? (
+                    <div className="small">
+                      <code>{i.path}</code>
+                    </div>
+                  ) : null}
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : null}
         {importError ? (
           <div className="err">
             <b>Import error</b>
