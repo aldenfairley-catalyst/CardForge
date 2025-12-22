@@ -122,4 +122,47 @@ describe("graph validation rules", () => {
     const { steps } = compileAbilityGraph({ graph, ability, card });
     expect(steps).toEqual((ability as any).execution?.steps ?? []);
   });
+
+  it("rejects missing required IF condition connections during compilation", () => {
+    const { ability, card } = buildAbility();
+    const graph: Graph = {
+      graphVersion: "CJ-GRAPH-1.0",
+      id: "g",
+      label: "missing-cond",
+      nodes: [
+        { id: "start", nodeType: "EXEC_START", position: { x: 0, y: 0 }, config: {} },
+        { id: "if", nodeType: "IF", position: { x: 200, y: 0 }, config: { elseIfCount: 1 } },
+        { id: "then", nodeType: "SHOW_TEXT", position: { x: 400, y: 0 }, config: { text: "Then" } }
+      ],
+      edges: [
+        { id: "e1", edgeKind: PinKind.CONTROL, from: { nodeId: "start", pinId: "execOut" }, to: { nodeId: "if", pinId: "execIn" } },
+        { id: "e2", edgeKind: PinKind.CONTROL, from: { nodeId: "if", pinId: "thenExecOut" }, to: { nodeId: "then", pinId: "execIn" } }
+      ]
+    };
+
+    const { issues, steps } = compileAbilityGraph({ graph, ability, card });
+    const errorCodes = issues.filter((i) => i.severity === "ERROR").map((i) => i.code);
+    expect(errorCodes).toContain("REQUIRED_PIN");
+    expect(steps).toEqual((ability as any).execution?.steps ?? []);
+  });
+
+  it("flags missing required config fields per node schema", () => {
+    const { ability } = buildAbility();
+    const graph: Graph = {
+      graphVersion: "CJ-GRAPH-1.0",
+      id: "g",
+      label: "missing-config",
+      nodes: [
+        { id: "start", nodeType: "EXEC_START", position: { x: 0, y: 0 }, config: {} },
+        { id: "show", nodeType: "SHOW_TEXT", position: { x: 200, y: 0 }, config: {} }
+      ],
+      edges: [
+        { id: "e1", edgeKind: PinKind.CONTROL, from: { nodeId: "start", pinId: "execOut" }, to: { nodeId: "show", pinId: "execIn" } }
+      ]
+    };
+
+    const issues = validateGraph(graph, ability);
+    const errorCodes = issues.filter((i) => i.severity === "ERROR").map((i) => i.code);
+    expect(errorCodes).toContain("CONFIG_REQUIRED");
+  });
 });
