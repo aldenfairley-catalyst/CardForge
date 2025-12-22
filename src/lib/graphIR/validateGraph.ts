@@ -66,7 +66,9 @@ function detectControlCycles(startId: string, adj: Map<string, string[]>, issues
     if (cycleFound) return;
     if (visiting.has(nodeId)) {
       cycleFound = true;
-      push(issues, "ERROR", "CONTROL_CYCLE", "Control flow contains a cycle.", `nodes.${nodeId}`);
+      if (!issues.some((i) => i.code === "CONTROL_CYCLE")) {
+        push(issues, "ERROR", "CONTROL_CYCLE", "Control flow contains a cycle.", `nodes.${nodeId}`);
+      }
       return;
     }
     if (visited.has(nodeId)) return;
@@ -77,6 +79,30 @@ function detectControlCycles(startId: string, adj: Map<string, string[]>, issues
   };
 
   dfs(startId);
+}
+
+function detectAnyControlCycle(adj: Map<string, string[]>, issues: ValidationIssue[]) {
+  const visiting = new Set<string>();
+  const visited = new Set<string>();
+  let reported = false;
+
+  const dfs = (nodeId: string) => {
+    if (reported) return;
+    if (visiting.has(nodeId)) {
+      reported = true;
+      if (!issues.some((i) => i.code === "CONTROL_CYCLE")) {
+        push(issues, "ERROR", "CONTROL_CYCLE", "Control flow contains a cycle.", `nodes.${nodeId}`);
+      }
+      return;
+    }
+    if (visited.has(nodeId)) return;
+    visiting.add(nodeId);
+    (adj.get(nodeId) ?? []).forEach((next) => dfs(next));
+    visiting.delete(nodeId);
+    visited.add(nodeId);
+  };
+
+  Array.from(adj.keys()).forEach((nodeId) => dfs(nodeId));
 }
 
 function computeReachable(startId: string, adj: Map<string, string[]>): Set<string> {
@@ -142,6 +168,7 @@ export function validateGraph(
   const pinIndex = buildPinIndex(graph);
   const controlAdj = new Map<string, string[]>();
   const controlIncoming = new Map<string, GraphEdge[]>();
+  const controlOutCounts = new Map<string, number>();
 
   graph.edges.forEach((edge) => addControlAdjacency(edge, controlAdj, controlIncoming));
 
@@ -202,7 +229,26 @@ export function validateGraph(
         `edges[${idx}]`
       );
     }
+
+    if (edge.edgeKind === PinKind.CONTROL && outPin?.direction === "OUT") {
+      const key = `${edge.from.nodeId}::${edge.from.pinId}`;
+      controlOutCounts.set(key, (controlOutCounts.get(key) ?? 0) + 1);
+    }
   });
+
+  controlOutCounts.forEach((count, key) => {
+    if (count <= 1) return;
+    const [nodeId, pinId] = key.split("::");
+    push(
+      issues,
+      "ERROR",
+      "MULTIPLE_EXEC_OUT",
+      `Control output pin '${pinId}' on node '${nodeId}' has multiple outgoing edges.`,
+      `nodes.${nodeId}.pins.${pinId}`
+    );
+  });
+
+  detectAnyControlCycle(controlAdj, issues);
 
   const start = graph.nodes.find((n) => n.nodeType === "EXEC_START");
   if (!start) {

@@ -54,6 +54,7 @@ export type Expression =
 
 export type Condition =
   | { type: "ALWAYS" }
+  | { type: "CONST_BOOL"; value: boolean }
   | { type: "NOT"; cond: Condition }
   | { type: "AND"; all: Condition[] }
   | { type: "OR"; any: Condition[] }

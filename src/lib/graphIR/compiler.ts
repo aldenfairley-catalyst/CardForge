@@ -125,11 +125,12 @@ export function compileAbilityGraph({
   card: CardEntity;
 }): { steps: Step[]; issues: ReturnType<typeof validateGraph> } {
   const issues = validateGraph(graph, ability);
+  const hasErrors = issues.some((i) => i.severity === "ERROR");
   const nodeIndex = new Map<string, GraphNode>();
   graph.nodes.forEach((n) => nodeIndex.set(n.id, n));
 
   const start = graph.nodes.find((n) => n.nodeType === "EXEC_START");
-  if (!start) return { steps: [], issues };
+  if (!start || hasErrors) return { steps: (ability as any).execution?.steps ?? [], issues };
 
   const ctx: CompileCtx = { graph, ability, card, visited: new Set(), nodeIndex, issues };
 
