@@ -1,9 +1,14 @@
 import type { AbilityComponent, CardEntity, Condition, Expression, Step } from "../types";
 
+// Editor-side Graph IR used by the React Flow canvas.
+// This is distinct from the canonical runtime steps stored on the card.
+
 export enum PinKind {
   CONTROL = "CONTROL",
   DATA = "DATA"
 }
+
+export type EdgeKind = "CONTROL" | "DATA";
 
 export type DataType =
   | "number"
@@ -74,7 +79,7 @@ export type PinEndpoint = {
 
 export type GraphEdge = {
   id: string;
-  edgeKind: PinKind.CONTROL | PinKind.DATA;
+  edgeKind: EdgeKind;
   from: PinEndpoint;
   to: PinEndpoint;
 };

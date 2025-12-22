@@ -221,3 +221,13 @@ Compile-on-change keeps `card.ability.execution.steps[]` in sync:
 - `SHOW_TEXT`, `IF_ELSE`, `CONST_BOOL`, `CONST_NUMBER`, `EXEC_START` round-trip between graph and canonical steps.
 
 Node definitions live in `src/assets/nodeRegistry.json` (JSON-first source of truth). Add new nodes there, then extend compiler/validation accordingly.
+
+### 6.1 Node registry (CJ-NODEDEF-1.0)
+- Authoritative palette + rendering source: `nodeType`, `label`, `category`, `description`.
+- `configSchema` drives defaults; `pins.static[]` list control/data pins and their groups; `pins.dynamic` (Phase A1: ELSEIF generator) expands deterministic ids using `{i}` and labels using `{n}`.
+- Includes placeholder `compile` metadata even when unused so compiler phases can align later.
+- Default configs are derived from schema defaults (e.g., IF → `{ elseIfCount: 0 }`).
+
+### 6.2 Graph IR is editor-only in Phase A1
+- CJ-GRAPH-1.0 stores `{ nodes, edges }` with `edgeKind: CONTROL | DATA` for the editor.
+- Canonical runtime truth remains the CJ card JSON; compilation will consume the graph in later phases.

@@ -1,5 +1,5 @@
 // src/App.tsx
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ReactFlow, {
   Background,
   Controls,
@@ -57,12 +57,12 @@ import {
   upsertStep,
   type ActionLibrary
 } from "./lib/repository";
-import { listNodesByCategory, materializePins, arePinsCompatible, defaultConfigForNode, getNodeDef } from "./lib/nodes/registry";
+import { listNodesByCategory, materializePins, arePinsCompatible, getDefaultConfig, getNodeDef } from "./lib/nodes/registry";
 import { GraphNode as GenericGraphNode } from "./components/GraphNode";
 import { NodeConfigForm, coerceConfig } from "./components/NodeConfigForm";
 import { compileAbilityGraph } from "./lib/graphIR/compiler";
 import { reconcileEdgesAfterPinChange } from "./lib/graphIR/edgeUtils";
-import { PinKind, type ForgeProject, type Graph, type GraphNode as IRGraphNode } from "./lib/graphIR/types";
+import { PinKind, type ForgeProject, type Graph, type GraphEdge, type GraphNode as IRGraphNode } from "./lib/graphIR/types";
 
 type AppMode = "FORGE" | "LIBRARY" | "DECKS" | "SCENARIOS";
 
@@ -218,6 +218,7 @@ export default function App() {
     const migrated = loadMigratedCardOrDefault(makeDefaultCard);
     return coerceUnknownSteps(migrated) as CardEntity;
   });
+  // Graph editor state lives in CJ-GRAPH-1.0 IR and is adapted to React Flow nodes/edges.
   const [graph, setGraph] = useState<Graph>(() => project.graphs[project.ui?.activeGraphId ?? "root"] ?? makeDefaultGraph());
   const activeGraphId = project.ui?.activeGraphId ?? "root";
 
@@ -375,8 +376,7 @@ export default function App() {
   }
 
   function addNode(nodeType: string) {
-    const def = getNodeDef(nodeType);
-    const config = defaultConfigForNode(nodeType);
+    const config = getDefaultConfig(nodeType);
     const node: IRGraphNode = {
       id: uuidv4(),
       nodeType,
@@ -583,30 +583,38 @@ export default function App() {
     }
   }
 
-  const reactFlowNodes = useMemo(() => {
-    return graph.nodes.map((n) => {
-      const def = getNodeDef(n.nodeType);
-      const pins = materializePins(n.nodeType, n.config);
-      return {
-        id: n.id,
-        type: "forgeNode",
-        position: n.position,
-        data: { label: def?.label ?? n.nodeType, category: def?.category ?? "Node", pins },
-        selected: selectedNodeId === n.id
-      };
-    });
-  }, [graph, selectedNodeId]);
+  // Adapter: Graph IR → React Flow nodes/edges
+  const graphNodeToReactFlowNode = useCallback(
+    (n: IRGraphNode) => ({
+      id: n.id,
+      type: "genericNode",
+      position: n.position,
+      data: { nodeType: n.nodeType, config: n.config },
+      selected: selectedNodeId === n.id
+    }),
+    [selectedNodeId]
+  );
 
-  const reactFlowEdges = useMemo(() => {
-    return graph.edges.map((e) => ({
+  const graphEdgeToReactFlowEdge = useCallback((e: GraphEdge) => {
+    return {
       id: e.id,
       source: e.from.nodeId,
       target: e.to.nodeId,
       sourceHandle: e.from.pinId,
       targetHandle: e.to.pinId,
       label: e.edgeKind
-    })) as Edge[];
-  }, [graph]);
+    } as Edge;
+  }, []);
+
+  const reactFlowNodes = useMemo(
+    () => graph.nodes.map((n) => graphNodeToReactFlowNode(n)),
+    [graph, graphNodeToReactFlowNode]
+  );
+
+  const reactFlowEdges = useMemo(
+    () => graph.edges.map((e) => graphEdgeToReactFlowEdge(e)),
+    [graph, graphEdgeToReactFlowEdge]
+  );
 
   useEffect(() => {
     if (!selectedNodeId) return;
@@ -617,7 +625,7 @@ export default function App() {
 
   const nodeTypes = useMemo(
     () => ({
-      forgeNode: GenericGraphNode
+      genericNode: GenericGraphNode
     }),
     []
   );
@@ -1015,8 +1023,8 @@ export default function App() {
         <div className="panel">
           <div className="ph">
             <div>
-              <div className="h2">Palette</div>
-              <div className="small">Nodes from registry (JSON-driven)</div>
+              <div className="h2">Graph Nodes (CJ-NODEDEF-1.0)</div>
+              <div className="small">Palette is driven by src/assets/nodeRegistry.json</div>
             </div>
             <span className="badge">{nodeCount}</span>
           </div>
