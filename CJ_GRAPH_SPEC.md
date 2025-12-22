@@ -43,15 +43,15 @@ Version: MVP (EXEC_START, SHOW_TEXT, IF/ELSEIF/ELSE, CONST_BOOL, CONST_NUMBER)
 - Graph IR currently lives in React state (in-memory) and is exported with the Forge Project JSON; refresh resets the canvas unless a project is re-imported. Validation accepts CJ-GRAPH-1.0 and CJ-GRAPH-1.1, warning when a graph is on an older version.
 
 ## React Flow adapter (Phase A2)
-- Canvas state uses `useNodesState` / `useEdgesState` for stable selection (editing config no longer deselects).
-- React Flow node data: `{ nodeType, config, pinsCache }` and the `selected` flag is controlled by local inspector state.
+- Canvas state uses `useNodesState` / `useEdgesState` with `selectedNodeId` derived from `onSelectionChange`; config edits patch only the active node to avoid rebuilding arrays (selection stays stable while typing).
+- React Flow node data: `{ nodeType, config, pinsCache }` and selection is owned by React Flow’s controlled state plus the inspector’s `selectedNodeId`.
 - Graph export/import is round-tripped from React Flow state → CJ-GRAPH-1.x and back; imports repopulate pinsCache on load.
 - Unknown node types render as explicit error nodes on the canvas to expose registry drift, because the single `GraphNode` renderer pulls labels/pins straight from the registry for every node type.
 - Palette clicks instantiate new nodes with `getDefaultConfig(nodeType)`; dynamic pin ids are cached immediately for reconciliation.
 
 ## Config inspector (Phase A2)
-- Selecting a node opens a schema-driven config form. Fields are generated from `configSchema` (string, number, integer, boolean, enum) with min/max clamping and required hints. The renderer lives in `src/components/NodeConfigForm.tsx` and reuses helpers in `src/lib/nodes/configSchema.ts` for default merging, coercion, and validation.
-- Supported `configSchema` facets (A2 subset): `properties`, `required`, property `type` (string/number/integer/boolean), `enum`, `default`, `minimum`, `maximum`, `title`, `description`. Nested objects/arrays/oneOf are out of scope for A2 and fall back to the JSON debug view.
+- Selecting a node opens a schema-driven config form. Fields are generated from `configSchema` (string, number, integer, boolean, enum) with min/max clamping and required hints; IF nodes, for example, render `elseIfCount` as an integer input with inline required status. The renderer lives in `src/components/NodeConfigForm.tsx` and reuses helpers in `src/lib/nodes/configSchema.ts` for default merging, coercion, and validation.
+- Supported `configSchema` facets (A2 subset): `properties`, `required`, property `type` (string/number/integer/boolean), `enum`, `default`, `minimum`, `maximum`, `title`, `description`. Nested objects/arrays/oneOf are out of scope for A2 and fall back to the JSON debug view; the “Node JSON (debug)” tab always mirrors the raw `data`.
 - Numeric fields treat blank input as “reset to default” (or `undefined` if no default) instead of forcing zero, while still clamping to min/max when present.
 - Inspector tabs: Config, Pins (debug view of `materializePins`), and Node JSON (read-only `data` payload including `config` + `pinsCache`).
 - Editing config keeps selection stable and immediately re-renders dynamic pins.
@@ -60,6 +60,7 @@ Version: MVP (EXEC_START, SHOW_TEXT, IF/ELSEIF/ELSE, CONST_BOOL, CONST_NUMBER)
 ## Edge reconciliation (Phase A2)
 - Policy: remove edges that reference pins removed by a config change.
 - Algorithm: compare `oldPins` vs `newPins` (ids), build `removed`, and filter any edge whose `sourceHandle`/`targetHandle` matches a removed id on the edited node.
+- Helper: `reconcileEdgesForPinRemoval(nodeId, oldPinIds, newPinIds, edges)` accepts either React Flow edges or Graph IR edges and strips dangling connections immediately after config updates.
 - Reconciliation runs in the same transaction as config updates so the canvas never renders dangling handles.
 
 ## Compile mapping (MVP)

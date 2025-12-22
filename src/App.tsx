@@ -63,7 +63,7 @@ import { listNodesByCategory, materializePins, getDefaultConfig, getNodeDef } fr
 import { GraphNode as GenericGraphNode } from "./components/GraphNode";
 import { NodeConfigForm } from "./components/NodeConfigForm";
 import { compileAbilityGraph } from "./lib/graphIR/compiler";
-import { reconcileReactFlowEdgesAfterPinChange } from "./lib/graphIR/reconcile";
+import { reconcileEdgesForPinRemoval } from "./lib/graphIR/reconcile";
 import { validateConnect } from "./lib/graphIR/edgeRules";
 import {
   graphEdgeToReactFlowEdge,
@@ -429,15 +429,12 @@ export default function App() {
     });
   }
 
-  const toReactFlowNode = useCallback(
-    (n: IRGraphNode): Node => graphNodeToReactFlowNode(ensurePinsCache(n), selectedNodeId),
-    [selectedNodeId]
-  );
+  const toReactFlowNode = useCallback((n: IRGraphNode): Node => graphNodeToReactFlowNode(ensurePinsCache(n)), []);
 
   const loadGraphIntoState = useCallback(
     (nextGraph: Graph) => {
       setGraphMeta({ graphVersion: nextGraph.graphVersion, id: nextGraph.id, label: nextGraph.label });
-      setNodes(nextGraph.nodes.map((n) => toReactFlowNode(ensurePinsCache(n))));
+      setNodes(nextGraph.nodes.map((n) => toReactFlowNode(n)));
       setEdges(nextGraph.edges.map((e) => ({ ...graphEdgeToReactFlowEdge(e), style: edgeStyle((e.edgeKind as PinKind) ?? PinKind.CONTROL) })));
       setSelectedNodeId(null);
     },
@@ -447,32 +444,33 @@ export default function App() {
   function addNode(nodeType: string) {
     const config = getDefaultConfig(nodeType);
     const pinsCache = materializePins(nodeType, config).map((p) => p.id);
-    const node: IRGraphNode = ensurePinsCache({
-      id: uuidv4(),
-      nodeType,
-      position: { x: 120 + nodes.length * 20, y: 120 + nodes.length * 40 },
-      config,
-      pinsCache
+    setNodes((prev) => {
+      const node: IRGraphNode = ensurePinsCache({
+        id: uuidv4(),
+        nodeType,
+        position: { x: 120 + prev.length * 20, y: 120 + prev.length * 40 },
+        config,
+        pinsCache
+      });
+      return [...prev, graphNodeToReactFlowNode(node)];
     });
-    setNodes((prev) => [...prev, graphNodeToReactFlowNode(node)]);
   }
 
   function updateNodeConfig(nodeId: string, nextConfig: Record<string, any>) {
     setNodes((prev) => {
       const existing = prev.find((n) => n.id === nodeId);
       if (!existing) return prev;
-      const oldPins = materializePins(existing.data.nodeType, existing.data.config);
-      const newPins = materializePins(existing.data.nodeType, nextConfig);
 
-      setEdges((eds) => reconcileReactFlowEdgesAfterPinChange(nodeId, oldPins, newPins, eds));
+      const nodeType = existing.data.nodeType;
+      const oldPins = materializePins(nodeType, existing.data.config);
+      const newPins = materializePins(nodeType, nextConfig);
+      const oldPinIds = oldPins.map((p) => p.id);
+      const newPinIds = newPins.map((p) => p.id);
+
+      setEdges((eds) => reconcileEdgesForPinRemoval(nodeId, oldPinIds, newPinIds, eds) as Edge[]);
 
       return prev.map((n) =>
-        n.id === nodeId
-          ? {
-              ...n,
-              data: { ...n.data, config: nextConfig, pinsCache: newPins.map((p) => p.id) }
-            }
-          : n
+        n.id === nodeId ? { ...n, data: { ...n.data, config: nextConfig, pinsCache: newPinIds } } : n
       );
     });
   }
@@ -653,16 +651,6 @@ export default function App() {
   }, [nodes, selectedNodeId]);
 
   useEffect(() => {
-    setNodes((prev) =>
-      prev.map((n) => {
-        const shouldSelect = selectedNodeId === n.id;
-        if (n.selected === shouldSelect) return n;
-        return { ...n, selected: shouldSelect };
-      })
-    );
-  }, [selectedNodeId, setNodes]);
-
-  useEffect(() => {
     setInspectorTab("config");
   }, [selectedNodeId]);
 
@@ -678,19 +666,12 @@ export default function App() {
   const nodeGroups = useMemo(() => listNodesByCategory(), []);
   const nodeCount = useMemo(() => nodeGroups.reduce((sum, g) => sum + g.nodes.length, 0), [nodeGroups]);
 
-  const selectedGraphNode = useMemo(() => {
-    if (!selectedNodeId) return null;
-    const rfNode = nodes.find((n) => n.id === selectedNodeId);
-    if (!rfNode) return null;
-    return {
-      id: rfNode.id,
-      nodeType: rfNode.data.nodeType,
-      position: rfNode.position,
-      config: rfNode.data.config
-    } as IRGraphNode;
-  }, [nodes, selectedNodeId]);
-
-  const selectedReactFlowNode = useMemo(() => nodes.find((n) => n.id === selectedNodeId) ?? null, [nodes, selectedNodeId]);
+  const selectedNode = useMemo(() => nodes.find((n) => n.id === selectedNodeId) ?? null, [nodes, selectedNodeId]);
+  const selectedNodeDef = useMemo(() => (selectedNode ? getNodeDef(selectedNode.data.nodeType) : null), [selectedNode]);
+  const selectedPins = useMemo(
+    () => (selectedNode ? materializePins(selectedNode.data.nodeType, selectedNode.data.config) : []),
+    [selectedNode]
+  );
   const nodeLabelById = useMemo(() => {
     const map = new Map<string, string>();
     nodes.forEach((n) => map.set(n.id, getNodeDef(n.data.nodeType)?.label ?? n.data.nodeType));
@@ -1168,7 +1149,7 @@ export default function App() {
               <div>
                 <div className="h2">Inspector</div>
                 <div className="small">
-                  {selectedGraphNode ? getNodeDef(selectedGraphNode.nodeType)?.label ?? selectedGraphNode.nodeType : "No selection"}
+                  {selectedNode ? selectedNodeDef?.label ?? selectedNode.data.nodeType : "No selection"}
                 </div>
               </div>
               <span className="badge">{card.schemaVersion}</span>
@@ -1267,14 +1248,14 @@ export default function App() {
 
               <hr style={{ borderColor: "var(--border)", opacity: 0.5, margin: "12px 0" }} />
 
-              {selectedGraphNode ? (
+              {selectedNode ? (
                 <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 12 }}>
                   <div className="small">Node</div>
                   <div style={{ fontWeight: 900 }}>
-                    {getNodeDef(selectedGraphNode.nodeType)?.label ?? selectedGraphNode.nodeType} ({selectedGraphNode.nodeType})
+                    {selectedNodeDef?.label ?? selectedNode.data.nodeType} ({selectedNode.data.nodeType})
                   </div>
                   <div className="small" style={{ color: "var(--muted)" }}>
-                    {selectedGraphNode.id}
+                    {selectedNode.id}
                   </div>
 
                   <div style={{ display: "flex", gap: 6, marginTop: 4 }}>
@@ -1285,24 +1266,24 @@ export default function App() {
                         style={{ flex: 1 }}
                         onClick={() => setInspectorTab(tab as any)}
                       >
-                        {tab === "config" ? "Config" : tab === "pins" ? "Pins (debug)" : "Node JSON"}
+                        {tab === "config" ? "Config" : tab === "pins" ? "Pins (debug)" : "Node JSON (debug)"}
                       </button>
                     ))}
                   </div>
 
                   {inspectorTab === "config" ? (
                     <NodeConfigForm
-                      nodeId={selectedGraphNode.id}
-                      nodeType={selectedGraphNode.nodeType}
-                      config={selectedGraphNode.config}
-                      schema={getNodeDef(selectedGraphNode.nodeType)?.configSchema ?? { type: "object", properties: {} }}
-                      onChange={(cfg) => updateNodeConfig(selectedGraphNode.id, cfg)}
+                      nodeId={selectedNode.id}
+                      nodeType={selectedNode.data.nodeType}
+                      config={selectedNode.data.config}
+                      schema={selectedNodeDef?.configSchema ?? { type: "object", properties: {} }}
+                      onChange={(cfg) => updateNodeConfig(selectedNode.id, cfg)}
                     />
                   ) : null}
 
                   {inspectorTab === "pins" ? (
                     <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                      {materializePins(selectedGraphNode.nodeType, selectedGraphNode.config).map((pin) => (
+                      {selectedPins.map((pin) => (
                         <div key={pin.id} className="small" style={{ display: "flex", flexDirection: "column", padding: 6, border: "1px solid var(--border)", borderRadius: 6 }}>
                           <div style={{ fontWeight: 700 }}>{pin.label}</div>
                           <div>
@@ -1316,13 +1297,13 @@ export default function App() {
                           </div>
                         </div>
                       ))}
-                      {!materializePins(selectedGraphNode.nodeType, selectedGraphNode.config).length ? <div className="small">No pins</div> : null}
+                      {!selectedPins.length ? <div className="small">No pins</div> : null}
                     </div>
                   ) : null}
 
                   {inspectorTab === "json" ? (
                     <pre style={{ margin: 0, background: "var(--code-bg)", padding: 10, borderRadius: 8, overflow: "auto" }}>
-                      {JSON.stringify(selectedReactFlowNode?.data ?? {}, null, 2)}
+                      {JSON.stringify(selectedNode.data ?? {}, null, 2)}
                     </pre>
                   ) : null}
 
@@ -1330,11 +1311,11 @@ export default function App() {
                     <div className="small" style={{ fontWeight: 700 }}>
                       Incoming edges
                     </div>
-                    {graph.edges.filter((e) => e.to.nodeId === selectedGraphNode.id).length ? null : (
+                    {graph.edges.filter((e) => e.to.nodeId === selectedNode.id).length ? null : (
                       <div className="small">None</div>
                     )}
                     {graph.edges
-                      .filter((e) => e.to.nodeId === selectedGraphNode.id)
+                      .filter((e) => e.to.nodeId === selectedNode.id)
                       .map((edge) => {
                         const fromLabel = nodeLabelById.get(edge.from.nodeId) ?? edge.from.nodeId;
                         const kind = `${edge.edgeKind}${
@@ -1350,11 +1331,11 @@ export default function App() {
                     <div className="small" style={{ fontWeight: 700, marginTop: 4 }}>
                       Outgoing edges
                     </div>
-                    {graph.edges.filter((e) => e.from.nodeId === selectedGraphNode.id).length ? null : (
+                    {graph.edges.filter((e) => e.from.nodeId === selectedNode.id).length ? null : (
                       <div className="small">None</div>
                     )}
                     {graph.edges
-                      .filter((e) => e.from.nodeId === selectedGraphNode.id)
+                      .filter((e) => e.from.nodeId === selectedNode.id)
                       .map((edge) => {
                         const toLabel = nodeLabelById.get(edge.to.nodeId) ?? edge.to.nodeId;
                         const kind = `${edge.edgeKind}${
@@ -1368,7 +1349,7 @@ export default function App() {
                       })}
                   </div>
 
-                  <button className="btn btnDanger" onClick={() => deleteGraphNode(selectedGraphNode.id)}>
+                  <button className="btn btnDanger" onClick={() => deleteGraphNode(selectedNode.id)}>
                     Delete Node
                   </button>
                 </div>

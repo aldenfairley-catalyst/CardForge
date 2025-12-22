@@ -41,3 +41,35 @@ export function reconcileReactFlowEdgesAfterPinChange(
     return true;
   });
 }
+
+function buildRemovedIds(oldPinIds: string[], newPinIds: string[]) {
+  const removed = new Set<string>();
+  const oldSet = new Set(oldPinIds);
+  const newSet = new Set(newPinIds);
+  oldSet.forEach((id) => {
+    if (!newSet.has(id)) removed.add(id);
+  });
+  return removed;
+}
+
+function isReactFlowEdge(edge: any): edge is Edge {
+  return edge && typeof edge === "object" && "source" in edge && "target" in edge;
+}
+
+export function reconcileEdgesForPinRemoval(nodeId: string, oldPinIds: string[], newPinIds: string[], edges: Array<Edge | GraphEdge>) {
+  const removed = buildRemovedIds(oldPinIds, newPinIds);
+  if (!removed.size) return edges;
+
+  return edges.filter((edge) => {
+    if (isReactFlowEdge(edge)) {
+      if (edge.source === nodeId && edge.sourceHandle && removed.has(edge.sourceHandle)) return false;
+      if (edge.target === nodeId && edge.targetHandle && removed.has(edge.targetHandle)) return false;
+      return true;
+    }
+
+    const graphEdge = edge as GraphEdge;
+    if (graphEdge.from?.nodeId === nodeId && removed.has(graphEdge.from.pinId)) return false;
+    if (graphEdge.to?.nodeId === nodeId && removed.has(graphEdge.to.pinId)) return false;
+    return true;
+  });
+}
