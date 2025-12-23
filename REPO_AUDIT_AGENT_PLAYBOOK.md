@@ -1,384 +1,409 @@
 # REPO_AUDIT_AGENT_PLAYBOOK.md
-Captain Jawa Forge — Full Repository Audit Instructions (Conflicts / Orphans / Incomplete / Duplicates)
-Version: 1.0  
-Purpose: Give an agent a **highly detailed, step-by-step** process to inspect the entire repository and produce a **structured report** listing:
-- Conflicting behaviors (logic/UI/data/schemas out of sync)
-- Orphaned functions/files (unused exports, dead code, unreachable paths)
-- Incomplete functionality (stubs, TODOs, UI not wired, partial schema support)
-- Duplicated functionality (same feature implemented twice, parallel systems)
-- Documentation drift (docs describe features that code does not implement)
+Captain Jawa Forge — Expanded Repository Audit Instructions (CI-first, Functional Outcomes, Deep Cross-checks)
+Version: 1.1  
+Primary goal: give an agent a **repeatable CI-first** audit that finds the *real gaps* between:
+UI ↔ Types ↔ Schemas ↔ Registries ↔ Compiler/Graph ↔ Persistence ↔ Docs ↔ GitHub Pages runtime.
 
-**Output requirement:** The agent must return a single Markdown report with **evidence**, **reasoning**, **tables**, and **actionable recommendations**.
+**Output requirement:** agent returns a single Markdown report with **evidence**, **reasoning**, **tables**, and **actionable recommendations**.
 
 ---
 
-## 0) Audit Principles (Non-negotiable)
-1) **Evidence-first**: every finding must include file path(s) + what proves it (snippet, symbol, imports, CLI output).
-2) **Explain impact**: what breaks for designer/player/AI import/export and why it matters.
-3) **Classify severity**: P0 (breaks build/data), P1 (breaks feature), P2 (UX/maintainability), P3 (cleanup).
-4) **Cross-check all layers**: UI ↔ Types ↔ Schemas ↔ Registries ↔ Storage ↔ Docs.
-5) **Don’t “fix”** in this task. The agent’s job is to inspect and report, not refactor.
+## 0) Audit mindset
+### 0.1 “Functional outcomes” lens (why we’re auditing)
+All findings must tie back to at least one of these outcomes:
+
+**Builder outcomes**
+- Create/edit card, abilities, steps, targeting profiles, custom states
+- Preview card reliably (image, costs, tokens, stats)
+- Import JSON (card + forge project)
+- Export JSON (card + forge project)
+
+**Play-support outcomes**
+- Deck builder loads, searches, filters, validates
+- Scenario builder loads, defines triggers, start units, victory, story slides
+- Shared registries enable AI + validation without drift
+
+**Engineering outcomes**
+- CI builds + deploys to GitHub Pages
+- Versioning/migrations protect future changes
+- No silent behavior differences between layers (especially steps)
+
+> Every issue must explain: “Which outcome does this break or risk?”
+
+### 0.2 Severity model (non-negotiable)
+- **P0**: breaks CI/build/install, blocks running app or validation
+- **P1**: feature claims exist but don’t work end-to-end
+- **P2**: maintainability/UX drift, partial implementations, confusing duplicates
+- **P3**: cleanup (orphan exports/files) and minor improvements
+
+### 0.3 Evidence-first rules
+For every finding:
+- file path(s)
+- line numbers (or function name if line numbers not practical)
+- snippet OR CLI/CI log excerpt
+- impact on functional outcomes
+- suggested remediation (not necessarily the full fix)
 
 ---
 
-## 1) Setup & Ground Truth Capture
-### 1.1 Environment baseline
+## 1) CI-first setup (GitHub Actions / Pages)
+> The agent is auditing for GitHub pipeline correctness first. Local runs are optional and secondary.
+
+### 1.1 Capture CI workflow ground truth
+Inspect:
+- `.github/workflows/pages.yml` (or equivalent)
+- any other CI workflows
 Record:
-- OS: macOS (M1)
-- Node version: `node -v`
-- NPM version: `npm -v`
+- Node version used
+- install command (`npm ci` vs `npm install`)
+- build command
+- publish folder and base path
 
-### 1.2 Clean install and build signals
-Run (capture output):
-- `npm ci` (or `npm install` if no lock file, but note it as a risk)
-- `npm run typecheck` (if exists)
-- `npm test` (if exists)
+**Checkpoint:** A “CI Workflow Summary” section exists in the report.
+
+### 1.2 CI logs as primary evidence
+If you have access to logs:
+- copy the relevant sections for install/typecheck/test/build/deploy
+- include them in the report appendix
+
+If not, reproduce the workflow steps locally in a clean environment using:
+- `npm ci`
+- `npm run typecheck`
+- `npm test`
 - `npm run build`
 
-**If any command fails**: log it under “Build/CI Failures” with full error text.
+But the audit should assume GitHub Actions is the truth source.
 
-### 1.3 Repository map snapshot
-Generate a file tree overview:
+---
+
+## 2) Repo map snapshot (system inventory)
+### 2.1 Inventory file list
+Run:
 - `git ls-files > audit_files.txt`
 - `git ls-files | wc -l`
-- Identify major folders:
-  - `src/`, `src/lib/`, `src/components/`, `src/features/`, `src/assets/`, root docs
 
-**Checkpoint:** You have a list of all tracked files.
+### 2.2 Identify major folders + purpose
+At minimum, map:
+- `src/`
+- `src/lib/`
+- `src/components/`
+- `src/features/`
+- `src/assets/`
+- `server/` (if present)
+- root docs (`*.md`, `README.md`)
+- tests (`tests/`)
 
-**Doc reminder:** At the end of the audit, verify root docs exist and match current architecture.
-
----
-
-## 2) Create a “System Map” (Who owns what?)
-This repository likely contains **two overlapping architectures** (legacy step-based + new graph-based). The agent must explicitly map boundaries.
-
-### 2.1 Identify “Core domains”
-Create a table row for each domain:
-- Card model & schema validation
-- Ability logic model
-- Step registry/palette
-- Graph/node registry/palette
-- Import/export formats (CJ card JSON vs Forge project JSON)
-- Storage (localStorage vs planned SQLite)
-- Deck builder module
-- Scenario builder module
-- Action library / repository system
-- Image handling (URL, upload, AI generation)
-
-### 2.2 Produce a “Source of Truth” declaration per domain
-For each domain, declare:
-- “Source of truth file(s)”
-- “Dependent files”
-- “Known alternative/duplicate implementations”
-
-**Example:**  
-- Step registry source: `src/assets/blockRegistry.json`  
-- Node registry source: `src/assets/nodeRegistry.json` (if added)  
-- Risk: both exist → two palettes → drift
-
-**Checkpoint:** A clear map exists before deeper inspection.
+**Checkpoint:** include a “Repo Structure” section with a bullet list of major dirs and what they appear to do.
 
 ---
 
-## 3) Full-file Cross-check Procedure (Do this systematically)
-The agent must review *every file* and classify it.
+## 3) System map (source of truth per domain)
+Create a table mapping domain → source-of-truth → dependents → duplicates.
 
-### 3.1 Create a master inventory table
-For each file in `git ls-files`, fill:
-- File path
-- Type: UI / Types / Schema / Asset / Feature / Utility / Docs / Test
-- Primary responsibility
-- Imported by (who uses it)
-- Exports (key symbols)
-- Status: ACTIVE / POSSIBLY ORPHAN / ORPHAN / DUPLICATE / STUB
-- Notes
+Mandatory domains:
+- Card schema + validation (schemas.ts)
+- Card model types (types.ts)
+- Step registry/palette (blockRegistry.json + registry.ts)
+- Graph/node registry (nodeRegistry.json + node types)
+- Graph compiler / IR (graphIR/*)
+- Import/export formats (card JSON vs forge project JSON)
+- Persistence (localStorage modules vs provider vs server sqlite)
+- Deck builder
+- Scenario builder
+- Action library / card library
+- Assets/images (upload, URL, serving)
+- AI endpoints (if referenced)
 
-Use tools below to speed up “imported by” and “exports”.
+**Checkpoint:** a “Domain System Map” table is filled before deeper audit.
 
-### 3.2 Automated “import graph” extraction
-Run:
-- `npx madge --ts-config ./tsconfig.json --circular ./src`
-- `npx madge --ts-config ./tsconfig.json ./src --image madge_graph.svg` (optional)
+---
+
+## 4) CI & build correctness audit (GitHub Pages specifics)
+These are common “agent assumption” gaps that cause features to “not load” on Pages.
+
+### 4.1 Vite base path / routing
+Check:
+- `vite.config.*`
+- build output paths
+- whether `base` is set for GitHub Pages (e.g. `/repo-name/`)
+- whether you use hash routing vs browser routing
+
+Cross-check:
+- If using React Router with browser history, pages refresh can 404 unless configured.
+
+**Record as Conflict** if:
+- app works locally but not on Pages due to base path/routing mismatch
+
+### 4.2 Asset paths
+Check:
+- `public/` usage
+- card images referenced as `/cards/...` vs relative
+- whether assets are bundled or expected at runtime
+
+**Record**:
+- any absolute paths that break under Pages base
+
+### 4.3 TypeScript configuration compatibility
+Check:
+- `tsconfig.json`
+- `server/tsconfig.json` if present
+
+Verify:
+- module / moduleResolution compatibility for the chosen TS version
+- no environment-specific configs that only work locally
+
+---
+
+## 5) Automated architecture checks (dependency + orphan + drift)
+> Avoid using `npx` in CI unless the tool is a dependency. Prefer devDependencies + `npm run`.
+
+### 5.1 Dependency graph / circular deps
+If `madge` is a devDependency, run:
+- `npm run audit:madge` or `npx madge ...` only if allowed
 Capture:
-- circular deps
+- circular dependencies
 - isolated subtrees
-- orphan modules (never referenced)
+- orphan modules
 
-**Checkpoint:** Identify files with zero inbound dependencies.
-
-### 3.3 Unused export detection
+### 5.2 Unused exports
 Run:
-- `npx ts-prune -p tsconfig.json`
-Capture output lines:
-- `path:line - exported symbol is never used`
-
-**Checkpoint:** Build a table of unused exports.
-
-### 3.4 Dependency drift
-Run:
-- `npx depcheck`
+- `ts-prune` (prefer devDependency)
 Capture:
-- unused dependencies
-- missing dependencies
+- unused exports with file:line
 
-**Checkpoint:** Flag missing deps that could explain “feature not loading”.
+### 5.3 Dependency drift
+Run:
+- `depcheck` (prefer devDependency)
+Capture:
+- unused deps
+- missing deps
 
-### 3.5 Search-based orphan checks (manual)
-Use ripgrep (`rg`) or `git grep`:
-- `rg "TODO|FIXME|HACK|TEMP|WIP" -n`
-- `rg "UNKNOWN_STEP" -n src`
-- `rg "schemaVersion" -n src`
-- `rg "CJ-1\.0|CJ-1\.1|CJ-1\.2|CJ-FORGE|CJ-GRAPH" -n`
-- `rg "DeckBuilder|ScenarioBuilder|CardLibraryManager" -n src`
-- `rg "nodeRegistry|blockRegistry" -n src`
-- `rg "exportLibrary|importLibrary|relinkLibrary" -n src`
-
-**Checkpoint:** You have a list of all TODOs + schema version hardcodes + module entry points.
+**Checkpoint:** Put raw outputs into an appendix and summarize in tables.
 
 ---
 
-## 4) Conflicting Behavior Audit (Top Priority)
-Conflicts are where the app “looks like it supports something” but runtime rejects it, or multiple systems disagree.
+## 6) “Truth alignment” cross-checks (the biggest hidden gaps)
+This section is the most important for your project because your system is registry/schema/type-driven.
 
-### 4.1 Schema version conflicts (known pain point)
-Inspect:
-- `src/lib/schemas.ts` (where schemaVersion is validated)
-- `src/lib/types.ts` (which versions are implied by types)
-- `src/App.tsx` import/export logic (allowed schema versions)
-- any migration functions
-
-Cross-check questions:
-- Does `App.tsx` export `CJ-1.2` while schemas.ts only accepts CJ-1.0/CJ-1.1?
-- Does the docs say CJ-1.2 exists but schema blocks it?
-- Are there multiple schema validators?
-
-**Record as Conflict** if:
-- UI creates cards the validator rejects
-- import accepts but validator rejects
-- export generates a version not accepted by import or schema
-
-### 4.2 Registry conflicts (steps vs nodes)
-Inspect:
-- `src/assets/blockRegistry.json` and `src/lib/registry.ts`
-- any `src/assets/nodeRegistry.json` + loader file
-- step type checks: `isStepTypeAllowed()`
+### 6.1 Schema version compatibility matrix
 Cross-check:
-- Are steps shown in palette but treated as UNKNOWN_STEP due to registry mismatch?
-- Are new steps added in UI but missing from blockRegistry?
-- Are there two palettes producing incompatible JSON?
+- `src/lib/schemas.ts` accepted schema versions
+- `makeDefaultCard()` schemaVersion
+- export functions schemaVersion
+- import acceptance logic in App
+- docs references to CJ-1.0/1.1/1.2
 
 **Record as Conflict** if:
-- a step exists in types/schema but not in registry
-- or in registry but not in schema/types
+- UI exports a version schema rejects
+- import accepts but schema rejects
+- docs instruct a version that fails in-app
 
-### 4.3 UI wiring conflicts (feature not loading)
-Inspect the “feature modules”:
-- `src/features/library/CardLibraryManager`
-- `src/features/decks/DeckBuilder`
-- `src/features/scenarios/ScenarioBuilder`
+### 6.2 Step type alignment matrix (CRITICAL)
+Build a table that checks for each step type:
+- exists in `blockRegistry.steps.types`
+- exists in TS `Step` union
+- exists in schemas validator
+- has an Inspector editor OR fallback editor
+- has graph/node representation (if graph is authoritative)
+- is compiled correctly (if compiler exists)
+
+**Record as Conflict** if:
+- a step appears in palette but becomes UNKNOWN_STEP
+- step exists in types/schema but not in registry
+- step exists in registry but has no editor and requires raw JSON
+- graph compiler drops/ignores step content (silent freeze)
+
+### 6.3 Targeting profile alignment
 Cross-check:
-- Are they imported but never rendered?
-- Are they behind a route/tab that doesn’t exist?
-- Are required props missing so they error silently?
+- schema rules: targetingProfiles uniqueness, profileId references, FOR_EACH_TARGET scoping
+- editor behavior: can the user add/edit multiple profiles? do selection steps validate?
 
 **Record as Conflict** if:
-- feature exists but no entry point renders it
+- SELECT_TARGETS allows profileId that doesn’t exist
+- ITERATION_TARGET allowed outside FOR_EACH_TARGET subtree
+- editor has no way to create required references
 
-### 4.4 Storage conflicts
-Inspect:
-- `src/lib/storage.ts`
-- `src/lib/repository.ts`
+### 6.4 Library schema collisions (action vs card library)
 Cross-check:
-- multiple storage keys for same concept?
-- card saved under one key, loaded under another?
-- large JSON breaking localStorage causing partial state?
+- version strings
+- storage keys
+- import/export filenames and error messages
+
+**Record** any ambiguity that could cause the wrong file to be imported successfully but interpreted incorrectly.
+
+### 6.5 Persistence drift (localStorage vs provider vs server)
+Cross-check:
+- which modules actually read/write cards/decks/scenarios
+- whether server APIs exist but are unused
+- whether provider abstraction exists but unused
+
+**Record as Duplicate/Drift** if:
+- two persistence paths exist for same object type
+- UI uses localStorage but docs claim sqlite/API
+- server writes are never called by UI
+
+---
+
+## 7) UI wiring / “feature not loading” audit (very common)
+This is where agents often assume routing exists when it doesn’t.
+
+### 7.1 Confirm screen entry points
+Search and verify:
+- `DeckBuilder` is not only imported but actually mounted/rendered
+- `ScenarioBuilder` mounted/rendered
+- `CardLibraryManager` mounted/rendered
+- any tabs/router state exists in App
 
 **Record as Conflict** if:
-- save and load are asymmetrical
-- reset clears one store but not others
+- feature components exist but never render due to missing routing/tabs
 
-**Checkpoint:** Produce a “Conflict Matrix” table (template below).
+### 7.2 Console/runtime error scan
+When the app is running (Pages or dev):
+- open browser console
+- capture any red errors
+- especially missing imports, JSON parse errors, undefined registry keys
 
----
-
-## 5) Orphaned Functionality Audit
-Orphans include:
-- unused exports
-- unused files
-- UI components never mounted
-- features that were started but not integrated
-
-### 5.1 From ts-prune output
-For each unused export:
-- locate file
-- confirm it is truly unused (search symbol usage)
-- classify:
-  - safe to remove
-  - intended future use (document it)
-  - missing integration (bug)
-
-### 5.2 From madge isolated modules
-For each module with no inbound dependencies:
-- verify whether it is expected (e.g., entry file, CLI)
-- if not expected → orphan candidate
-
-### 5.3 Manual “entry path” check
-Find:
-- `src/main.tsx` or equivalent
-- ensure App mounts the expected composition
-
-**Checkpoint:** Create an “Orphan Inventory” table.
+**Record** console errors with stack traces and file references.
 
 ---
 
-## 6) Incomplete Functionality Audit
-Incomplete includes:
-- TODOs/FIXMEs
-- UI placeholders (“edit raw JSON for now”)
-- schema stubs without UI
-- steps defined but no editor
-- editors without schema support
+## 8) Import/export round-trip tests (functional proof)
+Agents often stop at “types compile”. This repo needs **behavioral round-trip proofs**.
 
-### 6.1 Catalog all TODO/FIXME
-Use search output and group by area:
-- Graph editor
-- Step editor
-- Targeting profiles
-- Deck/scenario
-- Image handling / AI
+### 8.1 Card round-trip
+Create a minimal card JSON and a maximal card JSON:
+- minimal: name/type/one ability/show_text
+- maximal: multiple abilities, multiple targetingProfiles, nested IF_ELSE elseIf branches, SELECT_TARGETS + FOR_EACH_TARGET + ITERATION_TARGET, token costs, custom states
 
-### 6.2 “Promises vs reality” audit
-Cross-check docs vs code:
-- Docs claim AI image gen tool exists → verify UI exists and is wired
-- Docs list step types → verify in blockRegistry + types + schema + UI editor
-- Docs describe scenario triggers → verify there is a scenario data model + editor + export
+Verify:
+- export → import returns identical structure
+- unknown steps preserved (or safely wrapped) without loss
+- schema validates after import
 
-**Checkpoint:** Create “Incomplete Features” table with severity + blockers.
+### 8.2 Deck round-trip
+- deck with faction grouping
+- cards assigned to units/items/spells with constraints
+- export/import and validate
 
----
+### 8.3 Scenario round-trip
+- scenario with triggers, story slides, deck swap/empty hand actions
+- export/import and validate
 
-## 7) Duplicate/Double-up Functionality Audit
-Duplicates are common when transitioning architectures.
-
-### 7.1 Identify overlapping systems
-Look for multiple versions of:
-- registry loaders (blockRegistry vs nodeRegistry)
-- validators (zod/ajv/manual)
-- import/export formats
-- multiple “default card” makers
-- separate state stores for same entity
-
-### 7.2 Detect duplication heuristics
-Search patterns:
-- multiple functions with similar names: `makeDefaultCard`, `defaultLibrary`, `load*`, `save*`, `export*`
-- similar data transforms: `canonicalToGraph`, `graphToCanonical`, `compile*`
-
-### 7.3 Evaluate duplication outcomes
-For each suspected duplicate:
-- Are they used in different places intentionally?
-- Do they produce different outputs?
-- Which one should be source-of-truth?
-
-**Checkpoint:** Create “Duplication & Divergence” table.
+**Checkpoint:** include a “Round-trip Verification” section with pass/fail and evidence.
 
 ---
 
-## 8) Produce the Final Audit Report (Markdown Required)
-The agent must output a single Markdown report with these sections:
+## 9) Documentation drift audit (AI agent readiness)
+Because you rely heavily on AI-generated JSON, doc drift is catastrophic.
 
-### 8.1 Executive summary
-- Key findings count by severity (P0/P1/P2/P3)
-- Top 5 risks
+Cross-check:
+- `AI_JSON_GUIDE.md`
+- `AI_VARIABLES.md`
+- `AI_PLAY_GUIDE.md`
+- `AI_SYMBOLS_WEBHOOKS.md`
+- any deck/scenario schema docs
 
-### 8.2 Build/CI failures
-- Exact errors and root causes (hypotheses allowed but label them as hypotheses)
+Verify:
+- docs reflect current schema versions
+- docs list all step types and correct fields
+- docs explain scoping rules (ITERATION_TARGET, refs)
+- docs mention where to find registries and how to update them
+- docs mention CI/Pipeline requirements for Pages
 
-### 8.3 System map (source-of-truth)
-- Domain → SoT file(s) → dependents → duplicates
-
-### 8.4 Findings tables (mandatory)
-Include all tables below, filled.
-
-### 8.5 Recommendations & action list
-- Quick wins (1–2 days)
-- Medium refactors (1–2 weeks)
-- Architectural moves (graph compiler, SQLite local server)
-
-### 8.6 “Stop-the-line” conflicts
-List conflicts that must be resolved before adding more features (e.g., schema version mismatch).
+**Record as Doc Drift** with: claim → code reality → impact.
 
 ---
 
-## 9) Required Tables (Copy these templates into your report)
+## 10) Report structure (what the agent must deliver)
+### 10.1 Executive Summary
+- counts by severity P0/P1/P2/P3
+- top 5 risks
+- top 5 recommended fixes (ordered)
 
+### 10.2 CI Workflow Summary
+- what workflow does and where it breaks
+- required changes to unblock
+
+### 10.3 Domain System Map (source-of-truth)
+- filled table
+
+### 10.4 Findings Tables (mandatory)
+Use the templates in §11.
+
+### 10.5 Functional Outcome Impact Map (MANDATORY)
+Add a table mapping findings to outcomes:
+- “Deck builder not loading” → breaks deck building outcome
+- “schema mismatch” → breaks import/export + AI generation
+- “step editor missing” → breaks ability authoring
+
+### 10.6 Appendix
+- raw tool outputs
+- raw CI log excerpts
+- console errors
+- any generated graphs
+
+---
+
+## 11) Mandatory tables (copy into report)
 ### Table A — Domain System Map
 | Domain | Source of Truth File(s) | Dependent Files | Duplicate/Alt Implementations | Drift Risk | Notes |
 |---|---|---|---|---|---|
 
 ### Table B — Conflict Matrix
-| ID | Type (Schema/Registry/UI/Storage/Docs) | Symptom | Evidence (files/lines) | Root Cause | Impact | Severity | Suggested Fix |
+| ID | Type (CI/Schema/Registry/UI/Storage/Docs) | Symptom | Evidence | Root Cause | Functional Outcome Impact | Severity | Suggested Fix |
 |---|---|---|---|---|---|---|---|
 
 ### Table C — Orphan Inventory
-| ID | File/Symbol | Evidence (ts-prune/madge/grep) | Why it’s orphaned | Risk of removal | Recommendation |
+| ID | File/Symbol | Evidence (ts-prune/madge/grep) | Why orphaned | Risk of removal | Recommendation |
 |---|---|---|---|---|---|
 
 ### Table D — Incomplete Functionality
-| ID | Feature | Expected Behavior | Current Behavior | Evidence | Blocker | Severity | Recommendation |
+| ID | Feature | Expected | Current | Evidence | Blocker | Severity | Recommendation |
 |---|---|---|---|---|---|---|---|
 
 ### Table E — Duplicated / Double-up Functionality
-| ID | Function/Module Pair | Overlap Description | Divergence | Evidence | Risk | Severity | Proposed Consolidation |
+| ID | Pair | Overlap | Divergence | Evidence | Risk | Severity | Consolidation Plan |
 |---|---|---|---|---|---|---|---|
 
 ### Table F — Doc Drift
-| Doc File | Claim | Code Reality | Evidence | Impact | Fix (doc/code) |
+| Doc File | Claim | Code Reality | Evidence | Impact | Fix |
 |---|---|---|---|---|---|
 
 ### Table G — Step/Registry/Schema Alignment (Critical)
-For each step/node type, confirm presence across layers.
-| Type | In blockRegistry.json | In nodeRegistry.json | In types.ts | In schemas.ts | Has UI editor | Notes |
-|---|---:|---:|---:|---:|---:|---|
+| Step Type | In blockRegistry | In Step union (types.ts) | In schemas.ts | Has UI editor | Has fallback editor | Has node def | Compiler supports | Notes |
+|---|---:|---:|---:|---:|---:|---:|---:|---|
+
+### Table H — Functional Outcome Impact Map (NEW)
+| Outcome | What “done” looks like | Current blockers found | Evidence | Severity | Next action |
+|---|---|---|---|---|---|
 
 ---
 
-## 10) Evidence Requirements (Every finding must include)
-- File path(s)
-- Line numbers (or nearest function name)
-- Snippet or CLI output line
-- Explanation:
-  - what behavior is expected
-  - what the code does instead
-  - why this is a conflict/orphan/incomplete/duplicate
-- Impact assessment:
-  - who is affected (designer/player/AI import/export)
-  - what breaks (compile, export, validation, UI, etc.)
+## 12) Extra “agent assumption” checks (often missed)
+Add these explicitly:
+- Verify **Pages base path** in Vite config matches repo name
+- Verify feature components are **mounted**, not just imported
+- Verify no “silent fallback” in graph compiler (steps not compiled but not errored)
+- Verify unknown steps are preserved losslessly
+- Verify docs for AI reflect actual accepted versions and required fields
+- Verify CI does not rely on `npx` for tools blocked by registry policies (use devDependencies)
 
 ---
 
-## 11) Final “Cross-check Everything” Checklist
-Before submitting the report, the agent must verify:
-- `src/App.tsx` actually renders deck/scenario/library entry points (or not)
-- `schemas.ts` accepts every schemaVersion emitted by export and default card
-- every step in palette is known to schema/types (no UNKNOWN_STEP)
-- every doc file in root matches reality (especially AI guides)
-- no hidden runtime error in console when loading main screens
-
----
-
-## 12) Deliverable
-Return a single Markdown document titled:
+## 13) Deliverable
+Return one Markdown file:
 `REPO_AUDIT_REPORT.md`
-containing:
-- all sections in §8
-- all filled tables in §9
-- CLI outputs appended in an “Appendix” section
+
+No fixes, only analysis + recommendations.
 
 ---
 
-## 13) After the audit (for your next ChatGPT review)
-Once you paste `REPO_AUDIT_REPORT.md` back into chat:
-- We will convert findings → prioritized action list
-- We will choose a consolidation path (legacy steps vs graph-first)
-- We will schedule schema/registry alignment and remove dead code safely
+## 14) How this relates to functional outcomes (context for the agent)
+This repo is not a typical React app:
+- it’s a **rules-program authoring tool**
+- correctness depends on **alignment across registry/schema/types/editor/compiler**
+- “it builds” is insufficient; we must prove:
+  - author → export → import → validate → render preview is consistent
+  - steps and references behave deterministically
+
+If the agent cannot tie a finding to an outcome, it should not be prioritized.
