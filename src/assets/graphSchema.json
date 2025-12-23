@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "CJ Forge Project",
-  "description": "Schema for CJ-FORGE-PROJECT-1.0 graph projects (card + graphs + UI metadata).",
+  "description": "Schema for CJ-FORGE-PROJECT-2.0 graph projects (card + graphs + UI metadata).",
   "type": "object",
   "required": [
     "schemaVersion",
@@ -11,8 +11,8 @@
     "graphs"
   ],
   "properties": {
-    "schemaVersion": { "type": "string", "const": "CJ-FORGE-PROJECT-1.0" },
-    "projectVersion": { "type": "string", "const": "CJ-FORGE-PROJECT-1.0" },
+    "schemaVersion": { "type": "string", "const": "CJ-FORGE-PROJECT-2.0" },
+    "projectVersion": { "type": "string", "const": "CJ-FORGE-PROJECT-2.0" },
     "cardSchemaVersion": { "type": "string" },
     "card": { "type": "object" },
     "graphs": {
@@ -62,7 +62,7 @@
       "type": "object",
       "required": ["graphVersion", "id", "nodes", "edges"],
       "properties": {
-        "graphVersion": { "type": "string", "enum": ["CJ-GRAPH-1.0", "CJ-GRAPH-1.1"] },
+        "graphVersion": { "type": "string", "const": "CJ-GRAPH-2.0" },
         "id": { "type": "string" },
         "label": { "type": "string" },
         "nodes": { "type": "array", "items": { "$ref": "#/definitions/GraphNode" } },

@@ -1,10 +1,12 @@
 import type { AbilityComponent, CardEntity, Condition, Expression, Step } from "../types";
+import type { ForgeProjectSchemaVersion, GraphSchemaVersion } from "../versions";
+import { GRAPH_SUPPORTED_VERSIONS } from "../versions";
 
 // Editor-side Graph IR used by the React Flow canvas.
 // This is distinct from the canonical runtime steps stored on the card.
 
-export type GraphVersion = "CJ-GRAPH-1.0" | "CJ-GRAPH-1.1";
-export const supportedGraphVersions: GraphVersion[] = ["CJ-GRAPH-1.0", "CJ-GRAPH-1.1"];
+export type GraphVersion = GraphSchemaVersion;
+export const supportedGraphVersions: GraphVersion[] = GRAPH_SUPPORTED_VERSIONS;
 
 export enum PinKind {
   CONTROL = "CONTROL",
@@ -121,7 +123,7 @@ export type GraphSourceMapEntry = {
 };
 
 export type ForgeProject = {
-  schemaVersion: "CJ-FORGE-PROJECT-1.0";
+  schemaVersion: ForgeProjectSchemaVersion;
   projectVersion?: string;
   cardSchemaVersion?: CardEntity["schemaVersion"];
   card: CardEntity;

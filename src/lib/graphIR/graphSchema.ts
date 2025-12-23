@@ -1,29 +1,29 @@
 import schemaJson from "../../assets/graphSchema.json";
 import schemaUrl from "../../assets/graphSchema.json?url";
 import type { ValidationIssue } from "../schemas";
+import {
+  CARD_LATEST_VERSION,
+  CARD_SUPPORTED_VERSION_SET,
+  FORGE_PROJECT_LATEST_PROJECT_VERSION,
+  FORGE_PROJECT_LATEST_SCHEMA_VERSION,
+  FORGE_PROJECT_SUPPORTED_SCHEMA_VERSIONS,
+  GRAPH_LATEST_VERSION,
+  GRAPH_SUPPORTED_VERSIONS,
+  SCHEMA_VERSION_UNSUPPORTED
+} from "../versions";
 import type { ForgeProject, Graph } from "./types";
 
 export const forgeProjectSchema = schemaJson as any;
-export const forgeProjectSchemaVersion: string = String(
-  (forgeProjectSchema?.properties?.schemaVersion?.const as string | undefined) ?? "CJ-FORGE-PROJECT-1.0"
-);
-export const forgeProjectProjectVersion: string = String(
-  (forgeProjectSchema?.properties?.projectVersion?.const as string | undefined) ?? forgeProjectSchemaVersion
-);
-const graphVersionSpec = forgeProjectSchema?.definitions?.Graph?.properties?.graphVersion ?? {};
-const graphVersionEnum = Array.isArray((graphVersionSpec as any)?.enum)
-  ? ((graphVersionSpec as any).enum as Array<string>).map(String)
-  : null;
-export const forgeGraphSupportedVersions: string[] =
-  graphVersionEnum?.length && graphVersionEnum.every((v) => typeof v === "string")
-    ? graphVersionEnum
-    : [String((graphVersionSpec as any)?.const ?? "CJ-GRAPH-1.0")];
-export const forgeGraphVersion: string = forgeGraphSupportedVersions[forgeGraphSupportedVersions.length - 1];
+export const forgeProjectSchemaVersion: string = FORGE_PROJECT_LATEST_SCHEMA_VERSION;
+export const forgeProjectProjectVersion: string = FORGE_PROJECT_LATEST_PROJECT_VERSION;
+export const forgeGraphSupportedVersions: string[] = GRAPH_SUPPORTED_VERSIONS;
+export const forgeGraphVersion: string = GRAPH_LATEST_VERSION;
 export const forgeProjectSchemaUrl = `${schemaUrl}${schemaUrl.includes("?") ? "&" : "?"}v=${encodeURIComponent(
   forgeProjectSchemaVersion
 )}`;
 
 type ValidationResult = { project?: ForgeProject; issues: ValidationIssue[] };
+type ValidationOptions = { latestOnly?: boolean };
 
 type Path = string | undefined;
 
@@ -41,7 +41,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function validateGraphShape(graph: any, path: Path): ValidationIssue[] {
+function validateGraphShape(graph: any, path: Path, opts: ValidationOptions): ValidationIssue[] {
   const issues: ValidationIssue[] = [];
   if (!isRecord(graph)) {
     push(issues, "ERROR", "GRAPH_SHAPE", "Graph must be an object", path);
@@ -50,8 +50,11 @@ function validateGraphShape(graph: any, path: Path): ValidationIssue[] {
 
   const graphPath = path ? `${path}.graphVersion` : "graphVersion";
   const graphVersion = typeof graph.graphVersion === "string" ? graph.graphVersion : String(graph.graphVersion ?? "");
-  if (!forgeGraphSupportedVersions.includes(graphVersion)) {
-    push(issues, "ERROR", "GRAPH_VERSION", `graphVersion must be one of ${forgeGraphSupportedVersions.join(", ")}.`, graphPath);
+  const allowedGraphVersions = opts.latestOnly ? [forgeGraphVersion] : forgeGraphSupportedVersions;
+  if (!allowedGraphVersions.includes(graphVersion)) {
+    push(issues, "ERROR", "GRAPH_VERSION", `graphVersion must be one of ${allowedGraphVersions.join(", ")}.`, graphPath);
+  } else if (graphVersion !== forgeGraphVersion && opts.latestOnly) {
+    push(issues, "ERROR", "GRAPH_VERSION", `graphVersion must be '${forgeGraphVersion}' for latest graphs.`, graphPath);
   } else if (graphVersion !== forgeGraphVersion) {
     push(issues, "WARN", "GRAPH_VERSION_OLD", `graphVersion should be '${forgeGraphVersion}' for new graphs.`, graphPath);
   }
@@ -134,7 +137,7 @@ function validateGraphShape(graph: any, path: Path): ValidationIssue[] {
   return issues;
 }
 
-export function validateForgeProject(raw: any): ValidationResult {
+export function validateForgeProject(raw: any, opts: ValidationOptions = {}): ValidationResult {
   const issues: ValidationIssue[] = [];
 
   if (!isRecord(raw)) {
@@ -142,12 +145,13 @@ export function validateForgeProject(raw: any): ValidationResult {
     return { issues };
   }
 
-  if (raw.schemaVersion !== forgeProjectSchemaVersion) {
+  const allowedSchemaVersions = opts.latestOnly ? [forgeProjectSchemaVersion] : FORGE_PROJECT_SUPPORTED_SCHEMA_VERSIONS;
+  if (!allowedSchemaVersions.includes(raw.schemaVersion)) {
     push(
       issues,
       "ERROR",
-      "PROJECT_SCHEMA_VERSION",
-      `schemaVersion must be '${forgeProjectSchemaVersion}'.`,
+      "SCHEMA_VERSION_UNSUPPORTED",
+      `${SCHEMA_VERSION_UNSUPPORTED}: ${allowedSchemaVersions.join(", ")}`,
       "schemaVersion"
     );
   }
@@ -164,6 +168,25 @@ export function validateForgeProject(raw: any): ValidationResult {
 
   if (typeof raw.cardSchemaVersion !== "string" || !raw.cardSchemaVersion.trim()) {
     push(issues, "ERROR", "CARD_SCHEMA_VERSION", "cardSchemaVersion is required.", "cardSchemaVersion");
+  } else {
+    const allowedCardVersions = opts.latestOnly ? [CARD_LATEST_VERSION] : Array.from(CARD_SUPPORTED_VERSION_SET.values());
+    if (!allowedCardVersions.includes(raw.cardSchemaVersion)) {
+      push(
+        issues,
+        "ERROR",
+        "SCHEMA_VERSION_UNSUPPORTED",
+        `${SCHEMA_VERSION_UNSUPPORTED}: ${allowedCardVersions.join(", ")}`,
+        "cardSchemaVersion"
+      );
+    } else if (opts.latestOnly && raw.cardSchemaVersion !== CARD_LATEST_VERSION) {
+      push(
+        issues,
+        "ERROR",
+        "SCHEMA_VERSION_UNSUPPORTED",
+        `${SCHEMA_VERSION_UNSUPPORTED}: ${CARD_LATEST_VERSION}`,
+        "cardSchemaVersion"
+      );
+    }
   }
 
   if (!isRecord(raw.card)) {
@@ -174,7 +197,7 @@ export function validateForgeProject(raw: any): ValidationResult {
     push(issues, "ERROR", "GRAPHS_SHAPE", "graphs must be an object map.", "graphs");
   } else {
     Object.entries(raw.graphs).forEach(([graphId, graph]) => {
-      const graphIssues = validateGraphShape(graph, `graphs.${graphId}`);
+      const graphIssues = validateGraphShape(graph, `graphs.${graphId}`, opts);
       issues.push(...graphIssues);
     });
   }
@@ -186,8 +209,13 @@ export function validateForgeProject(raw: any): ValidationResult {
     ...(raw as ForgeProject),
     schemaVersion: forgeProjectSchemaVersion as ForgeProject["schemaVersion"],
     projectVersion: forgeProjectProjectVersion as ForgeProject["projectVersion"],
-    cardSchemaVersion: (raw.cardSchemaVersion as ForgeProject["cardSchemaVersion"]) ?? undefined,
-    graphs: (raw.graphs ?? {}) as Record<string, Graph>
+    cardSchemaVersion: CARD_LATEST_VERSION,
+    graphs: Object.fromEntries(
+      Object.entries(raw.graphs ?? {}).map(([graphId, graph]) => [
+        graphId,
+        { ...(graph as Graph), graphVersion: forgeGraphVersion as Graph["graphVersion"] }
+      ])
+    ) as Record<string, Graph>
   };
 
   return { project, issues };

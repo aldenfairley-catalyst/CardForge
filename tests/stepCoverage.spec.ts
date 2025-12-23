@@ -5,7 +5,7 @@ import { blockRegistry } from "../src/lib/registry";
 import { makeDefaultStep } from "../src/lib/stepFactory";
 import { validateCard } from "../src/lib/schemas";
 import type { CardEntity, Step } from "../src/lib/types";
-import { LATEST_SCHEMA_VERSION } from "../src/lib/migrations";
+import { CARD_LATEST_VERSION } from "../src/lib/versions";
 
 function containsIterationTarget(node: any): boolean {
   if (!node) return false;
@@ -36,7 +36,7 @@ function buildCardForStep(stepType: string): CardEntity {
   }
 
   return {
-    schemaVersion: LATEST_SCHEMA_VERSION,
+    schemaVersion: CARD_LATEST_VERSION,
     id: `card-${stepType}`,
     name: `Card for ${stepType}`,
     type: "UNIT",
