@@ -21,8 +21,18 @@ const pinColor: Record<string, string> = {
 };
 
 function handlePosition(pin: PinDefinition) {
-  if (pin.direction === "IN") return Position.Left;
-  return Position.Right;
+  switch (pin.position) {
+    case "TOP":
+      return Position.Top;
+    case "BOTTOM":
+      return Position.Bottom;
+    case "LEFT":
+      return Position.Left;
+    case "RIGHT":
+      return Position.Right;
+    default:
+      return pin.direction === "IN" ? Position.Left : Position.Right;
+  }
 }
 
 function pinBadgeLabel(pin: PinDefinition) {

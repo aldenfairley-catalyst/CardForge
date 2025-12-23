@@ -129,6 +129,24 @@ export function makeDefaultStep(stepType: string, ctx?: StepFactoryContext): Ste
     case "REGISTER_INTERRUPTS":
       return { type: "REGISTER_INTERRUPTS", scope: "UNTIL_TURN_END", events: ["ON_MOVE"], onInterrupt: [{ type: "SHOW_TEXT", text: "Interrupted!" }] } as any;
 
+    case "REGISTER_LISTENER":
+      return {
+        type: "REGISTER_LISTENER",
+        listenerId: "listener_1",
+        scope: "WHILE_EQUIPPED",
+        events: ["ON_STATE_CHANGED"],
+        when: { type: "ALWAYS" },
+        then: [{ type: "SHOW_TEXT", text: "Listener fired" }]
+      } as any;
+
+    case "REQUIRE":
+      return {
+        type: "REQUIRE",
+        condition: { type: "CONST_BOOL", value: true },
+        onFail: [{ type: "SHOW_TEXT", text: "Requirement failed." }],
+        mode: "ABORT"
+      } as any;
+
     case "PROPERTY_CONTEST":
       return {
         type: "PROPERTY_CONTEST",
@@ -155,6 +173,25 @@ export function makeDefaultStep(stepType: string, ctx?: StepFactoryContext): Ste
         input: { includeCard: true, includeAbility: true, includeStep: false, includeGameState: false },
         outputJsonSchema: { type: "object", properties: { damage: { type: "number" }, note: { type: "string" } }, required: ["damage"] },
         saveAs: "aiResult"
+      } as any;
+
+    case "CALL_TOOL":
+      return {
+        type: "CALL_TOOL",
+        toolId: "ui.timer",
+        input: { ms: 1000 },
+        await: true,
+        timeoutMs: 5000,
+        saveAs: "toolResult"
+      } as any;
+
+    case "RUN_INLINE_CODE":
+      return {
+        type: "RUN_INLINE_CODE",
+        runtime: "CLIENT",
+        language: "JS",
+        code: "return { ok: true };",
+        saveAs: "inlineResult"
       } as any;
 
     default:

@@ -95,12 +95,10 @@ export function arePinsCompatible(outPin?: PinDefinition, inPin?: PinDefinition)
   if (outPin.kind === PinKind.CONTROL) return true;
   const source = outPin.dataType ?? "any";
   const target = inPin.dataType ?? "any";
-  if (source === "any" || target === "any") return true;
-  if (source === target) return true;
-  const inUnion = Array.isArray((inPin as any).dataType)
-    ? ((inPin as any).dataType as DataType[])
-    : [target as DataType];
-  return inUnion.includes(source as DataType);
+  const sourceList = Array.isArray(source) ? (source as DataType[]) : [source as DataType];
+  const targetList = Array.isArray(target) ? (target as DataType[]) : [target as DataType];
+  if (sourceList.includes("any" as DataType) || targetList.includes("any" as DataType)) return true;
+  return sourceList.some((s) => targetList.includes(s));
 }
 
 export function getDefaultConfig(nodeType: string): Record<string, any> {

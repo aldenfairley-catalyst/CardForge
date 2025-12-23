@@ -188,6 +188,13 @@ function buildAvailableOutputs(
   return available;
 }
 
+function pinMax(pin?: PinDefinition, direction: "IN" | "OUT"): number {
+  if (!pin) return 0;
+  if (pin.multi) return Infinity;
+  if (typeof pin.maxConnections === "number" && pin.maxConnections >= 0) return pin.maxConnections;
+  return 1;
+}
+
 export function validateGraph(
   graph: Graph,
   ability?: AbilityComponent | null
@@ -197,7 +204,7 @@ export function validateGraph(
   const pinIndex = buildPinIndex(graph);
   const controlAdj = new Map<string, string[]>();
   const controlIncoming = new Map<string, GraphEdge[]>();
-  const controlOutCounts = new Map<string, number>();
+  const pinConnectionCounts = new Map<string, number>();
 
   graph.edges.forEach((edge) => addControlAdjacency(edge, controlAdj, controlIncoming));
 
@@ -261,22 +268,27 @@ export function validateGraph(
       );
     }
 
-    if (edge.edgeKind === PinKind.CONTROL && outPin?.direction === "OUT") {
-      const key = `${edge.from.nodeId}::${edge.from.pinId}`;
-      controlOutCounts.set(key, (controlOutCounts.get(key) ?? 0) + 1);
-    }
+    const outKey = `${edge.from.nodeId}::${edge.from.pinId}::OUT`;
+    const inKey = `${edge.to.nodeId}::${edge.to.pinId}::IN`;
+    pinConnectionCounts.set(outKey, (pinConnectionCounts.get(outKey) ?? 0) + 1);
+    pinConnectionCounts.set(inKey, (pinConnectionCounts.get(inKey) ?? 0) + 1);
   });
 
-  controlOutCounts.forEach((count, key) => {
-    if (count <= 1) return;
-    const [nodeId, pinId] = key.split("::");
-    push(
-      issues,
-      "ERROR",
-      "MULTIPLE_EXEC_OUT",
-      `Control output pin '${pinId}' on node '${nodeId}' has multiple outgoing edges.`,
-      `nodes.${nodeId}.pins.${pinId}`
-    );
+  pinConnectionCounts.forEach((count, key) => {
+    const [nodeId, pinId, direction] = key.split("::");
+    const node = nodeIndex.get(nodeId);
+    const pin = findPin(node, pinId);
+    const max = pinMax(pin, direction === "IN" ? "IN" : "OUT");
+    if (max !== Infinity && count > max) {
+      const code = direction === "IN" ? "TARGET_AT_MAX" : "SOURCE_AT_MAX";
+      push(
+        issues,
+        "ERROR",
+        code,
+        `Pin '${pinId}' on node '${nodeId}' exceeds maxConnections (${max}).`,
+        `nodes.${nodeId}.pins.${pinId}`
+      );
+    }
   });
 
   detectAnyControlCycle(controlAdj, issues);

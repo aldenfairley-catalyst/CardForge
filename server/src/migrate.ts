@@ -65,6 +65,17 @@ export function migrate(db: Database.Database) {
       createdAt INTEGER,
       updatedAt INTEGER
     );
+
+    CREATE TABLE IF NOT EXISTS graphs (
+      id TEXT PRIMARY KEY,
+      name TEXT,
+      kind TEXT,
+      ownerRef TEXT,
+      schemaVersion TEXT,
+      json TEXT,
+      createdAt INTEGER,
+      updatedAt INTEGER
+    );
   `);
 
   db.prepare("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)").run("dbVersion", "CJ-PROJECT-DB-1.0");

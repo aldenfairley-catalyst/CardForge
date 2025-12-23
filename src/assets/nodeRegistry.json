@@ -25,7 +25,7 @@
       "configSchema": { "type": "object", "properties": {} },
       "pins": {
         "static": [
-          { "id": "execOut", "kind": "CONTROL", "direction": "OUT", "label": "Exec", "group": "Flow" }
+          { "id": "execOut", "kind": "CONTROL", "direction": "OUT", "label": "Exec", "group": "Flow", "position": "RIGHT", "maxConnections": 8 }
         ]
       },
       "compile": { "kind": "SUBGRAPH_ENTRY" }
@@ -42,8 +42,8 @@
       },
       "pins": {
         "static": [
-          { "id": "execIn", "kind": "CONTROL", "direction": "IN", "label": "In", "group": "Flow", "required": true },
-          { "id": "execOut", "kind": "CONTROL", "direction": "OUT", "label": "Out", "group": "Flow" }
+          { "id": "execIn", "kind": "CONTROL", "direction": "IN", "label": "In", "group": "Flow", "required": true, "position": "LEFT", "maxConnections": 4 },
+          { "id": "execOut", "kind": "CONTROL", "direction": "OUT", "label": "Out", "group": "Flow", "position": "RIGHT", "maxConnections": 4 }
         ]
       },
       "compile": { "kind": "CANONICAL_STEP", "stepType": "SHOW_TEXT" }
@@ -60,7 +60,7 @@
       },
       "pins": {
         "static": [
-          { "id": "out", "kind": "DATA", "dataType": "boolean", "direction": "OUT", "label": "Bool", "group": "Value" }
+          { "id": "out", "kind": "DATA", "dataType": "boolean", "direction": "OUT", "label": "Bool", "group": "Value", "position": "BOTTOM", "maxConnections": 8 }
         ]
       },
       "compile": { "kind": "CONDITION_EXPR", "exprType": "CONST_BOOL" }
@@ -77,7 +77,7 @@
       },
       "pins": {
         "static": [
-          { "id": "out", "kind": "DATA", "dataType": "number", "direction": "OUT", "label": "Num", "group": "Value" }
+          { "id": "out", "kind": "DATA", "dataType": "number", "direction": "OUT", "label": "Num", "group": "Value", "position": "BOTTOM", "maxConnections": 8 }
         ]
       },
       "compile": { "kind": "VALUE_EXPR", "exprType": "CONST_NUMBER" }
@@ -94,22 +94,91 @@
       },
       "pins": {
         "static": [
-          { "id": "execIn", "kind": "CONTROL", "direction": "IN", "label": "In", "group": "Flow", "required": true },
-          { "id": "thenExecOut", "kind": "CONTROL", "direction": "OUT", "label": "Then", "group": "Branches" },
-          { "id": "elseExecOut", "kind": "CONTROL", "direction": "OUT", "label": "Else", "group": "Branches" },
+          { "id": "execIn", "kind": "CONTROL", "direction": "IN", "label": "In", "group": "Flow", "required": true, "position": "LEFT", "maxConnections": 4 },
+          { "id": "thenExecOut", "kind": "CONTROL", "direction": "OUT", "label": "Then", "group": "Branches", "position": "RIGHT", "maxConnections": 4 },
+          { "id": "elseExecOut", "kind": "CONTROL", "direction": "OUT", "label": "Else", "group": "Branches", "position": "RIGHT", "maxConnections": 4 },
 
-          { "id": "ifCondIn", "kind": "DATA", "dataType": "boolean", "direction": "IN", "label": "If", "group": "Conditions", "required": true }
+          { "id": "ifCondIn", "kind": "DATA", "dataType": "boolean", "direction": "IN", "label": "If", "group": "Conditions", "required": true, "position": "TOP", "maxConnections": 1 }
         ],
         "dynamic": {
           "kind": "ELSEIF_PINS",
           "sourceField": "elseIfCount",
           "pinsPerIndex": [
-            { "idTemplate": "elseIfCondIn_{i}", "kind": "DATA", "dataType": "boolean", "direction": "IN", "labelTemplate": "ElseIf {n}", "group": "Conditions", "required": true },
-            { "idTemplate": "elseIfExecOut_{i}", "kind": "CONTROL", "direction": "OUT", "labelTemplate": "ElseIf {n}", "group": "Branches" }
+            { "idTemplate": "elseIfCondIn_{i}", "kind": "DATA", "dataType": "boolean", "direction": "IN", "labelTemplate": "ElseIf {n}", "group": "Conditions", "required": true, "position": "TOP", "maxConnections": 1 },
+            { "idTemplate": "elseIfExecOut_{i}", "kind": "CONTROL", "direction": "OUT", "labelTemplate": "ElseIf {n}", "group": "Branches", "position": "RIGHT", "maxConnections": 4 }
           ]
         }
       },
       "compile": { "kind": "CANONICAL_STEP", "stepType": "IF_ELSE" }
+    },
+    {
+      "nodeType": "CALL_TOOL",
+      "label": "Call Tool",
+      "category": "Tools",
+      "description": "Invoke a registered tool with input and optional await.",
+      "configSchema": {
+        "type": "object",
+        "properties": {
+          "toolId": { "type": "string", "default": "ui.timer" },
+          "input": { "type": "object", "default": {} },
+          "await": { "type": "boolean", "default": true },
+          "timeoutMs": { "type": "integer", "minimum": 0, "default": 5000 },
+          "saveAs": { "type": "string", "default": "" }
+        },
+        "required": ["toolId"]
+      },
+      "pins": {
+        "static": [
+          { "id": "execIn", "kind": "CONTROL", "direction": "IN", "label": "In", "group": "Flow", "required": true, "position": "LEFT", "maxConnections": 4 },
+          { "id": "execOut", "kind": "CONTROL", "direction": "OUT", "label": "Out", "group": "Flow", "position": "RIGHT", "maxConnections": 4 }
+        ]
+      },
+      "compile": { "kind": "CANONICAL_STEP", "stepType": "CALL_TOOL" }
+    },
+    {
+      "nodeType": "REQUIRE",
+      "label": "Require",
+      "category": "Logic",
+      "description": "Abort or branch when a condition is not met.",
+      "configSchema": {
+        "type": "object",
+        "properties": {
+          "mode": { "type": "string", "enum": ["ABORT", "CONTINUE", "BRANCH"], "default": "ABORT" }
+        },
+        "required": ["mode"]
+      },
+      "pins": {
+        "static": [
+          { "id": "execIn", "kind": "CONTROL", "direction": "IN", "label": "In", "group": "Flow", "required": true, "position": "LEFT", "maxConnections": 4 },
+          { "id": "execPass", "kind": "CONTROL", "direction": "OUT", "label": "Pass", "group": "Flow", "position": "RIGHT", "maxConnections": 4 },
+          { "id": "execFail", "kind": "CONTROL", "direction": "OUT", "label": "Fail", "group": "Flow", "position": "RIGHT", "maxConnections": 4 },
+          { "id": "condIn", "kind": "DATA", "dataType": "boolean", "direction": "IN", "label": "Condition", "group": "Conditions", "required": true, "position": "TOP", "maxConnections": 1 }
+        ]
+      },
+      "compile": { "kind": "CANONICAL_STEP", "stepType": "REQUIRE" }
+    },
+    {
+      "nodeType": "REGISTER_LISTENER",
+      "label": "Register Listener",
+      "category": "Logic",
+      "description": "Register a listener for events while scoped.",
+      "configSchema": {
+        "type": "object",
+        "properties": {
+          "listenerId": { "type": "string", "default": "listener_1" },
+          "scope": { "type": "string", "default": "WHILE_EQUIPPED" },
+          "events": { "type": "array", "items": { "type": "string" }, "default": ["ON_STATE_CHANGED"] }
+        },
+        "required": ["listenerId", "events"]
+      },
+      "pins": {
+        "static": [
+          { "id": "execIn", "kind": "CONTROL", "direction": "IN", "label": "In", "group": "Flow", "required": true, "position": "LEFT", "maxConnections": 4 },
+          { "id": "execOut", "kind": "CONTROL", "direction": "OUT", "label": "Out", "group": "Flow", "position": "RIGHT", "maxConnections": 4 },
+          { "id": "condIn", "kind": "DATA", "dataType": "boolean", "direction": "IN", "label": "When", "group": "Conditions", "position": "TOP", "maxConnections": 1 }
+        ]
+      },
+      "compile": { "kind": "CANONICAL_STEP", "stepType": "REGISTER_LISTENER" }
     }
   ]
 }
