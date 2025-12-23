@@ -54,13 +54,21 @@ declare module "reactflow" {
   export const Background: any;
   export const Controls: any;
   export const ReactFlowProvider: any;
-  export const useNodesState: any;
-  export const useEdgesState: any;
+  export function useNodesState<T = any>(initialState: T[]): [T[], (updater: any) => void, (changes: any) => void];
+  export function useEdgesState<T = any>(initialState: T[]): [T[], (updater: any) => void, (changes: any) => void];
   export const addEdge: any;
   export const applyEdgeChanges: any;
   export const applyNodeChanges: any;
+  export type Node<Data = any> = {
+    id: string;
+    type?: string;
+    data: Data;
+    position: { x: number; y: number };
+    selected?: boolean;
+    style?: any;
+  };
   export type Connection = any;
-  export type Edge = any;
+  export type Edge<Data = any> = any;
   export const Handle: any;
   export const Position: any;
   export const MiniMap: any;

@@ -134,13 +134,13 @@ Area may be used to preview AoE:
 ```
 
 ### Pattern B: “primary + splash adjacency”
-Use FIND_ADJACENT_ENTITIES then another FOR_EACH_TARGET.
+Use FIND_ENTITIES (selector: adjacent to primary) then another FOR_EACH_TARGET.
 
-### Pattern C: “delayed AoE” (Storm Call)
-Use SCHEDULE_STEPS with stored marker + scatter.
+### Pattern C: “delayed AoE” (Storm Call) — planned
+Needs a scheduler step (not in `blockRegistry` yet). For now, model as two separate abilities or mark as `CUSTOM`.
 
-### Pattern D: “minigame / complex loop” (Storm Convergence)
-Use SUBSYSTEM_RUN with a dedicated resolver.
+### Pattern D: “minigame / complex loop” (Storm Convergence) — planned
+Would require a subsystem runner step (not in runtime); keep as `CUSTOM` text or drive via `OPEN_UI_FLOW`.
 
 ## 2.5 Graph + node config payloads (Forge project JSON)
 - Forge projects store the authored graph under `graphs[graphId]` with nodes shaped as `{ id, nodeType, position, config, pinsCache? }`.
@@ -161,12 +161,14 @@ Decks group card ids by faction and support loadouts.
   "id":"emerald_tide_fisherman_core",
   "name":"Fisherman Core",
   "faction":"EMERALD_TIDE",
+  "description":"Low-cost control tools for water maps.",
+  "tags":["starter","water"],
+  "notes":"Swap to v2 once tidecaller card ships.",
   "cards":[
-    {"cardId":"the_fisherman","count":1},
-    {"cardId":"storm_cloud","count":6},
-    {"cardId":"pyramid_crystal","count":1}
-  ],
-  "sideboard":[]
+    {"cardId":"the_fisherman","qty":1},
+    {"cardId":"storm_cloud","qty":6},
+    {"cardId":"pyramid_crystal","qty":1}
+  ]
 }
 ```
 
@@ -177,36 +179,59 @@ Recommended deck invariants:
 ---
 
 # 4) Scenario JSON (CJ-SCENARIO-1.0)
-Scenarios define setup and a director-style trigger system.
+Scenarios define initial board state plus a trigger/action director. The runtime schema matches `src/lib/scenarioTypes.ts`.
 
 ```json
 {
   "schemaVersion":"CJ-SCENARIO-1.0",
   "id":"storm_at_sea",
   "name":"Storm at Sea",
+  "description":"Hold the raiders at bay while the tide rises.",
   "players":2,
-  "sides":[
-    {"sideId":"A","name":"Emerald Tide","deckId":"emerald_tide_fisherman_core","startUnits":[{"cardId":"the_fisherman","pos":{"q":0,"r":0}}]},
-    {"sideId":"B","name":"Raiders","deckId":"raider_core","startUnits":[{"cardId":"raider_captain","pos":{"q":8,"r":0}}]}
-  ],
-  "environment":{"global":{"waterLevel":0}},
-  "victory":[{"type":"DEFEAT_ALL_UNITS","sideId":"B"}],
+  "mode":"ASSISTED_PHYSICAL",
+  "setup":{
+    "sides":[
+      {
+        "sideId":"A",
+        "name":"Emerald Tide",
+        "faction":"EMERALD_TIDE",
+        "deckId":"emerald_tide_fisherman_core",
+        "startingUnits":[{"cardId":"the_fisherman","pos":{"q":0,"r":0},"facing":0}]
+      },
+      {
+        "sideId":"B",
+        "name":"Raiders",
+        "deckId":"raider_core",
+        "startingUnits":[{"cardId":"raider_captain","pos":{"q":8,"r":0}}]
+      }
+    ],
+    "env":{"waterLevel":0}
+  },
+  "victory":[{"type":"ELIMINATE_SIDE","sideId":"B"}],
+  "story":[{"id":"intro_slide","type":"SLIDESHOW","src":"slides/intro.json","trigger":"ON_SCENARIO_START"}],
   "triggers":[
     {
       "id":"intro",
-      "when":{"event":"ON_SCENARIO_START"},
-      "do":[{"type":"OPEN_UI_FLOW","flowId":"STORY_SLIDE","payload":{"slideDeckId":"storm_intro"}}]
+      "name":"Play intro slide",
+      "enabled":true,
+      "when":{"type":"ON_SCENARIO_START"},
+      "actions":[{"type":"SHOW_STORY","beatId":"intro_slide"}]
     }
   ]
 }
 ```
 
-Trigger payload actions reuse **the same Step system** so scenarios can:
-- swap decks
-- add/remove cards from zones
-- spawn/despawn units
-- change environment vars
-- trigger story slides/video
+### Required + common fields
+- `schemaVersion`, `id`, `name`, `players`, `mode`, `setup.sides[]`, `setup.env`, `victory[]`, `story[]`, `triggers[]`.
+- `setup.sides[].startingUnits[]` uses axial hex positions `{q,r}` and optional `facing` (0-5).
+- Victory conditions: `ELIMINATE_SIDE`, `SURVIVE_ROUNDS`, `CONTROL_OBJECTIVES`, `CUSTOM`.
+- Trigger timings (`when.type`): `ON_SCENARIO_START`, `ON_ROUND_START`, `ON_TURN_START`, `ON_UNIT_DEATH`, `ON_ENV_VAR_CHANGED`, `ON_CUSTOM_EVENT`.
+- Trigger actions (see `ScenarioAction`): `SHOW_STORY`, `SET_ENV_VAR`, `INCREMENT_ENV_VAR`, `EMPTY_HAND`, `SWITCH_DECK`, `ADD_CARDS_TO_DECK`, `REMOVE_CARDS_FROM_DECK`, `SPAWN_UNIT`, `REMOVE_UNIT`, `CUSTOM`.
+
+### Doc validation checklist
+- Top-level `setup.sides`/`setup.env` exist (no legacy `sides`/`environment` keys).
+- Every trigger has `id`, `name`, `enabled`, `when`, and `actions[]` matching the action list above.
+- Story beats reference ids that triggers call via `SHOW_STORY`.
 
 ---
 

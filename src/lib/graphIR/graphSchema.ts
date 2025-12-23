@@ -38,7 +38,7 @@ function push(
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
-  return !!value && typeof value === "object" && !Array.isArray(value);
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function validateGraphShape(graph: any, path: Path): ValidationIssue[] {
@@ -49,9 +49,10 @@ function validateGraphShape(graph: any, path: Path): ValidationIssue[] {
   }
 
   const graphPath = path ? `${path}.graphVersion` : "graphVersion";
-  if (!forgeGraphSupportedVersions.includes(graph.graphVersion)) {
+  const graphVersion = typeof graph.graphVersion === "string" ? graph.graphVersion : String(graph.graphVersion ?? "");
+  if (!forgeGraphSupportedVersions.includes(graphVersion)) {
     push(issues, "ERROR", "GRAPH_VERSION", `graphVersion must be one of ${forgeGraphSupportedVersions.join(", ")}.`, graphPath);
-  } else if (graph.graphVersion !== forgeGraphVersion) {
+  } else if (graphVersion !== forgeGraphVersion) {
     push(issues, "WARN", "GRAPH_VERSION_OLD", `graphVersion should be '${forgeGraphVersion}' for new graphs.`, graphPath);
   }
 
