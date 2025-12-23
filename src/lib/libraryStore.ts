@@ -1,26 +1,38 @@
 import type { CardEntity } from "./types";
 
-const KEY = "CJ_LIBRARY_V1";
+const CARD_LIBRARY_KEY = "CJ_CARD_LIBRARY_V1";
+const LEGACY_CARD_LIBRARY_KEY = "CJ_LIBRARY_V1";
+
+export const CARD_LIBRARY_VERSION = "CJ-CARD-LIB-1.0" as const;
 
 export type CardLibrary = {
-  schemaVersion: "CJ-LIB-1.0";
+  schemaVersion: typeof CARD_LIBRARY_VERSION;
   cards: CardEntity[];
 };
 
+function normalizeCardLibrary(parsed: any): CardLibrary {
+  if (Array.isArray(parsed?.cards)) return { schemaVersion: CARD_LIBRARY_VERSION, cards: parsed.cards };
+  if (Array.isArray(parsed)) return { schemaVersion: CARD_LIBRARY_VERSION, cards: parsed };
+  if (parsed?.schemaVersion === "CJ-LIB-1.0" && Array.isArray(parsed.cards))
+    return { schemaVersion: CARD_LIBRARY_VERSION, cards: parsed.cards };
+  if (parsed?.schemaVersion === CARD_LIBRARY_VERSION && Array.isArray(parsed.cards))
+    return { schemaVersion: CARD_LIBRARY_VERSION, cards: parsed.cards };
+  throw new Error("Unrecognized library JSON. Expected {cards:[...]} or an array.");
+}
+
 export function loadLibrary(): CardLibrary {
-  const raw = localStorage.getItem(KEY);
-  if (!raw) return { schemaVersion: "CJ-LIB-1.0", cards: [] };
+  const raw = localStorage.getItem(CARD_LIBRARY_KEY) ?? localStorage.getItem(LEGACY_CARD_LIBRARY_KEY);
+  if (!raw) return { schemaVersion: CARD_LIBRARY_VERSION, cards: [] };
   try {
-    const parsed = JSON.parse(raw);
-    if (parsed?.schemaVersion !== "CJ-LIB-1.0") return { schemaVersion: "CJ-LIB-1.0", cards: [] };
-    return parsed as CardLibrary;
+    return normalizeCardLibrary(JSON.parse(raw));
   } catch {
-    return { schemaVersion: "CJ-LIB-1.0", cards: [] };
+    return { schemaVersion: CARD_LIBRARY_VERSION, cards: [] };
   }
 }
 
 export function saveLibrary(lib: CardLibrary) {
-  localStorage.setItem(KEY, JSON.stringify(lib));
+  const normalized = normalizeCardLibrary(lib);
+  localStorage.setItem(CARD_LIBRARY_KEY, JSON.stringify(normalized));
 }
 
 export function upsertCardInLibrary(card: CardEntity) {
@@ -38,8 +50,5 @@ export function removeCardFromLibrary(cardId: string) {
 }
 
 export function importLibraryJson(jsonText: string): CardLibrary {
-  const parsed = JSON.parse(jsonText);
-  if (Array.isArray(parsed?.cards)) return { schemaVersion: "CJ-LIB-1.0", cards: parsed.cards };
-  if (Array.isArray(parsed)) return { schemaVersion: "CJ-LIB-1.0", cards: parsed };
-  throw new Error("Unrecognized library JSON. Expected {cards:[...]} or an array.");
+  return normalizeCardLibrary(JSON.parse(jsonText));
 }

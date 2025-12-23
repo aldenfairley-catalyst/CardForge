@@ -51,9 +51,7 @@ import {
   exportLibraryJson,
   getLibrarySource,
   importLibraryJson,
-  loadLibrary,
   relinkLibraryFromUrl,
-  saveLibrary,
   setLibrarySource,
   upsertAbility,
   upsertStep,
@@ -72,6 +70,9 @@ import {
   reactFlowNodeToGraphNode
 } from "./lib/graphIR/adapters";
 import { PinKind, type ForgeProject, type Graph, type GraphEdge, type GraphNode as IRGraphNode } from "./lib/graphIR/types";
+import type { DataProvider } from "./lib/dataProvider";
+import { browserProvider } from "./lib/providers/browserProvider";
+import { localApiProvider } from "./lib/providers/localApiProvider";
 
 type AppMode = "FORGE" | "LIBRARY" | "DECKS" | "SCENARIOS";
 
@@ -276,12 +277,68 @@ export default function App() {
     [setToasts]
   );
 
+  const providerOptions: Record<DataProvider["kind"], DataProvider> = useMemo(
+    () => ({
+      browser: browserProvider,
+      "local-api": localApiProvider
+    }),
+    []
+  );
+  const [providerKind, setProviderKind] = useState<DataProvider["kind"]>(() => {
+    return (localStorage.getItem("cj_data_provider") as DataProvider["kind"]) ??
+      ((import.meta as any).env?.VITE_PROVIDER_KIND as DataProvider["kind"]) ??
+      "browser";
+  });
+  const provider = useMemo(() => providerOptions[providerKind] ?? browserProvider, [providerKind, providerOptions]);
+
+  useEffect(() => {
+    localStorage.setItem("cj_data_provider", providerKind);
+  }, [providerKind]);
+
   // Action Library
   const [libraryOpen, setLibraryOpen] = useState(false);
-  const [library, setLibrary] = useState(() => loadLibrary());
+  const [library, setLibrary] = useState(() => defaultLibrary());
   const [libraryError, setLibraryError] = useState<string | null>(null);
   const [libraryUrl, setLibraryUrl] = useState(() => getLibrarySource().url ?? "");
+  const [libraryLoaded, setLibraryLoaded] = useState(false);
   const lastGoodStepsRef = useRef<Step[] | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLibraryLoaded(false);
+    setLibraryError(null);
+    (async () => {
+      try {
+        const loaded = await provider.library.load();
+        if (cancelled) return;
+        setLibrary(coerceLibrary(loaded ?? defaultLibrary()));
+      } catch (e: any) {
+        if (cancelled) return;
+        setLibraryError(e?.message ?? String(e));
+        setLibrary(defaultLibrary());
+      }
+      if (cancelled) return;
+      setLibraryLoaded(true);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [provider]);
+
+  useEffect(() => {
+    if (!libraryLoaded) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        await provider.library.save(library);
+      } catch (e: any) {
+        if (!cancelled) setLibraryError(e?.message ?? String(e));
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [library, provider, libraryLoaded]);
 
   // Registry upgrades: reload cached cards/libraries and prefetch cache-busted registry asset
   useEffect(() => {
@@ -363,10 +420,6 @@ export default function App() {
       ui: { ...(prev.ui ?? {}), activeGraphId }
     }));
   }, [graph, activeGraphId]);
-
-  useEffect(() => {
-    saveLibrary(library);
-  }, [library]);
 
   useEffect(() => {
     localStorage.setItem("cj_ai_provider", aiProvider);
@@ -956,6 +1009,13 @@ export default function App() {
             <button className={`btn ${mode === "SCENARIOS" ? "btnPrimary" : ""}`} onClick={() => setMode("SCENARIOS")}>
               Scenarios
             </button>
+            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <span className="small">Data:</span>
+              <select className="select" value={providerKind} onChange={(e) => setProviderKind(e.target.value as DataProvider["kind"])}>
+                <option value="browser">Browser (local)</option>
+                <option value="local-api">Local API</option>
+              </select>
+            </div>
           </div>
         </div>
 
@@ -968,9 +1028,9 @@ export default function App() {
               <span className="badge">MVP</span>
             </div>
             <div className="pb">
-              {mode === "LIBRARY" ? <CardLibraryManager /> : null}
-              {mode === "DECKS" ? <DeckBuilder /> : null}
-              {mode === "SCENARIOS" ? <ScenarioBuilder /> : null}
+              {mode === "LIBRARY" ? <CardLibraryManager currentCard={card} provider={provider} /> : null}
+              {mode === "DECKS" ? <DeckBuilder provider={provider} /> : null}
+              {mode === "SCENARIOS" ? <ScenarioBuilder provider={provider} /> : null}
             </div>
           </div>
         </div>
@@ -1004,6 +1064,14 @@ export default function App() {
           </button>
 
           <span style={{ width: 1, background: "var(--border)", opacity: 0.6, margin: "0 6px" }} />
+
+          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <span className="small">Data:</span>
+            <select className="select" value={providerKind} onChange={(e) => setProviderKind(e.target.value as DataProvider["kind"])}>
+              <option value="browser">Browser (local)</option>
+              <option value="local-api">Local API</option>
+            </select>
+          </div>
 
           <button className="btn" onClick={() => setPreviewOpen(true)}>
             Preview Card
@@ -1933,7 +2001,7 @@ export default function App() {
       {/* Action Library modal */}
       <Modal
         open={libraryOpen}
-        title="Action Library (Abilities / Steps / Profiles)"
+        title="Action Library (CJ-ACTION-LIB-1.0)"
         onClose={() => {
           setLibraryOpen(false);
           setLibraryError(null);
@@ -1952,6 +2020,11 @@ export default function App() {
             <div className="small">{libraryError}</div>
           </div>
         ) : null}
+
+        <div className="small" style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+          <span className="badge">{providerKind}</span>
+          <span className="badge">Updated {new Date(library.updatedAt).toLocaleString()}</span>
+        </div>
 
         <div className="small">Relink library source</div>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>

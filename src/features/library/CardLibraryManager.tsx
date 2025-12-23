@@ -1,12 +1,7 @@
-import React, { useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import type { CardEntity } from "../../lib/types";
-import {
-  importLibraryJson,
-  loadLibrary,
-  removeCardFromLibrary,
-  saveLibrary,
-  upsertCardInLibrary
-} from "../../lib/libraryStore";
+import type { DataProvider } from "../../lib/dataProvider";
+import { CARD_LIBRARY_VERSION, importLibraryJson, type CardLibrary } from "../../lib/libraryStore";
 
 function download(filename: string, text: string) {
   const blob = new Blob([text], { type: "application/json" });
@@ -18,11 +13,13 @@ function download(filename: string, text: string) {
   URL.revokeObjectURL(url);
 }
 
-export function CardLibraryManager(props: { currentCard?: CardEntity }) {
-  const [lib, setLib] = useState(() => loadLibrary());
+export function CardLibraryManager(props: { currentCard?: CardEntity; provider: DataProvider }) {
+  const [lib, setLib] = useState<CardLibrary>({ schemaVersion: CARD_LIBRARY_VERSION, cards: [] });
   const [importText, setImportText] = useState("");
   const [err, setErr] = useState<string | null>(null);
+  const [importErr, setImportErr] = useState<string | null>(null);
   const [q, setQ] = useState("");
+  const [loading, setLoading] = useState(true);
 
   const cards = useMemo(() => {
     const query = q.trim().toLowerCase();
@@ -35,30 +32,48 @@ export function CardLibraryManager(props: { currentCard?: CardEntity }) {
     });
   }, [lib.cards, q]);
 
-  function refresh() {
-    setLib(loadLibrary());
-  }
+  const refresh = useCallback(async () => {
+    setLoading(true);
+    setErr(null);
+    try {
+      const list = await props.provider.cards.list();
+      setLib({ schemaVersion: CARD_LIBRARY_VERSION, cards: list as CardEntity[] });
+    } catch (e: any) {
+      setErr(e?.message ?? String(e));
+    } finally {
+      setLoading(false);
+    }
+  }, [props.provider]);
 
-  function addCurrent() {
+  useEffect(() => {
+    void refresh();
+  }, [refresh]);
+
+  async function addCurrent() {
     if (!props.currentCard) return;
-    upsertCardInLibrary(props.currentCard);
-    refresh();
+    await props.provider.cards.upsert(props.currentCard);
+    await refresh();
   }
 
   function exportAll() {
-    download("cj_library.json", JSON.stringify({ schemaVersion: "CJ-LIB-1.0", cards: lib.cards }, null, 2));
+    download("cj_card_library.json", JSON.stringify({ schemaVersion: CARD_LIBRARY_VERSION, cards: lib.cards }, null, 2));
   }
 
-  function doImport() {
-    setErr(null);
+  async function doImport() {
+    setImportErr(null);
     try {
       const imported = importLibraryJson(importText);
-      saveLibrary(imported);
+      await Promise.all(imported.cards.map((card) => props.provider.cards.upsert(card)));
       setImportText("");
-      refresh();
+      await refresh();
     } catch (e: any) {
-      setErr(e.message ?? String(e));
+      setImportErr(e.message ?? String(e));
     }
+  }
+
+  async function clearLibrary() {
+    await Promise.all(lib.cards.map((c) => props.provider.cards.remove(c.id)));
+    await refresh();
   }
 
   return (
@@ -68,7 +83,11 @@ export function CardLibraryManager(props: { currentCard?: CardEntity }) {
           <div className="h2">Card Library</div>
           <div className="small">Local catalog of cards for deck/scenario building</div>
         </div>
-        <span className="badge">{lib.cards.length} cards</span>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <span className="badge">{lib.cards.length} cards</span>
+          <span className="badge">CJ-CARD-LIB-1.0</span>
+          {loading ? <span className="small">Loading…</span> : null}
+        </div>
       </div>
 
       <div className="pb" style={{ display: "flex", gap: 12, flexDirection: "column", minHeight: 0 }}>
@@ -82,8 +101,7 @@ export function CardLibraryManager(props: { currentCard?: CardEntity }) {
           <button
             className="btn"
             onClick={() => {
-              saveLibrary({ schemaVersion: "CJ-LIB-1.0", cards: [] });
-              refresh();
+              void clearLibrary();
             }}
           >
             Clear
@@ -95,6 +113,13 @@ export function CardLibraryManager(props: { currentCard?: CardEntity }) {
 
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, minHeight: 0 }}>
           <div style={{ minHeight: 0, overflow: "auto", border: "1px solid var(--border)", borderRadius: 12, padding: 10 }}>
+            {err ? (
+              <div className="err">
+                <b>Load error</b>
+                <div className="small">{err}</div>
+              </div>
+            ) : null}
+
             {cards.map((c) => (
               <div key={c.id} className="item" style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center" }}>
                 <div>
@@ -106,28 +131,27 @@ export function CardLibraryManager(props: { currentCard?: CardEntity }) {
                 <button
                   className="btn btnDanger"
                   onClick={() => {
-                    removeCardFromLibrary(c.id);
-                    refresh();
+                    void props.provider.cards.remove(c.id).then(refresh);
                   }}
                 >
                   Remove
                 </button>
               </div>
             ))}
-            {!cards.length ? <div className="small">No cards in library yet. Add the current card or import a bundle.</div> : null}
+            {!cards.length && !loading ? <div className="small">No cards in library yet. Add the current card or import a bundle.</div> : null}
           </div>
 
           <div style={{ display: "flex", flexDirection: "column", gap: 8, minHeight: 0 }}>
             <div className="small">Import Library JSON</div>
-            {err ? (
+            {importErr ? (
               <div className="err">
                 <b>Import error</b>
-                <div className="small">{err}</div>
+                <div className="small">{importErr}</div>
               </div>
             ) : null}
             <textarea className="textarea" style={{ minHeight: 200 }} value={importText} onChange={(e) => setImportText(e.target.value)} placeholder="{ cards: [...] } or [ ... ]" />
             <div style={{ display: "flex", justifyContent: "flex-end" }}>
-              <button className="btn btnPrimary" onClick={doImport}>
+              <button className="btn btnPrimary" onClick={doImport} disabled={!importText.trim()}>
                 Import
               </button>
             </div>

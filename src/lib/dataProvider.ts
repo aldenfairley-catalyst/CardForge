@@ -4,13 +4,13 @@ import type { ScenarioDefinition } from "./scenarioTypes";
 import type { Catalog } from "./catalog";
 import type { ActionLibrary } from "./repository";
 
-export type CardSummary = Pick<CardEntity, "id" | "name" | "type" | "faction"> & {
+export type CardSummary = Pick<CardEntity, "id" | "name" | "type" | "faction" | "subType" | "tags"> & {
   updatedAt?: number;
 };
 
 export type DeckSummary = Pick<DeckDefinition, "id" | "name" | "faction"> & { updatedAt?: number };
 
-export type ScenarioSummary = Pick<ScenarioDefinition, "id" | "name"> & { updatedAt?: number };
+export type ScenarioSummary = Pick<ScenarioDefinition, "id" | "name" | "mode" | "players"> & { updatedAt?: number };
 
 export interface CardProvider {
   list(params?: { search?: string; type?: string; faction?: string }): Promise<CardSummary[]>;

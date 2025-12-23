@@ -47,7 +47,7 @@ jobs:
           https_proxy: ""
           npm_config_proxy: ""
           npm_config_https_proxy: ""
-        run: npm ci
+        run: npm ci --no-audit --no-fund --foreground-scripts
 
       - name: Typecheck
         run: npm run typecheck
@@ -57,6 +57,12 @@ jobs:
 
       - name: Build
         run: npm run build
+
+      - name: Troubleshoot npm failure
+        if: failure()
+        run: |
+          npm config list -l
+          ls -la node_modules/.bin || true
 
       - name: Configure Pages
         if: github.ref == 'refs/heads/main'

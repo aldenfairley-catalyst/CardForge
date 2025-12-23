@@ -1,7 +1,9 @@
 import type { AbilityComponent, Step, TargetingProfile } from "./types";
 
+export const ACTION_LIBRARY_VERSION = "CJ-ACTION-LIB-1.0" as const;
+
 export type ActionLibrary = {
-  libraryVersion: "CJ-LIB-1.0";
+  libraryVersion: typeof ACTION_LIBRARY_VERSION;
   name: string;
   updatedAt: string;
 
@@ -16,9 +18,26 @@ export type ActionLibrary = {
 const LS_KEY = "CJ_ACTION_LIBRARY";
 const LS_SOURCE_KEY = "CJ_ACTION_LIBRARY_SOURCE"; // {mode:'local'|'url', url?:string}
 
+function normalizeLibrary(parsed: any): ActionLibrary {
+  if (!parsed || typeof parsed !== "object") throw new Error("Expected action library JSON object");
+  const baseVersion = parsed.libraryVersion;
+  if (baseVersion === "CJ-LIB-1.0" || baseVersion === ACTION_LIBRARY_VERSION) {
+    return {
+      libraryVersion: ACTION_LIBRARY_VERSION,
+      name: parsed.name ?? "My Action Library",
+      updatedAt: parsed.updatedAt ?? new Date().toISOString(),
+      abilities: Array.isArray(parsed.abilities) ? parsed.abilities : [],
+      steps: Array.isArray(parsed.steps) ? parsed.steps : [],
+      targetingProfiles: Array.isArray(parsed.targetingProfiles) ? parsed.targetingProfiles : [],
+      meta: parsed.meta
+    };
+  }
+  throw new Error(`Expected ${ACTION_LIBRARY_VERSION}`);
+}
+
 export function defaultLibrary(): ActionLibrary {
   return {
-    libraryVersion: "CJ-LIB-1.0",
+    libraryVersion: ACTION_LIBRARY_VERSION,
     name: "My Action Library",
     updatedAt: new Date().toISOString(),
     abilities: [],
@@ -31,16 +50,14 @@ export function loadLibrary(): ActionLibrary {
   const raw = localStorage.getItem(LS_KEY);
   if (!raw) return defaultLibrary();
   try {
-    const parsed = JSON.parse(raw);
-    if (parsed?.libraryVersion !== "CJ-LIB-1.0") return defaultLibrary();
-    return parsed as ActionLibrary;
+    return normalizeLibrary(JSON.parse(raw));
   } catch {
     return defaultLibrary();
   }
 }
 
 export function saveLibrary(lib: ActionLibrary) {
-  const next = { ...lib, updatedAt: new Date().toISOString() };
+  const next = { ...normalizeLibrary(lib), updatedAt: new Date().toISOString() };
   localStorage.setItem(LS_KEY, JSON.stringify(next));
 }
 
@@ -88,13 +105,12 @@ export function upsertTargetingProfile(
 }
 
 export function exportLibraryJson(lib: ActionLibrary) {
-  return JSON.stringify(lib, null, 2);
+  return JSON.stringify(normalizeLibrary(lib), null, 2);
 }
 
 export function importLibraryJson(text: string): ActionLibrary {
   const parsed = JSON.parse(text);
-  if (!parsed || parsed.libraryVersion !== "CJ-LIB-1.0") throw new Error("Expected CJ-LIB-1.0");
-  return parsed as ActionLibrary;
+  return normalizeLibrary(parsed);
 }
 
 export async function relinkLibraryFromUrl(url: string): Promise<ActionLibrary> {
@@ -103,4 +119,3 @@ export async function relinkLibraryFromUrl(url: string): Promise<ActionLibrary> 
   const text = await res.text();
   return importLibraryJson(text);
 }
-

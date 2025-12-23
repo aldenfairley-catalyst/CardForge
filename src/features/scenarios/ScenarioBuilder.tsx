@@ -1,7 +1,7 @@
-import React, { useMemo, useState } from "react";
-import { loadDeckStore } from "../../lib/deckStore";
-import { loadLibrary } from "../../lib/libraryStore";
-import { importScenariosJson, loadScenarioStore, removeScenario, upsertScenario } from "../../lib/scenarioStore";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
+import type { DataProvider, DeckSummary, ScenarioSummary } from "../../lib/dataProvider";
+import type { CardEntity } from "../../lib/types";
+import { importScenariosJson } from "../../lib/scenarioStore";
 import {
   makeDefaultScenario,
   ScenarioAction,
@@ -22,72 +22,97 @@ function download(filename: string, text: string) {
   URL.revokeObjectURL(url);
 }
 
-export function ScenarioBuilder() {
-  const [store, setStore] = useState(() => loadScenarioStore());
-  const [activeId, setActiveId] = useState(() => store.scenarios[0]?.id ?? "");
+export function ScenarioBuilder({ provider }: { provider: DataProvider }) {
+  const [cards, setCards] = useState<CardEntity[]>([]);
+  const [decks, setDecks] = useState<DeckSummary[]>([]);
+  const [scenarios, setScenarios] = useState<ScenarioSummary[]>([]);
+  const [activeId, setActiveId] = useState("");
+  const [scenario, setScenarioState] = useState<ScenarioDefinition | null>(null);
   const [importText, setImportText] = useState("");
   const [err, setErr] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
 
-  const decks = loadDeckStore().decks;
-  const cards = loadLibrary().cards;
+  const refresh = useCallback(
+    async (desiredId?: string) => {
+      setLoading(true);
+      setErr(null);
+      try {
+        const [deckList, scenarioList, cardList] = await Promise.all([
+          provider.decks.list(),
+          provider.scenarios.list(),
+          provider.cards.list()
+        ]);
+        setDecks(deckList);
+        setScenarios(scenarioList);
+        setCards(cardList as CardEntity[]);
 
-  const scenario: ScenarioDefinition | null = store.scenarios.find((s) => s.id === activeId) ?? null;
+        const nextId = (desiredId && scenarioList.some((s) => s.id === desiredId) && desiredId) || scenarioList[0]?.id || "";
+        setActiveId(nextId);
+        const detail = nextId ? await provider.scenarios.get(nextId) : null;
+        setScenarioState(detail ?? null);
+      } catch (e: any) {
+        setErr(e?.message ?? String(e));
+        setScenarioState(null);
+      } finally {
+        setLoading(false);
+      }
+    },
+    [provider]
+  );
 
-  function refresh() {
-    setStore(loadScenarioStore());
-  }
+  useEffect(() => {
+    void refresh();
+  }, [refresh]);
 
-  function setScenario(patch: Partial<ScenarioDefinition>) {
+  const unitCards = useMemo(() => cards.filter((c) => c.type === "UNIT").sort((a, b) => a.name.localeCompare(b.name)), [cards]);
+
+  async function setScenario(patch: Partial<ScenarioDefinition>) {
     if (!scenario) return;
     const next = { ...scenario, ...patch };
-    upsertScenario(next);
-    refresh();
-    setActiveId(next.id);
+    await provider.scenarios.upsert(next);
+    setScenarioState(next);
+    setScenarios((prev) => prev.map((s) => (s.id === next.id ? { ...s, name: next.name } : s)));
   }
 
-  function newScenario() {
+  async function newScenario() {
     const s = makeDefaultScenario();
-    upsertScenario(s);
-    refresh();
-    setActiveId(s.id);
+    await provider.scenarios.upsert(s);
+    await refresh(s.id);
   }
 
-  function deleteScenario() {
+  async function deleteScenario() {
     if (!scenario) return;
-    removeScenario(scenario.id);
-    const nextStore = loadScenarioStore();
-    setStore(nextStore);
-    setActiveId(nextStore.scenarios[0]?.id ?? "");
+    await provider.scenarios.remove(scenario.id);
+    setScenarioState(null);
+    await refresh();
   }
 
-  function exportActive() {
+  async function exportActive() {
     if (!scenario) return;
     download(`${scenario.name.replace(/\s+/g, "_").toLowerCase()}_scenario.json`, JSON.stringify(scenario, null, 2));
   }
-  function exportAll() {
-    download(`cj_scenarios.json`, JSON.stringify({ scenarios: store.scenarios }, null, 2));
+  async function exportAll() {
+    const all = await Promise.all(scenarios.map((s) => provider.scenarios.get(s.id)));
+    download(`cj_scenarios.json`, JSON.stringify({ scenarios: all.filter(Boolean) }, null, 2));
   }
 
-  function doImport() {
+  async function doImport() {
     setErr(null);
     try {
       const incoming = importScenariosJson(importText);
-      for (const s of incoming) upsertScenario(s);
+      for (const s of incoming) await provider.scenarios.upsert(s);
       setImportText("");
-      refresh();
-      if (!activeId && incoming[0]) setActiveId(incoming[0].id);
+      await refresh(incoming[0]?.id);
     } catch (e: any) {
       setErr(e.message ?? String(e));
     }
   }
 
-  const unitCards = useMemo(() => cards.filter((c) => c.type === "UNIT").sort((a, b) => a.name.localeCompare(b.name)), [cards]);
-
   function setSide(idx: number, patch: Partial<ScenarioSideSetup>) {
     if (!scenario) return;
     const sides = scenario.setup.sides.slice();
     sides[idx] = { ...sides[idx], ...patch };
-    setScenario({ setup: { ...scenario.setup, sides } });
+    void setScenario({ setup: { ...scenario.setup, sides } });
   }
 
   function addStartingUnit(sideIdx: number, cardId: string) {
@@ -97,7 +122,7 @@ export function ScenarioBuilder() {
     const startingUnits = s.startingUnits.slice();
     startingUnits.push({ cardId, pos: { q: 0, r: 0 } });
     sides[sideIdx] = { ...s, startingUnits };
-    setScenario({ setup: { ...scenario.setup, sides } });
+    void setScenario({ setup: { ...scenario.setup, sides } });
   }
 
   function updateStartingUnit(sideIdx: number, unitIdx: number, patch: any) {
@@ -107,7 +132,7 @@ export function ScenarioBuilder() {
     const startingUnits = s.startingUnits.slice();
     startingUnits[unitIdx] = { ...startingUnits[unitIdx], ...patch, pos: { ...startingUnits[unitIdx].pos, ...(patch.pos ?? {}) } };
     sides[sideIdx] = { ...s, startingUnits };
-    setScenario({ setup: { ...scenario.setup, sides } });
+    void setScenario({ setup: { ...scenario.setup, sides } });
   }
 
   function removeStartingUnit(sideIdx: number, unitIdx: number) {
@@ -117,26 +142,26 @@ export function ScenarioBuilder() {
     const startingUnits = s.startingUnits.slice();
     startingUnits.splice(unitIdx, 1);
     sides[sideIdx] = { ...s, startingUnits };
-    setScenario({ setup: { ...scenario.setup, sides } });
+    void setScenario({ setup: { ...scenario.setup, sides } });
   }
 
   function addVictory(v: VictoryCondition) {
     if (!scenario) return;
-    setScenario({ victory: [...scenario.victory, v] });
+    void setScenario({ victory: [...scenario.victory, v] });
   }
 
   function updateVictory(i: number, patch: any) {
     if (!scenario) return;
     const victory = scenario.victory.slice();
     victory[i] = { ...victory[i], ...patch };
-    setScenario({ victory });
+    void setScenario({ victory });
   }
 
   function removeVictory(i: number) {
     if (!scenario) return;
     const victory = scenario.victory.slice();
     victory.splice(i, 1);
-    setScenario({ victory });
+    void setScenario({ victory });
   }
 
   function addTrigger() {
@@ -148,21 +173,21 @@ export function ScenarioBuilder() {
       when: { type: "ON_SCENARIO_START" },
       actions: [{ type: "CUSTOM", text: "Describe what happens..." }]
     };
-    setScenario({ triggers: [...scenario.triggers, t] });
+    void setScenario({ triggers: [...scenario.triggers, t] });
   }
 
   function updateTrigger(i: number, patch: Partial<ScenarioTrigger>) {
     if (!scenario) return;
     const triggers = scenario.triggers.slice();
     triggers[i] = { ...triggers[i], ...patch };
-    setScenario({ triggers });
+    void setScenario({ triggers });
   }
 
   function removeTrigger(i: number) {
     if (!scenario) return;
     const triggers = scenario.triggers.slice();
     triggers.splice(i, 1);
-    setScenario({ triggers });
+    void setScenario({ triggers });
   }
 
   function addAction(triggerIdx: number, action: ScenarioAction) {
@@ -170,7 +195,7 @@ export function ScenarioBuilder() {
     const triggers = scenario.triggers.slice();
     const t = triggers[triggerIdx];
     triggers[triggerIdx] = { ...t, actions: [...t.actions, action] };
-    setScenario({ triggers });
+    void setScenario({ triggers });
   }
 
   function updateAction(triggerIdx: number, actionIdx: number, patch: any) {
@@ -180,7 +205,7 @@ export function ScenarioBuilder() {
     const actions = t.actions.slice();
     actions[actionIdx] = { ...actions[actionIdx], ...patch };
     triggers[triggerIdx] = { ...t, actions };
-    setScenario({ triggers });
+    void setScenario({ triggers });
   }
 
   function removeAction(triggerIdx: number, actionIdx: number) {
@@ -190,37 +215,46 @@ export function ScenarioBuilder() {
     const actions = t.actions.slice();
     actions.splice(actionIdx, 1);
     triggers[triggerIdx] = { ...t, actions };
-    setScenario({ triggers });
+    void setScenario({ triggers });
   }
 
   function setWhen(triggerIdx: number, when: TriggerWhen) {
     if (!scenario) return;
     const triggers = scenario.triggers.slice();
     triggers[triggerIdx] = { ...triggers[triggerIdx], when };
-    setScenario({ triggers });
+    void setScenario({ triggers });
   }
 
   return (
     <div className="grid" style={{ gridTemplateColumns: "320px 1fr", minHeight: 0 }}>
-      {/* Left list */}
       <div className="panel" style={{ minHeight: 0 }}>
         <div className="ph">
           <div>
             <div className="h2">Scenarios</div>
             <div className="small">Triggers • story beats • setup</div>
           </div>
-          <span className="badge">{store.scenarios.length}</span>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <span className="badge">{scenarios.length}</span>
+            {loading ? <span className="small">Loading…</span> : null}
+          </div>
         </div>
         <div className="pb" style={{ minHeight: 0, overflow: "auto" }}>
-          <button className="btn btnPrimary" style={{ width: "100%", marginBottom: 10 }} onClick={newScenario}>
+          <button className="btn btnPrimary" style={{ width: "100%", marginBottom: 10 }} onClick={() => void newScenario()}>
             + New Scenario
           </button>
 
-          {store.scenarios.map((s) => (
+          {err ? (
+            <div className="err">
+              <b>Error</b>
+              <div className="small">{err}</div>
+            </div>
+          ) : null}
+
+          {scenarios.map((s) => (
             <div
               key={s.id}
               className="item"
-              onClick={() => setActiveId(s.id)}
+              onClick={() => void refresh(s.id)}
               style={{ border: s.id === activeId ? "1px solid var(--accent)" : "1px solid var(--border)" }}
             >
               <b>{s.name}</b>
@@ -233,7 +267,7 @@ export function ScenarioBuilder() {
           <hr style={{ borderColor: "var(--border)", opacity: 0.5, margin: "12px 0" }} />
 
           <div className="small">Import Scenario JSON</div>
-          {err ? (
+          {err && !scenario ? (
             <div className="err">
               <b>Import error</b>
               <div className="small">{err}</div>
@@ -241,17 +275,16 @@ export function ScenarioBuilder() {
           ) : null}
           <textarea className="textarea" style={{ minHeight: 140 }} value={importText} onChange={(e) => setImportText(e.target.value)} />
           <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
-            <button className="btn btnPrimary" onClick={doImport} style={{ flex: 1 }}>
+            <button className="btn btnPrimary" onClick={() => void doImport()} style={{ flex: 1 }} disabled={!importText.trim()}>
               Import
             </button>
-            <button className="btn" onClick={exportAll} style={{ flex: 1 }}>
+            <button className="btn" onClick={() => void exportAll()} style={{ flex: 1 }}>
               Export All
             </button>
           </div>
         </div>
       </div>
 
-      {/* Editor */}
       <div className="panel" style={{ minHeight: 0 }}>
         <div className="ph">
           <div>
@@ -267,12 +300,12 @@ export function ScenarioBuilder() {
           ) : (
             <>
               <div className="small">Name</div>
-              <input className="input" value={scenario.name} onChange={(e) => setScenario({ name: e.target.value })} />
+              <input className="input" value={scenario.name} onChange={(e) => void setScenario({ name: e.target.value })} />
 
               <div className="small" style={{ marginTop: 8 }}>
                 Description
               </div>
-              <textarea className="textarea" value={scenario.description ?? ""} onChange={(e) => setScenario({ description: e.target.value })} />
+              <textarea className="textarea" value={scenario.description ?? ""} onChange={(e) => void setScenario({ description: e.target.value })} />
 
               <div style={{ display: "flex", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
                 <div style={{ flex: "1 1 160px" }}>
@@ -281,21 +314,21 @@ export function ScenarioBuilder() {
                     className="input"
                     type="number"
                     value={scenario.players}
-                    onChange={(e) => setScenario({ players: Math.max(1, Math.floor(Number(e.target.value))) })}
+                    onChange={(e) => void setScenario({ players: Math.max(1, Math.floor(Number(e.target.value))) })}
                   />
                 </div>
                 <div style={{ flex: "1 1 220px" }}>
                   <div className="small">Mode</div>
-                  <select className="select" value={scenario.mode} onChange={(e) => setScenario({ mode: e.target.value as any })}>
+                  <select className="select" value={scenario.mode} onChange={(e) => void setScenario({ mode: e.target.value as any })}>
                     <option value="ASSISTED_PHYSICAL">ASSISTED_PHYSICAL</option>
                     <option value="FULL_DIGITAL">FULL_DIGITAL</option>
                   </select>
                 </div>
                 <div style={{ display: "flex", gap: 8, alignItems: "flex-end", flexWrap: "wrap" }}>
-                  <button className="btn" onClick={exportActive}>
+                  <button className="btn" onClick={() => void exportActive()}>
                     Export
                   </button>
-                  <button className="btn btnDanger" onClick={deleteScenario}>
+                  <button className="btn btnDanger" onClick={() => void deleteScenario()}>
                     Delete
                   </button>
                 </div>
@@ -382,7 +415,7 @@ export function ScenarioBuilder() {
                     onChange={(e) => {
                       try {
                         const env = JSON.parse(e.target.value);
-                        setScenario({ setup: { ...scenario.setup, env } });
+                        void setScenario({ setup: { ...scenario.setup, env } });
                       } catch {
                         // ignore while typing
                       }
@@ -452,7 +485,7 @@ export function ScenarioBuilder() {
                   onChange={(e) => {
                     try {
                       const story = JSON.parse(e.target.value);
-                      setScenario({ story });
+                      void setScenario({ story });
                     } catch {}
                   }}
                   style={{ minHeight: 140 }}
@@ -518,120 +551,76 @@ export function ScenarioBuilder() {
                         ) : null}
 
                         {t.when.type === "ON_ENV_VAR_CHANGED" ? (
-                          <div style={{ flex: "1 1 180px" }}>
+                          <div style={{ flex: "0 0 180px" }}>
                             <div className="small">Env Key</div>
                             <input className="input" value={(t.when as any).key ?? ""} onChange={(e) => setWhen(ti, { type: "ON_ENV_VAR_CHANGED", key: e.target.value })} />
                           </div>
                         ) : null}
 
+                        {t.when.type === "ON_TURN_START" || t.when.type === "ON_UNIT_DEATH" ? (
+                          <div style={{ flex: "0 0 180px" }}>
+                            <div className="small">Side</div>
+                            <input className="input" value={(t.when as any).sideId ?? ""} onChange={(e) => setWhen(ti, { ...t.when, sideId: e.target.value } as any)} />
+                          </div>
+                        ) : null}
+
+                        {t.when.type === "ON_UNIT_DEATH" ? (
+                          <div style={{ flex: "0 0 180px" }}>
+                            <div className="small">Card</div>
+                            <input className="input" value={(t.when as any).cardId ?? ""} onChange={(e) => setWhen(ti, { ...t.when, cardId: e.target.value } as any)} />
+                          </div>
+                        ) : null}
+
                         {t.when.type === "ON_CUSTOM_EVENT" ? (
-                          <div style={{ flex: "1 1 180px" }}>
-                            <div className="small">Event Name</div>
+                          <div style={{ flex: "0 0 220px" }}>
+                            <div className="small">Event</div>
                             <input className="input" value={(t.when as any).name ?? ""} onChange={(e) => setWhen(ti, { type: "ON_CUSTOM_EVENT", name: e.target.value })} />
                           </div>
                         ) : null}
                       </div>
 
-                      <div className="small" style={{ marginTop: 10 }}>
-                        Actions
-                      </div>
-                      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 6 }}>
-                        <button className="btn" onClick={() => addAction(ti, { type: "SET_ENV_VAR", key: "waterLevel", value: 1 })}>
-                          + Set Env
-                        </button>
-                        <button className="btn" onClick={() => addAction(ti, { type: "INCREMENT_ENV_VAR", key: "waterLevel", delta: 1 })}>
-                          + Inc Env
-                        </button>
-                        <button className="btn" onClick={() => addAction(ti, { type: "EMPTY_HAND", sideId: "A" })}>
-                          + Empty Hand
-                        </button>
-                        <button className="btn" onClick={() => addAction(ti, { type: "SWITCH_DECK", sideId: "A", deckId: decks[0]?.id ?? "" })}>
-                          + Switch Deck
-                        </button>
-                        <button className="btn" onClick={() => addAction(ti, { type: "SPAWN_UNIT", sideId: "A", cardId: unitCards[0]?.id ?? "", pos: { q: 0, r: 0 } })}>
-                          + Spawn Unit
-                        </button>
-                        <button className="btn" onClick={() => addAction(ti, { type: "CUSTOM", text: "Describe a custom action" })}>
-                          + Custom
-                        </button>
+                      <div style={{ display: "flex", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
+                        <div style={{ flex: "1 1 220px" }}>
+                          <div className="small">Actions</div>
+                        </div>
+                        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                          <button className="btn" onClick={() => addAction(ti, { type: "CUSTOM", text: "Describe a custom action" })}>
+                            + Custom Action
+                          </button>
+                        </div>
                       </div>
 
                       <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 8 }}>
                         {t.actions.map((a, ai) => (
                           <div key={ai} className="item" style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-                            <b style={{ minWidth: 170 }}>{a.type}</b>
-
-                            {a.type === "SET_ENV_VAR" ? (
-                              <>
-                                <input className="input" style={{ width: 160 }} value={(a as any).key} onChange={(e) => updateAction(ti, ai, { key: e.target.value })} />
-                                <input className="input" style={{ flex: "1 1 240px" }} value={String((a as any).value)} onChange={(e) => updateAction(ti, ai, { value: e.target.value })} />
-                              </>
+                            <div className="small" style={{ minWidth: 160 }}>
+                              {a.type}
+                            </div>
+                            {a.type === "CUSTOM" ? (
+                              <input className="input" style={{ flex: "1 1 260px" }} value={(a as any).text} onChange={(e) => updateAction(ti, ai, { text: e.target.value })} />
                             ) : null}
-
-                            {a.type === "INCREMENT_ENV_VAR" ? (
-                              <>
-                                <input className="input" style={{ width: 160 }} value={(a as any).key} onChange={(e) => updateAction(ti, ai, { key: e.target.value })} />
-                                <input className="input" style={{ width: 120 }} type="number" value={(a as any).delta} onChange={(e) => updateAction(ti, ai, { delta: Number(e.target.value) })} />
-                              </>
-                            ) : null}
-
-                            {a.type === "EMPTY_HAND" ? (
-                              <input className="input" style={{ width: 120 }} value={(a as any).sideId} onChange={(e) => updateAction(ti, ai, { sideId: e.target.value })} />
-                            ) : null}
-
-                            {a.type === "SWITCH_DECK" ? (
-                              <>
-                                <input className="input" style={{ width: 120 }} value={(a as any).sideId} onChange={(e) => updateAction(ti, ai, { sideId: e.target.value })} />
-                                <select className="select" value={(a as any).deckId} onChange={(e) => updateAction(ti, ai, { deckId: e.target.value })}>
-                                  <option value="">(none)</option>
-                                  {decks.map((d) => (
-                                    <option key={d.id} value={d.id}>
-                                      {d.name}
-                                    </option>
-                                  ))}
-                                </select>
-                              </>
-                            ) : null}
-
                             {a.type === "SPAWN_UNIT" ? (
                               <>
-                                <input className="input" style={{ width: 120 }} value={(a as any).sideId} onChange={(e) => updateAction(ti, ai, { sideId: e.target.value })} />
-                                <select className="select" value={(a as any).cardId} onChange={(e) => updateAction(ti, ai, { cardId: e.target.value })}>
-                                  <option value="">(choose unit)</option>
-                                  {unitCards.map((c) => (
-                                    <option key={c.id} value={c.id}>
-                                      {c.name}
-                                    </option>
-                                  ))}
-                                </select>
-                                <input className="input" style={{ width: 90 }} type="number" value={(a as any).pos?.q ?? 0} onChange={(e) => updateAction(ti, ai, { pos: { ...(a as any).pos, q: Number(e.target.value) } })} />
-                                <input className="input" style={{ width: 90 }} type="number" value={(a as any).pos?.r ?? 0} onChange={(e) => updateAction(ti, ai, { pos: { ...(a as any).pos, r: Number(e.target.value) } })} />
+                                <input className="input" style={{ width: 200 }} value={(a as any).cardId} onChange={(e) => updateAction(ti, ai, { cardId: e.target.value })} />
+                                <input
+                                  className="input"
+                                  style={{ width: 160 }}
+                                  type="number"
+                                  value={(a as any).qty ?? 1}
+                                  onChange={(e) => updateAction(ti, ai, { qty: Number(e.target.value) })}
+                                />
                               </>
                             ) : null}
-
-                            {a.type === "CUSTOM" ? (
-                              <input className="input" style={{ flex: "1 1 360px" }} value={(a as any).text ?? ""} onChange={(e) => updateAction(ti, ai, { text: e.target.value })} />
-                            ) : null}
-
                             <button className="btn btnDanger" onClick={() => removeAction(ti, ai)}>
                               Remove
                             </button>
                           </div>
                         ))}
+                        {!t.actions.length ? <div className="small">No actions configured yet.</div> : null}
                       </div>
                     </div>
                   ))}
-                  {scenario.triggers.length === 0 ? <div className="small">No triggers yet.</div> : null}
                 </div>
-              </details>
-
-              <hr style={{ borderColor: "var(--border)", opacity: 0.5, margin: "12px 0" }} />
-
-              <details>
-                <summary className="small" style={{ cursor: "pointer" }}>
-                  <b>Raw Scenario JSON</b>
-                </summary>
-                <pre>{JSON.stringify(scenario, null, 2)}</pre>
               </details>
             </>
           )}
