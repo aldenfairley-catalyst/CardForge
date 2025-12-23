@@ -35,14 +35,13 @@ jobs:
           npm_config_https_proxy: ""
         run: |
           npm config set registry https://registry.npmjs.org/
-          npm config set always-auth false
           npm config delete proxy || true
           npm config delete https-proxy || true
           npm config get registry
-          npm config get always-auth
 
       - name: Install
         env:
+          CJ_SKIP_SERVER_INSTALL: "1"
           http_proxy: ""
           https_proxy: ""
           npm_config_proxy: ""

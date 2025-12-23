@@ -45,6 +45,7 @@ import { forgeProjectSchemaVersion, forgeProjectProjectVersion, validateForgePro
 
 import { ConditionEditor } from "./components/ConditionEditor";
 import { CardPreview } from "./components/CardPreview";
+import NestedStepsEditor from "./components/NestedStepsEditor";
 
 import {
   defaultLibrary,
@@ -256,6 +257,7 @@ export default function App() {
 
   const [issues, setIssues] = useState<ValidationIssue[]>([]);
   const [graphIssues, setGraphIssues] = useState<ValidationIssue[]>([]);
+  const [graphSyncEnabled, setGraphSyncEnabled] = useState(true);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [inspectorTab, setInspectorTab] = useState<"config" | "pins" | "json">("config");
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
@@ -447,11 +449,12 @@ export default function App() {
     const handle = window.setTimeout(() => {
       const { steps, issues: gIssues } = compileAbilityGraph({ graph, ability, card });
       setGraphIssues(gIssues);
+      if (!graphSyncEnabled) return;
       const hasErrors = gIssues.some((i) => i.severity === "ERROR");
       if (hasErrors) {
         const fallback = lastGoodStepsRef.current ?? ((ability as any).execution?.steps ?? []);
         if (JSON.stringify((ability as any).execution?.steps ?? []) !== JSON.stringify(fallback)) {
-          setAbility({ execution: { steps: fallback } } as any);
+          setAbility({ execution: { ...((ability as any).execution ?? {}), steps: fallback } } as any);
         }
         return;
       }
@@ -459,12 +462,12 @@ export default function App() {
       lastGoodStepsRef.current = steps;
       const existing = (ability as any).execution?.steps ?? [];
       if (JSON.stringify(existing) !== JSON.stringify(steps)) {
-        setAbility({ execution: { steps } } as any);
+        setAbility({ execution: { ...((ability as any).execution ?? {}), steps } } as any);
       }
     }, 350);
 
     return () => window.clearTimeout(handle);
-  }, [graph, ability, card]);
+  }, [graph, ability, card, graphSyncEnabled]);
 
   // keep activeProfileId valid for current ability
   useEffect(() => {
@@ -564,7 +567,7 @@ export default function App() {
         targetPinId: connection.targetHandle
       });
 
-      if (!result.ok) {
+      if (result.ok === false) {
         pushToast(`Connection blocked: ${result.reason}`, "error");
         return prevEdges;
       }
@@ -1756,6 +1759,31 @@ export default function App() {
                       </div>
                     </div>
                   ) : null}
+
+                  <hr style={{ borderColor: "var(--border)", opacity: 0.5, margin: "12px 0" }} />
+
+                  <div className="small" style={{ fontWeight: 900 }}>
+                    Execution Program Editor
+                  </div>
+                  <div className="small" style={{ color: "var(--muted)", marginTop: 4 }}>
+                    Graph supports a subset; use Program Editor for full step set.
+                  </div>
+                  <label style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 6 }}>
+                    <input
+                      type="checkbox"
+                      checked={graphSyncEnabled}
+                      onChange={(e) => setGraphSyncEnabled(e.target.checked)}
+                    />
+                    Sync steps from graph (limited coverage)
+                  </label>
+                  <NestedStepsEditor
+                    title="Execution Steps"
+                    steps={(ability as any).execution?.steps ?? []}
+                    onChange={(steps) => {
+                      setGraphSyncEnabled(false);
+                      setAbility({ execution: { ...((ability as any).execution ?? {}), steps } } as any);
+                    }}
+                  />
 
                   <details style={{ marginTop: 10 }}>
                     <summary className="small" style={{ cursor: "pointer" }}>

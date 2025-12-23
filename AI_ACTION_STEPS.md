@@ -18,7 +18,7 @@ Every step is an object with:
 - `OPPONENT_SAVE.onFail / onSuccess`
 - `REGISTER_INTERRUPTS.onInterrupt`
 - `PROPERTY_CONTEST.onWin / onLose`
-- `SCHEDULE_STEPS.steps` *(executed later, in a future timing window)*
+- *(Planned)* `SCHEDULE_STEPS.steps` *(future timing window; not in runtime yet)*
 
 ---
 
@@ -46,52 +46,52 @@ Columns:
 
 | Step | Purpose | Required fields | Optional fields | Writes |
 |---|---|---|---|---|
-| SHOW_TEXT | Show narrative/log text | `text` | `style`, `speaker` | — |
-| ROLL_DN | Roll an N-sided die | `sides`, `saveAs` | `label` | number |
-| ROLL_D6 | Alias for ROLL_DN(6) | `saveAs` | — | number |
-| ROLL_D20 | Alias for ROLL_DN(20) | `saveAs` | — | number |
-| SET_VARIABLE | Set a variable from an expression | `saveAs`, `valueExpr` | — | any |
-| CALC_DISTANCE | Compute distance between entities/tiles | `metric`, `from`, `to`, `saveAs` | `throughBarriersPolicy` | number |
-| SELECT_TARGETS | Open targeting UI using a profile | `profileId`, `saveAs` | `prompt` | TargetSet |
-| FOR_EACH_TARGET | Iterate a TargetSet | `targetSet.ref`, `do[]` | `saveIndexAs` | iteration context |
-| FIND_ENTITIES_IN_AREA | Compute entities in a shape | `origin`, `shape`, `saveAs` | `filter` | TargetSet |
-| FIND_ADJACENT_ENTITIES | Compute adjacent entities | `origin`, `saveAs` | `filter` | TargetSet |
-| FIND_ENTITIES_BY_TAG | Find entities by tags | `tags`, `saveAs` | `scope`, `filter` | TargetSet |
+| SHOW_TEXT | Show narrative/log text | `text` | — | — |
+| ROLL_D6 / ROLL_D20 | Roll dice | — (include `saveAs` to capture) | `saveAs` | number |
+| SET_VARIABLE | Evaluate expression into a ref | `saveAs`, `valueExpr` | — | any |
 | IF_ELSE | Conditional branching | `condition`, `then[]` | `elseIf[]`, `else[]` | — |
-| WHILE | Looping (advanced) | `condition`, `do[]` | `maxIterations` | — |
-| DEAL_DAMAGE | Deal typed damage to target | `target`, `amountExpr`, `damageType` | `tags`, `sourceTag` | — |
-| HEAL | Heal HP | `target`, `amountExpr` | `capToMax` | — |
-| APPLY_STATUS | Apply a status | `target`, `status` | `duration`, `stacks` | — |
+| OPPONENT_SAVE | Opponent makes a save | `stat`, `difficulty`, `onFail[]`, `onSuccess[]` | — | — |
+| SELECT_TARGETS | Open targeting UI using a profile | `profileId`, `saveAs` | `originRef` | TargetSet |
+| FOR_EACH_TARGET | Iterate a TargetSet | `targetSet`, `do[]` | — | iteration context |
+| DEAL_DAMAGE | Deal typed damage to target | `target`, `amountExpr`, `damageType` | — | — |
+| HEAL | Heal HP | `target`, `amountExpr` | — | — |
+| APPLY_STATUS | Apply a status | `target`, `status` | `duration` | — |
 | REMOVE_STATUS | Remove a status | `target`, `status` | — | — |
-| OPEN_REACTION_WINDOW | Reaction timing window | `timing`, `windowId` | `allowedReactions` | — |
-| OPPONENT_SAVE | Opponent makes a save | `stat`, `difficulty`, `onFail[]`, `onSuccess[]` | `target` | — |
-| MOVE_ENTITY | Move an entity | `target`, `to`, `maxTiles` | `ignoreReactions`, `pathPolicy` | — |
-| MOVE_WITH_PATH_CAPTURE | Move and record passed entities | `target`, `maxTiles`, `savePassedEnemiesAs` | `ignoreReactions` | TargetSet |
-| PULL_TOWARD | Pull target toward another | `target`, `toward`, `maxTiles` | `saveLastSafeAs`, `barrierStops` | tile/entity |
-| TURN_ENTITY | Rotate an entity/vehicle | `target`, `degrees` | — | — |
-| MOVE_VEHICLE | Forward/back move with facing | `target`, `mode`, `tiles` | `noDiagonal`, `noSideSlip` | — |
-| RAM_COLLISION_RESOLVE | Resolve vehicle ram | `attacker`, `target`, `impactDamage` | `shockwave` | — |
-| SET_ENTITY_STATE | Set custom state on entity | `target`, `key`, `valueExpr` | — | — |
-| CLEAR_ENTITY_STATE | Clear state key | `target`, `key` | — | — |
-| NEGATE_DAMAGE | Cancel pending damage | — | `reason` | — |
-| REDUCE_DAMAGE | Reduce pending damage | `amountExpr` | `minFinal` | — |
-| MODIFY_PENDING_DAMAGE | Multiply/add pending damage | `mode` | `amountExpr`, `multiplierExpr` | — |
+| MOVE_ENTITY | Move an entity | `target`, `to`, `maxTiles` | — | — |
+| MOVE_WITH_PATH_CAPTURE | Move and capture entities passed through | `target`, `maxTiles`, `savePassedEnemiesAs` | `ignoreReactions` | TargetSet |
+| OPEN_REACTION_WINDOW | Reaction timing window | `timing`, `windowId` | — | — |
+| CALC_DISTANCE | Compute distance between entities/tiles | `metric`, `from`, `to`, `saveAs` | — | number |
 | DRAW_CARDS | Draw cards from a zone | `from`, `to`, `count` | `faceUp`, `saveAs` | CardSet |
-| MOVE_CARDS | Move cards between zones | `from`, `to` | `cardsRef`, `selector`, `shuffle` | — |
-| SEARCH_ZONE | Find cards in a zone | `zone`, `filter`, `saveAs` | `takeNExpr`, `sort` | CardSet |
+| MOVE_CARDS | Move cards between zones | `from`, `to`, `selector` | `saveAs` | CardSet |
 | SHUFFLE_ZONE | Shuffle a zone | `zone` | — | — |
-| PUT_ON_TOP_ORDERED | Put cards on top in chosen order | `zone`, `cardsRef` | `allowUI` | — |
-| END_TURN_IMMEDIATELY | End the current turn | — | `reason` | — |
+| PUT_ON_TOP_ORDERED | Put cards on top in chosen order | `zone`, `cardsRef` | — | — |
+| END_TURN_IMMEDIATELY | End the current turn | — | — | — |
+| EMPTY_HAND | Empty a hand into another zone | `handZone`, `to` | — | — |
+| ADD_CARDS_TO_DECK | Add card ids to a deck zone | `deckZone`, `cardIds` | `countEach`, `shuffleIn` | — |
+| REMOVE_CARDS_FROM_DECK | Remove card ids from a deck zone | `deckZone`, `cardIds` | `countEach`, `to` | — |
+| SWAP_DECK | Swap which deck is active | `actor`, `slot`, `newDeckId` | `policy.onSwap` | — |
+| SET_ENTITY_STATE | Set custom state on entity | `entity`, `key`, `value` | — | — |
+| TOGGLE_ENTITY_STATE | Toggle boolean-ish state | `entity`, `key` | — | — |
+| CLEAR_ENTITY_STATE | Clear state key | `entity`, `key` | — | — |
+| FIND_ENTITIES | Query entities by selector | `selector`, `saveAs` | — | TargetSet |
+| COUNT_ENTITIES | Count members of a target set | `targetSet`, `saveAs` | — | number |
+| FILTER_TARGET_SET | Filter a target set by predicate | `source`, `filter`, `saveAs` | — | TargetSet |
+| SPAWN_ENTITY | Spawn a card into play | `cardId` | `owner`, `at`, `saveAs` | entity ref |
+| DESPAWN_ENTITY | Remove an entity | `target` | — | — |
 | OPEN_UI_FLOW | Open custom UI/miniflow | `flowId` | `payload`, `saveAs` | any |
-| REQUEST_PLAYER_CHOICE | Prompt player choice | `prompt`, `choices`, `saveAs` | `allowCancel` | string/id |
-| REGISTER_INTERRUPTS | Listen for events until scope end | `scope`, `events`, `onInterrupt[]` | `filter`, `saveAs` | — |
+| REQUEST_PLAYER_CHOICE | Prompt player choice | `prompt`, `choices`, `saveAs` | — | string/id |
+| REGISTER_INTERRUPTS | Listen for events until scope end | `scope`, `events`, `onInterrupt[]` | — | — |
+| PROPERTY_CONTEST | Run the contest subsystem | `variant`, `io`, `onWin[]`, `onLose[]` | `policy`, `ui` | winner refs |
+| WEBHOOK_CALL | Call external endpoint | `url`, `eventName` | `method`, `payload`, `timeoutMs` | — |
 | EMIT_EVENT | Emit internal event | `eventName` | `payload` | — |
-| WEBHOOK_CALL | Call external endpoint | `url`, `method`, `eventName` | `headers`, `payload`, `timeoutMs` | — |
-| AI_REQUEST | Send structured request to AI | `systemPrompt`, `userPrompt`, `input`, `saveAs` | `outputJsonSchema` | any |
-| PROPERTY_CONTEST | Run the contest subsystem | `variant`, `io`, `onWin[]`, `onLose[]` | `policy`, `ui` | winnerRef etc |
-| SUBSYSTEM_RUN | Run a named subsystem/minigame | `subsystemId`, `input`, `saveAs` | `ui` | any |
-| SCHEDULE_STEPS | Execute steps later | `timing`, `steps[]` | `saveTicketAs`, `label` | ticket |
-| CANCEL_SCHEDULED | Cancel scheduled ticket | `ticketRef` | — | — |
+| AI_REQUEST | Send structured request to AI | `systemPrompt`, `userPrompt`, `saveAs` | `input`, `outputJsonSchema` | any |
+
+## Planned / not implemented in runtime (do not emit unless added to blockRegistry.json)
+- ROLL_DN, WHILE
+- PULL_TOWARD, TURN_ENTITY, MOVE_VEHICLE, RAM_COLLISION_RESOLVE
+- NEGATE_DAMAGE, REDUCE_DAMAGE, MODIFY_PENDING_DAMAGE
+- SCHEDULE_STEPS, CANCEL_SCHEDULED, SUBSYSTEM_RUN
+- Legacy finders (FIND_ENTITIES_IN_AREA / FIND_ADJACENT_ENTITIES / FIND_ENTITIES_BY_TAG) — use FIND_ENTITIES instead
 
 ---
 
@@ -100,11 +100,8 @@ Columns:
 ## A) Secondary targets (primary + up to two adjacent)
 Use computed sets:
 1) SELECT_TARGETS → `primary`
-2) FIND_ENTITIES_IN_AREA (radius 1 around primary) → `adj`
-3) SELECT_FROM_SET (future step) OR REQUEST_PLAYER_CHOICE to pick up to 2
-
-> If you need “pick up to N from computed targets”, add a step:
-- `SELECT_FROM_TARGETSET` (UI step) with `maxN`, `saveAs`
+2) FIND_ENTITIES (selector: radius 1 around `primary`) → `adj`
+3) REQUEST_PLAYER_CHOICE to pick up to 2 (or filter via FILTER_TARGET_SET)
 
 ## B) Global environment counters (Storm Cloud)
 Represent global cards as:
@@ -115,18 +112,5 @@ Needed primitives:
 - `COUNT_GLOBAL` expression
 - `INCREMENT_GLOBAL_COUNTER` step *(recommended addition if not present)*
 
-## C) Delayed AoE with scatter (Storm Call)
-Store:
-- chosen marker tile/zone
-- scheduled ticket
-Resolve later:
-- roll scatter
-- move marker
-- apply damage
-
-Requires:
-- SCHEDULE_STEPS
-- a “scatter direction” helper:
-  - either dice + IF_ELSE,
-  - or a `SCATTER` subsystem.
-
+## C) Delayed AoE with scatter (Storm Call) — planned
+Runtime lacks SCHEDULE_STEPS; model as two abilities or a custom UI flow until scheduler support lands.

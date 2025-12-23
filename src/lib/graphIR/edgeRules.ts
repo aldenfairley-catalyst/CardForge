@@ -33,8 +33,6 @@ function dataTypesCompatible(source?: PinDefinition, target?: PinDefinition) {
   const t = target?.dataType ?? "any";
   if (s === "any" || t === "any") return true;
   if (s === t) return true;
-  // Optional subtype: integer -> number; not currently used, keep hook for future.
-  if (s === "integer" && t === "number") return true;
   return false;
 }
 
@@ -88,8 +86,21 @@ export function validateConnect(params: ValidateConnectParams): Ok | Err {
     return { ok: false, reason: `Type mismatch: cannot connect DATA(${s}) → DATA(${t})`, code: "DATA_TYPE_MISMATCH" };
   }
 
+  const edgeKind = sourcePin.kind;
+  const duplicate = edges.some(
+    (e) =>
+      e.from.nodeId === sourceNodeId &&
+      e.from.pinId === sourcePinId &&
+      e.to.nodeId === targetNodeId &&
+      e.to.pinId === targetPinId &&
+      e.edgeKind === edgeKind
+  );
+  if (duplicate) {
+    return { ok: false, reason: "This connection already exists.", code: "DUPLICATE" };
+  }
+
   const incomingToTarget = edges.filter(
-    (e) => e.to.nodeId === targetNodeId && e.to.pinId === targetPinId && e.edgeKind === sourcePin.kind
+    (e) => e.to.nodeId === targetNodeId && e.to.pinId === targetPinId && e.edgeKind === edgeKind
   );
   const maxIn = pinMaxConnections(targetPin);
   if (maxIn !== Infinity && incomingToTarget.length >= maxIn) {
@@ -97,7 +108,6 @@ export function validateConnect(params: ValidateConnectParams): Ok | Err {
     return { ok: false, reason: `Pin already connected (max ${maxLabel}). Set pin.multi=true to allow more.`, code: "TARGET_AT_MAX" };
   }
 
-  const edgeKind = sourcePin.kind;
   const edge: GraphEdge = {
     id: uuidv4(),
     edgeKind,
@@ -106,18 +116,6 @@ export function validateConnect(params: ValidateConnectParams): Ok | Err {
     to: { nodeId: targetNodeId, pinId: targetPinId },
     createdAt: new Date().toISOString()
   };
-
-  const duplicate = edges.some(
-    (e) =>
-      e.from.nodeId === edge.from.nodeId &&
-      e.from.pinId === edge.from.pinId &&
-      e.to.nodeId === edge.to.nodeId &&
-      e.to.pinId === edge.to.pinId &&
-      e.edgeKind === edge.edgeKind
-  );
-  if (duplicate) {
-    return { ok: false, reason: "This connection already exists.", code: "DUPLICATE" };
-  }
 
   if (edge.edgeKind === PinKind.CONTROL && wouldCreateCycle(nodes, edges, edge)) {
     return { ok: false, reason: "Would create a CONTROL cycle (not allowed).", code: "CONTROL_CYCLE" };

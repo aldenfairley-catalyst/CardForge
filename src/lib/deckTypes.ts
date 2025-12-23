@@ -8,6 +8,7 @@ export type DeckDefinition = {
   id: string;
   name: string;
   faction?: string;
+  description?: string;
   tags?: string[];
   notes?: string;
   cards: DeckCardEntry[];
@@ -19,6 +20,7 @@ export function makeDefaultDeck(): DeckDefinition {
     id: `deck.${cryptoRandomId()}`,
     name: "New Deck",
     faction: "",
+    description: "",
     tags: [],
     notes: "",
     cards: []
