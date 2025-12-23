@@ -1,5 +1,6 @@
 import { Router } from "express";
 import type { DbContext } from "../db";
+import { ensureAgentAuthorized, isAgentAuthorized } from "./auth";
 
 type RunGraphEdge = {
   edgeKind: string;
@@ -12,14 +13,6 @@ type RunGraph = {
   nodes: Array<{ id: string; nodeType?: string }>;
   edges: RunGraphEdge[];
 };
-
-function requireToken(req: any): boolean {
-  const expected = process.env.CJ_AGENT_TOKEN;
-  if (!expected) return true;
-  const header = String(req.headers?.authorization ?? "");
-  const token = header.startsWith("Bearer ") ? header.slice("Bearer ".length).trim() : header.trim();
-  return token === expected;
-}
 
 function buildControlAdjacency(graph: RunGraph) {
   const adj: Record<string, string[]> = {};
@@ -51,8 +44,7 @@ function reachableFrom(graph: RunGraph, startId: string) {
 export function createRunRouter(getDb: () => DbContext) {
   const router = Router();
 
-  router.post("/", (req, res) => {
-    if (!requireToken(req)) return res.status(401).json({ error: "Unauthorized" });
+  router.post("/", ensureAgentAuthorized, (req, res) => {
     const { db } = getDb();
     const body = req.body ?? {};
     const graphId = body.graphId;
@@ -73,6 +65,10 @@ export function createRunRouter(getDb: () => DbContext) {
 
     const executionOrder = reachableFrom(graph, startNode);
     const runLog = executionOrder.map((nodeId) => ({ nodeId, status: "OK" as const }));
+    const nodeStatus = executionOrder.reduce<Record<string, string>>((acc, nodeId) => {
+      acc[nodeId] = "ok";
+      return acc;
+    }, {});
 
     res.json({
       graphId,
@@ -80,7 +76,10 @@ export function createRunRouter(getDb: () => DbContext) {
       startNodeId: startNode,
       context,
       runLog,
-      outputs: {}
+      nodeStatus,
+      reachableNodeIds: executionOrder,
+      outputs: {},
+      authorized: isAgentAuthorized(req)
     });
   });
 

@@ -196,6 +196,7 @@ pre{
 
 .modal{
   width:min(920px,96vw);
+  height:80vh;
   max-height:80vh;
   display:flex;
   flex-direction:column;

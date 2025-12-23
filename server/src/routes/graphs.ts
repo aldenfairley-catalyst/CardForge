@@ -1,9 +1,12 @@
 import { Router } from "express";
 import { nanoid } from "nanoid";
 import type { DbContext } from "../db";
+import { ensureAgentAuthorized } from "./auth";
 
 export function createGraphRouter(getDb: () => DbContext) {
   const router = Router();
+
+  router.use(ensureAgentAuthorized);
 
   router.get("/", (req, res) => {
     const { db } = getDb();
