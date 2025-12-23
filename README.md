@@ -4,7 +4,7 @@ React + TypeScript + Vite + React Flow.
 
 ## Local
 1) Install Node.js 20 (via nvm or your package manager).
-2) From the repo root run `npm install` (this also installs server deps via postinstall).
+2) From the repo root run `npm ci` (this uses the lockfile and also runs `npm ci --prefix server` via postinstall).
 3) Run `npm run dev` to start both the Vite client and the local API server.
 4) Open `http://localhost:5173`.
 
@@ -13,6 +13,7 @@ React + TypeScript + Vite + React Flow.
 - If you see `Outdated optimize dep` or permission errors for `node_modules/.vite`, delete any `node_modules/.vite` folder and restart with `npm run dev` (the Vite cache now lives in a project-local `.vite` directory).
 - If you see `tsx: command not found`, the server dependencies were not installed. Run `npm run install:server` from the repo root.
 - If port 8787 is already taken, set `FORGE_SERVER_PORT=8788` (or another open port) before running `npm run dev`. The Vite proxy will honor the same variable.
+- If `npm ci` reports 403 errors to `registry.npmjs.org`, clear any proxy or npm auth environment variables (e.g., `npm config delete proxy && npm config delete https-proxy`) so installs use the pinned public registry from `.npmrc`.
 
 ## GitHub Pages
 1) Push to main

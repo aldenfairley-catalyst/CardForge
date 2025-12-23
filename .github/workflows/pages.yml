@@ -27,8 +27,27 @@ jobs:
           node-version: 20
           cache: npm
 
+      - name: Normalize npm registry
+        env:
+          http_proxy: ""
+          https_proxy: ""
+          npm_config_proxy: ""
+          npm_config_https_proxy: ""
+        run: |
+          npm config set registry https://registry.npmjs.org/
+          npm config set always-auth false
+          npm config delete proxy || true
+          npm config delete https-proxy || true
+          npm config get registry
+          npm config get always-auth
+
       - name: Install
-        run: npm install
+        env:
+          http_proxy: ""
+          https_proxy: ""
+          npm_config_proxy: ""
+          npm_config_https_proxy: ""
+        run: npm ci
 
       - name: Typecheck
         run: npm run typecheck
