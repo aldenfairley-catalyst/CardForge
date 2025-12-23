@@ -2,6 +2,15 @@
 
 # RELEASE_NOTES
 
+# PR-P0 Fix npm install + TS config (2025-12-23)
+### Added
+- Pinned `.npmrc` defaults (repo and server) to the public npm registry with audit/fund disabled and workflow normalization so npm no longer attempts authenticated proxy fetches that return 403.
+- Committed `server/package-lock.json` and switched the postinstall server step to `npm ci --prefix server` for reproducible installs alongside the refreshed root lockfile.
+
+### Changed
+- CI now runs `npm ci` with registry/proxy cleanup ahead of typecheck/test/build, and the README calls out the npm ci + proxy reset flow for local setups.
+- The root TypeScript config now uses `moduleResolution: "Bundler"` with `module: "ESNext"` to remove the TS5110 mismatch during `npm run typecheck`.
+
 # Phase A2 Config Editor + Dynamic Pins (refresh 2025-12-30)
 ### Added
 - `NodeConfigForm` now renders a generic schema-driven form (string/number/integer/boolean/enum) with required warnings so IF `elseIfCount` appears as an integer input without bespoke wiring.

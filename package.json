@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "postinstall": "npm run install:server",
-    "install:server": "npm install --prefix server",
+    "install:server": "npm ci --prefix server",
     "dev": "npm run dev:server & npm run dev:client",
     "dev:client": "vite --cacheDir .vite",
     "dev:server": "npm run dev --prefix server",
