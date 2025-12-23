@@ -82,3 +82,8 @@ Subsystem steps should accept `policy` blocks that define:
 - card ownership
 - UI permissions
 - ordering options
+
+## 8) Execution API (secure token)
+- Backend exposes `POST /api/run` to execute a stored graph. Body: `{ "graphId": "uuid", "mode": "RUN_FROM_START|RUN_FROM_NODE", "startNodeId": "optional", "context": { "scenarioId": "...", "actorId": "...", "targets": [], "vars": {} } }`.
+- Requests must include `Authorization: Bearer <CJ_AGENT_TOKEN>` when `CJ_AGENT_TOKEN` is set in the environment; otherwise calls are rejected with 401.
+- Supporting endpoints: `GET/POST/PUT /api/graphs` (graph CRUD), `GET /api/cards`, `GET /api/decks`, `GET /api/scenarios`, `GET /api/actions` (action library summary).

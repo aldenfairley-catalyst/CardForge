@@ -22,8 +22,10 @@ function findEdgesTo(ctx: CompileCtx, nodeId: string, pinId: string, kind: PinKi
 }
 
 function compileConditionFromPin(ctx: CompileCtx, node: GraphNode, pinId: string): Condition | null {
+  const pin = materializePins(node.nodeType, node.config).find((p) => p.id === pinId);
   const incoming = findEdgesTo(ctx, node.id, pinId, PinKind.DATA);
   if (!incoming.length) {
+    if (!pin?.required) return { type: "ALWAYS" } as any;
     ctx.issues.push({
       severity: "ERROR",
       code: "MISSING_CONDITION_CONNECTION",
@@ -113,6 +115,54 @@ function compileNode(ctx: CompileCtx, node: GraphNode): Step[] {
     });
 
     return [step, ...nextSteps];
+  }
+
+  if (node.nodeType === "CALL_TOOL") {
+    const step: Step = {
+      type: "CALL_TOOL",
+      toolId: String(node.config?.toolId ?? ""),
+      input: node.config?.input ?? {},
+      await: node.config?.await ?? true,
+      timeoutMs: node.config?.timeoutMs,
+      saveAs: node.config?.saveAs
+    } as any;
+    const outEdges = findEdgesFrom(ctx, node.id, "execOut", PinKind.CONTROL);
+    const nextSteps = outEdges.flatMap((e) => {
+      const nextNode = ctx.nodeIndex.get(e.to.nodeId);
+      return nextNode ? compileNode(ctx, nextNode) : [];
+    });
+    return [step, ...nextSteps];
+  }
+
+  if (node.nodeType === "REQUIRE") {
+    const condition = compileConditionFromPin(ctx, node, "condIn");
+    const passEdge = findEdgesFrom(ctx, node.id, "execPass", PinKind.CONTROL)[0];
+    const failEdge = findEdgesFrom(ctx, node.id, "execFail", PinKind.CONTROL)[0];
+    const passSteps = passEdge && ctx.nodeIndex.get(passEdge.to.nodeId) ? compileNode(ctx, ctx.nodeIndex.get(passEdge.to.nodeId)!) : [];
+    const failSteps = failEdge && ctx.nodeIndex.get(failEdge.to.nodeId) ? compileNode(ctx, ctx.nodeIndex.get(failEdge.to.nodeId)!) : [];
+    const step: Step = {
+      type: "REQUIRE",
+      condition: condition ?? ({ type: "ALWAYS" } as any),
+      onFail: failSteps,
+      mode: node.config?.mode ?? "ABORT"
+    } as any;
+    return [step, ...passSteps];
+  }
+
+  if (node.nodeType === "REGISTER_LISTENER") {
+    const when = compileConditionFromPin(ctx, node, "condIn");
+    const handlerEdge = findEdgesFrom(ctx, node.id, "execOut", PinKind.CONTROL)[0];
+    const handlerSteps =
+      handlerEdge && ctx.nodeIndex.get(handlerEdge.to.nodeId) ? compileNode(ctx, ctx.nodeIndex.get(handlerEdge.to.nodeId)!) : [];
+    const step: Step = {
+      type: "REGISTER_LISTENER",
+      listenerId: String(node.config?.listenerId ?? ""),
+      scope: node.config?.scope ?? "WHILE_EQUIPPED",
+      events: Array.isArray(node.config?.events) ? node.config.events : [],
+      when: when ?? ({ type: "ALWAYS" } as any),
+      then: handlerSteps
+    } as any;
+    return [step];
   }
 
   const outPin = materializePins(node.nodeType, node.config).find((p) => p.direction === "OUT" && p.kind === PinKind.CONTROL);

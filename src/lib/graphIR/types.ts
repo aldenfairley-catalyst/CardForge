@@ -37,12 +37,13 @@ export type PinDefinition = {
   group?: string;
   kind: PinKind;
   direction: PinDirection;
-  dataType?: DataType;
+  dataType?: DataType | DataType[];
   required?: boolean;
   defaultValue?: any;
   multi?: boolean;
   maxConnections?: number;
   optional?: boolean;
+  position?: "TOP" | "BOTTOM" | "LEFT" | "RIGHT";
 };
 
 export type DynamicPinTemplate =
@@ -55,12 +56,13 @@ export type DynamicPinTemplate =
         group?: string;
         kind: PinKind;
         direction: PinDirection;
-        dataType?: DataType;
+        dataType?: DataType | DataType[];
         required?: boolean;
         multi?: boolean;
         maxConnections?: number;
         optional?: boolean;
         defaultValue?: any;
+        position?: "TOP" | "BOTTOM" | "LEFT" | "RIGHT";
       }>;
     };
 
@@ -91,7 +93,7 @@ export type PinEndpoint = {
 export type GraphEdge = {
   id: string;
   edgeKind: EdgeKind;
-  dataType?: string;
+  dataType?: DataType | DataType[];
   from: PinEndpoint;
   to: PinEndpoint;
   createdAt?: string;

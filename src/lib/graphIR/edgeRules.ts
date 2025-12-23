@@ -28,12 +28,25 @@ function pinMaxConnections(pin?: PinDefinition): number {
   return 1;
 }
 
+function pinMaxOutgoing(pin?: PinDefinition): number {
+  if (!pin || pin.direction !== "OUT") return 0;
+  if (typeof pin.maxConnections === "number" && pin.maxConnections >= 0) return pin.maxConnections;
+  if (pin.multi) return Infinity;
+  return 1;
+}
+
+function normalizeTypes(pin?: PinDefinition): string[] {
+  if (!pin?.dataType) return ["any"];
+  const dt = pin.dataType as any;
+  if (Array.isArray(dt)) return dt as string[];
+  return [dt];
+}
+
 function dataTypesCompatible(source?: PinDefinition, target?: PinDefinition) {
-  const s = source?.dataType ?? "any";
-  const t = target?.dataType ?? "any";
-  if (s === "any" || t === "any") return true;
-  if (s === t) return true;
-  return false;
+  const sourceTypes = normalizeTypes(source);
+  const targetTypes = normalizeTypes(target);
+  if (sourceTypes.includes("any") || targetTypes.includes("any")) return true;
+  return sourceTypes.some((s) => targetTypes.includes(s));
 }
 
 export function validateConnect(params: ValidateConnectParams): Ok | Err {
@@ -106,6 +119,15 @@ export function validateConnect(params: ValidateConnectParams): Ok | Err {
   if (maxIn !== Infinity && incomingToTarget.length >= maxIn) {
     const maxLabel = maxIn === 1 ? "1" : String(maxIn);
     return { ok: false, reason: `Pin already connected (max ${maxLabel}). Set pin.multi=true to allow more.`, code: "TARGET_AT_MAX" };
+  }
+
+  const outgoingFromSource = edges.filter(
+    (e) => e.from.nodeId === sourceNodeId && e.from.pinId === sourcePinId && e.edgeKind === edgeKind
+  );
+  const maxOut = pinMaxOutgoing(sourcePin);
+  if (maxOut !== Infinity && outgoingFromSource.length >= maxOut) {
+    const maxLabel = maxOut === 1 ? "1" : String(maxOut);
+    return { ok: false, reason: `Source pin already fan-out to max (${maxLabel}).`, code: "SOURCE_AT_MAX" };
   }
 
   const edge: GraphEdge = {

@@ -161,6 +161,16 @@ function walkSteps(steps: any[], issues: ValidationIssue[], ctx: WalkCtx) {
       const nestedInt: WalkCtx = { ...ctx, path: `${stepPath}.onInterrupt` };
       walkSteps(s.onInterrupt ?? [], issues, nestedInt);
     }
+
+    if (s.type === "REGISTER_LISTENER") {
+      const nestedThen: WalkCtx = { ...ctx, path: `${stepPath}.then` };
+      walkSteps(s.then ?? [], issues, nestedThen);
+    }
+
+    if (s.type === "REQUIRE") {
+      const nestedFail: WalkCtx = { ...ctx, path: `${stepPath}.onFail` };
+      walkSteps(s.onFail ?? [], issues, nestedFail);
+    }
   }
 }
 

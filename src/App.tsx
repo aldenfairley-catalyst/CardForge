@@ -29,7 +29,8 @@ import type {
   TargetingType,
   TargetOrigin,
   LoSMode,
-  LoSBlockPolicy
+  LoSBlockPolicy,
+  ToolCatalog
 } from "./lib/types";
 import { makeDefaultCard, makeDefaultGraph, makeDefaultProject } from "./lib/graph";
 import { loadMigratedCardOrDefault, saveCardJson, clearSaved } from "./lib/storage";
@@ -74,6 +75,8 @@ import { PinKind, type ForgeProject, type Graph, type GraphEdge, type GraphNode 
 import type { DataProvider } from "./lib/dataProvider";
 import { browserProvider } from "./lib/providers/browserProvider";
 import { localApiProvider } from "./lib/providers/localApiProvider";
+import { loadToolCatalog, saveToolCatalog } from "./lib/toolStore";
+import { ToolManager } from "./features/tools/ToolManager";
 
 type AppMode = "FORGE" | "LIBRARY" | "DECKS" | "SCENARIOS";
 
@@ -178,18 +181,14 @@ function Modal(props: {
   return (
     <div className="modalBack">
       <div className="panel modal">
-        <div className="ph">
+        <div className="modalHeader">
           <div className="h2">{props.title}</div>
           <button className="btn" onClick={props.onClose}>
             Close
           </button>
         </div>
-        <div className="pb">
-          {props.children}
-          {props.footer ? (
-            <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 10 }}>{props.footer}</div>
-          ) : null}
-        </div>
+        <div className="modalBody">{props.children}</div>
+        {props.footer ? <div className="modalFooter">{props.footer}</div> : null}
       </div>
     </div>
   );
@@ -227,7 +226,7 @@ function ensurePinsCache(node: IRGraphNode): IRGraphNode {
   return { ...node, pinsCache: materializePins(node.nodeType, node.config).map((p) => p.id) };
 }
 
-type AiRefImage = { name: string; mime: string; dataUrl: string };
+type AiRefImage = { name: string; mimeType: string; base64: string };
 
 export default function App() {
   const [mode, setMode] = useState<AppMode>("FORGE");
@@ -304,6 +303,8 @@ export default function App() {
   const [libraryUrl, setLibraryUrl] = useState(() => getLibrarySource().url ?? "");
   const [libraryLoaded, setLibraryLoaded] = useState(false);
   const lastGoodStepsRef = useRef<Step[] | null>(null);
+  const [toolsOpen, setToolsOpen] = useState(false);
+  const [toolCatalog, setToolCatalog] = useState<ToolCatalog>(() => loadToolCatalog());
 
   useEffect(() => {
     let cancelled = false;
@@ -341,6 +342,10 @@ export default function App() {
       cancelled = true;
     };
   }, [library, provider, libraryLoaded]);
+
+  useEffect(() => {
+    saveToolCatalog(toolCatalog);
+  }, [toolCatalog]);
 
   // Registry upgrades: reload cached cards/libraries and prefetch cache-busted registry asset
   useEffect(() => {
@@ -817,7 +822,7 @@ export default function App() {
       size: { width: aiSizeW, height: aiSizeH },
       prompt: aiPrompt,
       negativePrompt: aiNegative || undefined,
-      references: aiRefs.map((r) => ({ name: r.name, mime: r.mime, dataUrl: r.dataUrl })),
+      references: aiRefs.map((r) => ({ name: r.name, mimeType: r.mimeType, base64: r.base64 })),
       output: "dataUrl",
       meta: {
         cardId: card.id,
@@ -829,6 +834,51 @@ export default function App() {
   function dataUrlToBase64(dataUrl: string) {
     const idx = dataUrl.indexOf(",");
     return idx === -1 ? dataUrl : dataUrl.slice(idx + 1);
+  }
+
+  function buildOpenAiImageRequest(state: ReturnType<typeof buildAiImageRequest>) {
+    const promptSegments = [state.prompt];
+    if (state.negativePrompt?.trim()) promptSegments.push(`Negative prompt: ${state.negativePrompt.trim()}`);
+    if (state.references?.length) promptSegments.push(`Reference images: ${state.references.map((r) => r.name).join(", ")}`);
+
+    return {
+      url: "https://api.openai.com/v1/images/generations",
+      body: {
+        model: state.model || "gpt-image-1",
+        prompt: promptSegments.filter(Boolean).join("\n\n"),
+        size: `${state.size.width}x${state.size.height}`,
+        response_format: "b64_json",
+        n: 1
+      }
+    };
+  }
+
+  function buildGeminiImageRequest(state: ReturnType<typeof buildAiImageRequest>) {
+    const userParts: any[] = [];
+    if (state.prompt?.trim()) userParts.push({ text: state.prompt });
+    if (state.negativePrompt?.trim()) userParts.push({ text: `Negative prompt: ${state.negativePrompt.trim()}` });
+
+    (state.references ?? []).forEach((ref) =>
+      userParts.push({
+        inlineData: {
+          mimeType: ref.mimeType || (ref as any).mime || "image/png",
+          data: ref.base64 ?? dataUrlToBase64((ref as any).dataUrl ?? "")
+        }
+      })
+    );
+
+    return {
+      url: `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(state.model || "imagen-3.0")}:generateContent?key=${encodeURIComponent(String(state.apiKey))}`,
+      body: {
+        systemInstruction: { parts: [{ text: "Generate a single image. No extra text." }] },
+        contents: [{ role: "user", parts: userParts }],
+        generationConfig: {
+          responseMimeType: "image/png",
+          responseImageDimensions: { width: state.size.width, height: state.size.height },
+          responseModalities: ["IMAGE"]
+        }
+      }
+    };
   }
 
   function extractImageFromPayload(payload: any) {
@@ -874,19 +924,9 @@ export default function App() {
   }
 
   async function callOpenAiDirect(req: ReturnType<typeof buildAiImageRequest>) {
-    const promptSegments = [req.prompt];
-    if (req.negativePrompt?.trim()) promptSegments.push(`Negative prompt: ${req.negativePrompt.trim()}`);
-    if (req.references?.length) promptSegments.push(`Reference images: ${req.references.map((r) => r.name).join(", ")}`);
+    const { url, body } = buildOpenAiImageRequest(req);
 
-    const body = {
-      model: req.model || "gpt-image-1",
-      prompt: promptSegments.join("\n\n"),
-      size: `${req.size.width}x${req.size.height}`,
-      response_format: "b64_json",
-      n: 1
-    };
-
-    const res = await fetch("https://api.openai.com/v1/images/generations", {
+    const res = await fetch(url, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -907,37 +947,13 @@ export default function App() {
   }
 
   async function callGeminiDirect(req: ReturnType<typeof buildAiImageRequest>) {
-    const parts: any[] = [];
-    if (req.prompt) parts.push({ text: req.prompt });
-    if (req.negativePrompt?.trim()) parts.push({ text: `Negative prompt: ${req.negativePrompt.trim()}` });
+    const { url, body } = buildGeminiImageRequest(req);
 
-    if (req.references?.length) {
-      parts.push(
-        ...req.references.map((r) => ({
-          inlineData: {
-            data: dataUrlToBase64(r.dataUrl),
-            mimeType: r.mime || "image/png"
-          }
-        }))
-      );
-    }
-
-    const body = {
-      contents: [{ role: "user", parts }],
-      generationConfig: {
-        responseMimeType: "image/png",
-        responseImageDimensions: { width: req.size.width, height: req.size.height }
-      }
-    };
-
-    const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(req.model)}:generateContent?key=${encodeURIComponent(String(req.apiKey))}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body)
-      }
-    );
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body)
+    });
 
     const text = await res.text();
     const parsed = safeJsonParse(text);
@@ -1081,6 +1097,9 @@ export default function App() {
           </button>
           <button className="btn" onClick={() => setAiImgOpen(true)}>
             AI Image
+          </button>
+          <button className="btn" onClick={() => setToolsOpen(true)}>
+            Tools
           </button>
           <button className="btn" onClick={() => setLibraryOpen(true)}>
             Action Library
@@ -1982,7 +2001,10 @@ export default function App() {
               const reader = new FileReader();
               reader.onload = () => {
                 const dataUrl = String(reader.result);
-                setAiRefs((prev) => [...prev, { name: file.name, mime: file.type || "image/png", dataUrl }]);
+                setAiRefs((prev) => [
+                  ...prev,
+                  { name: file.name, mimeType: file.type || "image/png", base64: dataUrlToBase64(dataUrl) }
+                ]);
               };
               reader.readAsDataURL(file);
             });
@@ -2000,7 +2022,7 @@ export default function App() {
                     {r.name}
                   </div>
                   <div style={{ width: "100%", height: 90, borderRadius: 8, overflow: "hidden", marginTop: 6 }}>
-                    <img src={r.dataUrl} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                    <img src={`data:${r.mimeType};base64,${r.base64}`} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
                   </div>
                   <button className="btn btnDanger" style={{ marginTop: 8, width: "100%" }} onClick={() => setAiRefs((prev) => prev.filter((_, i) => i !== idx))}>
                     Remove
@@ -2024,6 +2046,11 @@ export default function App() {
           </div>
           <pre style={{ margin: 0 }}>{JSON.stringify(aiLastResponse ?? {}, null, 2)}</pre>
         </details>
+      </Modal>
+
+      {/* Tool catalog modal */}
+      <Modal open={toolsOpen} title="Tool Catalog (CJ-TOOLS-1.0)" onClose={() => setToolsOpen(false)}>
+        <ToolManager catalog={toolCatalog} onChange={setToolCatalog} />
       </Modal>
 
       {/* Action Library modal */}

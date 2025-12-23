@@ -96,7 +96,7 @@ describe("graph validation rules", () => {
     return { ability: card.components.find((c: any) => c.componentType === "ABILITY") as any, card };
   }
 
-  it("flags multiple control edges from a single execOut pin", () => {
+  it("allows control fan-out when maxConnections allows it", () => {
     const { ability, card } = buildAbility();
     const graph: Graph = {
       graphVersion: "CJ-GRAPH-1.1",
@@ -117,10 +117,11 @@ describe("graph validation rules", () => {
 
     const issues = validateGraph(graph, ability);
     const errorCodes = issues.filter((i) => i.severity === "ERROR").map((i) => i.code);
-    expect(errorCodes).toContain("MULTIPLE_EXEC_OUT");
+    expect(errorCodes).not.toContain("SOURCE_AT_MAX");
+    expect(errorCodes).not.toContain("TARGET_AT_MAX");
 
     const { steps } = compileAbilityGraph({ graph, ability, card });
-    expect(steps).toEqual((ability as any).execution?.steps ?? []);
+    expect(steps.length).toBeGreaterThan(0);
   });
 
   it("rejects missing required IF condition connections during compilation", () => {

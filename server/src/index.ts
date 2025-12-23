@@ -11,6 +11,9 @@ import { createCatalogRouter } from "./routes/catalogs";
 import { createLibraryRouter } from "./routes/library";
 import { createAiRouter } from "./routes/ai";
 import { createProjectRouter } from "./routes/project";
+import { createGraphRouter } from "./routes/graphs";
+import { createRunRouter } from "./routes/run";
+import { createActionsRouter } from "./routes/actions";
 
 dotenv.config();
 
@@ -30,6 +33,9 @@ app.use("/api/assets", createAssetRouter(getDb));
 app.use("/api/catalogs", createCatalogRouter(getDb));
 app.use("/api/library", createLibraryRouter(getDb));
 app.use("/api/ai", createAiRouter());
+app.use("/api/graphs", createGraphRouter(getDb));
+app.use("/api/actions", createActionsRouter(getDb));
+app.use("/api/run", createRunRouter(getDb));
 
 // Optional static serving of built client
 const distDir = path.join(process.cwd(), "dist");

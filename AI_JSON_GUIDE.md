@@ -279,3 +279,51 @@ Node definitions live in `src/assets/nodeRegistry.json` (JSON-first source of tr
 - Each graph node persists `config` exactly as entered in the schema-driven inspector (types align with `configSchema` in `nodeRegistry.json`).
 - Nodes may include `pinsCache: string[]` (ids) to capture the pin set produced by the last `materializePins` call; this is used to reconcile edges after config changes remove pins.
 - Dynamic pin rules (e.g., IF `elseIfCount`) are applied immediately on config edits; edges targeting removed handles are pruned on save/update so exported graphs never contain dangling pin references.
+
+## 7) Tools + CALL_TOOL + inline code (A3)
+- Tool catalogs follow `schemaVersion: "CJ-TOOLS-1.0"` with `tools: ToolDefinition[]`. A tool includes `id`, `name`, `version`, `kind` (`JS_SNIPPET` | `WEBHOOK` | `UI_FLOW`), `runtime` (`CLIENT` | `SERVER`), optional `inputSchema` / `outputSchema`, plus either `code` (for snippets) or `endpoint` (for webhooks).
+- Example tool catalog export:
+  ```json
+  {
+    "schemaVersion": "CJ-TOOLS-1.0",
+    "tools": [
+      {
+        "id": "ui.timer",
+        "name": "Timer",
+        "version": "1.0.0",
+        "kind": "JS_SNIPPET",
+        "runtime": "CLIENT",
+        "description": "Wait for N ms (async).",
+        "inputSchema": { "type": "object", "properties": { "ms": { "type": "integer", "minimum": 0 } }, "required": ["ms"] },
+        "outputSchema": { "type": "object", "properties": { "ok": { "type": "boolean" } }, "required": ["ok"] },
+        "code": "await new Promise(r => ctx.browser.setTimeout(r, input.ms)); return { ok: true };"
+      }
+    ]
+  }
+  ```
+- The `CALL_TOOL` step shape: `{ "type": "CALL_TOOL", "toolId": "ui.timer", "input": { "ms": 1200 }, "await": true, "timeoutMs": 5000, "saveAs": "result" }`.
+- `RUN_INLINE_CODE` (power user): `{ "type": "RUN_INLINE_CODE", "runtime": "CLIENT", "language": "JS", "code": "ctx.log('hi'); return { ok:true }", "saveAs": "inlineResult" }`.
+
+## 8) Image generation providers (A3)
+- **Reference images**: store as `{ "mimeType": "image/png", "base64": "AAA..." }` (no `data:image/...;base64,` prefix).
+- OpenAI image request (direct): `{ "model": "gpt-image-1", "prompt": "...", "size": "768x1024", "response_format": "b64_json", "n": 1 }`.
+- Gemini image request (direct):
+  ```json
+  {
+    "systemInstruction": { "parts": [{ "text": "Generate a single image. No extra text." }] },
+    "contents": [
+      {
+        "role": "user",
+        "parts": [
+          { "text": "Prompt here" },
+          { "inlineData": { "mimeType": "image/png", "data": "BASE64_ONLY" } }
+        ]
+      }
+    ],
+    "generationConfig": {
+      "responseMimeType": "image/png",
+      "responseImageDimensions": { "width": 768, "height": 1024 },
+      "responseModalities": ["IMAGE"]
+    }
+  }
+  ```

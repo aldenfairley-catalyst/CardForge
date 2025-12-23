@@ -63,6 +63,7 @@ export type Condition =
   | { type: "COUNT_UNITS_ON_BOARD"; targetTag: string; min: number; faction?: "ANY" | "ALLY" | "ENEMY" }
   | { type: "STATE_EQUALS"; entity: EntityRef; key: string; value: any }
   | { type: "WITHIN_DISTANCE"; metric: DistanceMetric; from: EntityRef; to: EntityRef; max: number; min?: number }
+  | { type: "ENTITY_STATE_EQUALS"; target: EntityRef; key: string; value: any }
   | { type: string; [k: string]: any }; // forward compatible
 
 export type TargetingType = "SELF" | "SINGLE_TARGET" | "AREA_RADIUS" | "AREA_AROUND_TARGET" | "LINE" | "CONE" | "GLOBAL_ANYWHERE";
@@ -196,9 +197,13 @@ export type Step =
   | OpenUiFlowStep
   | RequestPlayerChoiceStep
   | RegisterInterruptsStep
+  | RegisterListenerStep
+  | RequireStep
   | PropertyContestStep
   | WebhookCallStep
   | EmitEventStep
+  | CallToolStep
+  | RunInlineCodeStep
   | AiRequestStep
   | UnknownStep;
 
@@ -336,6 +341,22 @@ export type OpenUiFlowStep = { type: "OPEN_UI_FLOW"; flowId: string; payload?: a
 export type RequestPlayerChoiceStep = { type: "REQUEST_PLAYER_CHOICE"; prompt: string; choices: Array<{ id: string; label: string }>; saveAs: string };
 export type RegisterInterruptsStep = { type: "REGISTER_INTERRUPTS"; scope: string; events: string[]; onInterrupt: Step[] };
 
+export type RegisterListenerStep = {
+  type: "REGISTER_LISTENER";
+  listenerId: string;
+  scope: string;
+  events: string[];
+  when?: Condition;
+  then: Step[];
+};
+
+export type RequireStep = {
+  type: "REQUIRE";
+  condition: Condition;
+  onFail?: Step[];
+  mode?: "ABORT" | "CONTINUE" | "BRANCH";
+};
+
 export type PropertyContestStep = {
   type: "PROPERTY_CONTEST";
   variant: string;
@@ -358,4 +379,45 @@ export type AiRequestStep = {
   saveAs: string;
 };
 
+export type CallToolStep = {
+  type: "CALL_TOOL";
+  toolId: string;
+  input?: any;
+  await?: boolean;
+  timeoutMs?: number;
+  saveAs?: string;
+};
+
+export type RunInlineCodeStep = {
+  type: "RUN_INLINE_CODE";
+  runtime: "CLIENT" | "SERVER";
+  language: "JS";
+  code: string;
+  saveAs?: string;
+};
+
 export type UnknownStep = { type: "UNKNOWN_STEP"; raw: any };
+
+// -------- Tools --------
+
+export type ToolRuntime = "CLIENT" | "SERVER";
+export type ToolKind = "JS_SNIPPET" | "WEBHOOK" | "UI_FLOW";
+
+export type ToolDefinition = {
+  id: string;
+  name: string;
+  version: string;
+  kind: ToolKind;
+  runtime: ToolRuntime;
+  description?: string;
+  inputSchema?: any;
+  outputSchema?: any;
+  code?: string;
+  endpoint?: string;
+  ui?: any;
+};
+
+export type ToolCatalog = {
+  schemaVersion: "CJ-TOOLS-1.0";
+  tools: ToolDefinition[];
+};

@@ -39,7 +39,7 @@ describe("nodeRegistry.json integrity", () => {
 });
 
 describe("graph validation rules", () => {
-  it("flags multiple control edges from the same output", () => {
+  it("allows multiple control edges when pin maxConnections permits", () => {
     const { ability } = makeAbilityFixture();
     const graph: Graph = {
       ...baseGraph(),
@@ -57,8 +57,8 @@ describe("graph validation rules", () => {
     };
 
     const issues = validateGraph(graph, ability);
-    const errors = issues.filter((i) => i.severity === "ERROR").map((i) => i.code);
-    expect(errors).toContain("MULTIPLE_EXEC_OUT");
+    const errors = issues.filter((i) => i.severity === "ERROR");
+    expect(errors).toHaveLength(0);
   });
 
   it("detects control cycles", () => {

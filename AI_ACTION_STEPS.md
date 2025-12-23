@@ -17,6 +17,8 @@ Every step is an object with:
 - `FOR_EACH_TARGET.do`
 - `OPPONENT_SAVE.onFail / onSuccess`
 - `REGISTER_INTERRUPTS.onInterrupt`
+- `REGISTER_LISTENER.then`
+- `REQUIRE.onFail`
 - `PROPERTY_CONTEST.onWin / onLose`
 - *(Planned)* `SCHEDULE_STEPS.steps` *(future timing window; not in runtime yet)*
 
@@ -81,6 +83,10 @@ Columns:
 | OPEN_UI_FLOW | Open custom UI/miniflow | `flowId` | `payload`, `saveAs` | any |
 | REQUEST_PLAYER_CHOICE | Prompt player choice | `prompt`, `choices`, `saveAs` | — | string/id |
 | REGISTER_INTERRUPTS | Listen for events until scope end | `scope`, `events`, `onInterrupt[]` | — | — |
+| REGISTER_LISTENER | Register a listener with a conditional gate | `listenerId`, `events`, `then[]` | `scope`, `when` (Condition) | — |
+| REQUIRE | Guard execution by condition | `condition` | `mode` (`ABORT`\|`CONTINUE`\|`BRANCH`), `onFail[]` | — |
+| CALL_TOOL | Invoke a tool from CJ-TOOLS-1.0 | `toolId` | `input`, `await`, `timeoutMs`, `saveAs` | tool output |
+| RUN_INLINE_CODE | Power-user inline JS | `runtime`, `language`, `code` | `saveAs` | any |
 | PROPERTY_CONTEST | Run the contest subsystem | `variant`, `io`, `onWin[]`, `onLose[]` | `policy`, `ui` | winner refs |
 | WEBHOOK_CALL | Call external endpoint | `url`, `eventName` | `method`, `payload`, `timeoutMs` | — |
 | EMIT_EVENT | Emit internal event | `eventName` | `payload` | — |

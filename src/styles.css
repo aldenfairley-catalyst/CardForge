@@ -196,7 +196,36 @@ pre{
 
 .modal{
   width:min(920px,96vw);
-  max-height:90vh;
+  max-height:80vh;
+  display:flex;
+  flex-direction:column;
+}
+
+.modalHeader{
+  padding:10px 12px;
+  border-bottom:1px solid var(--border);
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  gap:10px;
+}
+
+.modalBody{
+  flex:1;
+  min-height:0;
+  padding:10px 12px;
+  overflow:auto;
+}
+
+.modalFooter{
+  position:sticky;
+  bottom:0;
+  padding:10px 12px;
+  border-top:1px solid var(--border);
+  background:rgba(15,26,46,.9);
+  display:flex;
+  justify-content:flex-end;
+  gap:8px;
 }
 
 /* ---------- Card Preview (Builder) ---------- */
