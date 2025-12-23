@@ -3,7 +3,7 @@
 import { describe, expect, it } from "vitest";
 import { makeDefaultCard } from "../src/lib/graph";
 import { validateImportCard, validateLatestCard } from "../src/lib/schemas";
-import { CARD_SUPPORTED_VERSIONS, SCHEMA_VERSION_UNSUPPORTED } from "../src/lib/versions";
+import { CARD_SUPPORTED_VERSIONS, CARD_VERSION_1_1, SCHEMA_VERSION_UNSUPPORTED } from "../src/lib/versions";
 
 describe("schema validation", () => {
   it("passes default card without errors", () => {
@@ -20,7 +20,7 @@ describe("schema validation", () => {
   });
 
   it("rejects non-latest schema versions in strict mode", () => {
-    const card = { ...makeDefaultCard(), schemaVersion: "CJ-1.1" };
+    const card = { ...makeDefaultCard(), schemaVersion: CARD_VERSION_1_1 };
     const issues = validateLatestCard(card);
     const schemaErrors = issues.filter((i) => i.code === "SCHEMA_VERSION_UNSUPPORTED" && i.severity === "ERROR");
     expect(schemaErrors.length).toBeGreaterThan(0);

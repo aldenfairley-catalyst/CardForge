@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from "react";
 import type { ToolCatalog, ToolDefinition } from "../../lib/types";
+import { TOOL_STORE_VERSION } from "../../lib/versions";
 import { exportToolCatalog, importToolCatalog, removeTool, upsertTool } from "../../lib/toolStore";
 
 type Props = {
@@ -84,7 +85,7 @@ export function ToolManager({ catalog, onChange }: Props) {
           ))}
         </div>
         <div style={{ marginTop: "auto", display: "flex", flexDirection: "column", gap: 6 }}>
-          <div className="small">Import catalog (CJ-TOOLS-1.0)</div>
+          <div className="small">Import catalog ({TOOL_STORE_VERSION})</div>
           <textarea className="textarea" value={importText} onChange={(e) => setImportText(e.target.value)} placeholder="Paste JSON here" />
           <button className="btn" onClick={handleImport}>
             Import

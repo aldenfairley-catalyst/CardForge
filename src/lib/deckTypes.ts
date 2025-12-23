@@ -4,7 +4,7 @@ export type DeckCardEntry = {
 };
 
 export type DeckDefinition = {
-  schemaVersion: "CJ-DECK-1.0";
+  schemaVersion: typeof DECK_LATEST_VERSION;
   id: string;
   name: string;
   faction?: string;
@@ -16,7 +16,7 @@ export type DeckDefinition = {
 
 export function makeDefaultDeck(): DeckDefinition {
   return {
-    schemaVersion: "CJ-DECK-1.0",
+    schemaVersion: DECK_LATEST_VERSION,
     id: `deck.${cryptoRandomId()}`,
     name: "New Deck",
     faction: "",
@@ -38,3 +38,4 @@ function cryptoRandomId() {
     return Math.random().toString(16).slice(2);
   }
 }
+import { DECK_LATEST_VERSION } from "./versions";

@@ -1,4 +1,5 @@
 import type { ToolCatalog, ToolDefinition } from "./types";
+import { TOOL_STORE_VERSION } from "./versions";
 
 const STORAGE_KEY = "cj_tools";
 
@@ -25,7 +26,7 @@ const defaultTool: ToolDefinition = {
 function safeParse(json: string): ToolCatalog | null {
   try {
     const parsed = JSON.parse(json);
-    if (parsed && parsed.schemaVersion === "CJ-TOOLS-1.0" && Array.isArray(parsed.tools)) return parsed as ToolCatalog;
+    if (parsed && parsed.schemaVersion === TOOL_STORE_VERSION && Array.isArray(parsed.tools)) return parsed as ToolCatalog;
     return null;
   } catch {
     return null;
@@ -34,12 +35,12 @@ function safeParse(json: string): ToolCatalog | null {
 
 export function loadToolCatalog(): ToolCatalog {
   if (typeof localStorage === "undefined") {
-    return { schemaVersion: "CJ-TOOLS-1.0", tools: [defaultTool] };
+    return { schemaVersion: TOOL_STORE_VERSION, tools: [defaultTool] };
   }
   const cached = localStorage.getItem(STORAGE_KEY);
   const parsed = cached ? safeParse(cached) : null;
   if (parsed) return parsed;
-  return { schemaVersion: "CJ-TOOLS-1.0", tools: [defaultTool] };
+  return { schemaVersion: TOOL_STORE_VERSION, tools: [defaultTool] };
 }
 
 export function saveToolCatalog(catalog: ToolCatalog) {
@@ -47,7 +48,7 @@ export function saveToolCatalog(catalog: ToolCatalog) {
   localStorage.setItem(
     STORAGE_KEY,
     JSON.stringify({
-      schemaVersion: "CJ-TOOLS-1.0",
+      schemaVersion: TOOL_STORE_VERSION,
       tools: catalog.tools ?? []
     })
   );
@@ -55,17 +56,17 @@ export function saveToolCatalog(catalog: ToolCatalog) {
 
 export function upsertTool(catalog: ToolCatalog, tool: ToolDefinition): ToolCatalog {
   const filtered = (catalog.tools ?? []).filter((t) => t.id !== tool.id);
-  return { schemaVersion: "CJ-TOOLS-1.0", tools: [...filtered, tool] };
+  return { schemaVersion: TOOL_STORE_VERSION, tools: [...filtered, tool] };
 }
 
 export function removeTool(catalog: ToolCatalog, toolId: string): ToolCatalog {
-  return { schemaVersion: "CJ-TOOLS-1.0", tools: (catalog.tools ?? []).filter((t) => t.id !== toolId) };
+  return { schemaVersion: TOOL_STORE_VERSION, tools: (catalog.tools ?? []).filter((t) => t.id !== toolId) };
 }
 
 export function importToolCatalog(json: string): ToolCatalog {
   const parsed = safeParse(json);
   if (parsed) return parsed;
-  throw new Error("Invalid tool catalog JSON (expected schemaVersion CJ-TOOLS-1.0).");
+  throw new Error(`Invalid tool catalog JSON (expected schemaVersion ${TOOL_STORE_VERSION}).`);
 }
 
 export function exportToolCatalog(catalog: ToolCatalog): string {

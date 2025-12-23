@@ -16,7 +16,7 @@ import type { ForgeProject, Graph } from "./types";
 export const forgeProjectSchema = schemaJson as any;
 export const forgeProjectSchemaVersion: string = FORGE_PROJECT_LATEST_SCHEMA_VERSION;
 export const forgeProjectProjectVersion: string = FORGE_PROJECT_LATEST_PROJECT_VERSION;
-export const forgeGraphSupportedVersions: string[] = GRAPH_SUPPORTED_VERSIONS;
+export const forgeGraphSupportedVersions: string[] = Array.from(GRAPH_SUPPORTED_VERSIONS);
 export const forgeGraphVersion: string = GRAPH_LATEST_VERSION;
 export const forgeProjectSchemaUrl = `${schemaUrl}${schemaUrl.includes("?") ? "&" : "?"}v=${encodeURIComponent(
   forgeProjectSchemaVersion
@@ -145,8 +145,9 @@ export function validateForgeProject(raw: any, opts: ValidationOptions = {}): Va
     return { issues };
   }
 
-  const allowedSchemaVersions = opts.latestOnly ? [forgeProjectSchemaVersion] : FORGE_PROJECT_SUPPORTED_SCHEMA_VERSIONS;
-  if (!allowedSchemaVersions.includes(raw.schemaVersion)) {
+  const allowedSchemaVersions = opts.latestOnly ? [forgeProjectSchemaVersion] : Array.from(FORGE_PROJECT_SUPPORTED_SCHEMA_VERSIONS);
+  const schemaVersion = String(raw.schemaVersion ?? "");
+  if (!allowedSchemaVersions.includes(schemaVersion)) {
     push(
       issues,
       "ERROR",

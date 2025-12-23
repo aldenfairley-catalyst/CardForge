@@ -6,7 +6,7 @@
  * Deck/Scenario builder can reference this in the future.
  */
 
-export type CatalogSchemaVersion = "CJ-CATALOG-1.0";
+export type CatalogSchemaVersion = typeof CATALOG_LATEST_VERSION;
 
 export type FactionDef = {
   id: string;            // stable id, e.g. "EMERALD_TIDE"
@@ -37,7 +37,7 @@ export type Catalog = {
 };
 
 const LS_KEY = "CJ_CATALOG";
-const BASE_CATALOG: Catalog = { schemaVersion: "CJ-CATALOG-1.0", factions: [], templates: [], units: [] };
+const BASE_CATALOG: Catalog = { schemaVersion: CATALOG_LATEST_VERSION, factions: [], templates: [], units: [] };
 
 export const DEFAULT_CATALOG: Catalog = BASE_CATALOG;
 
@@ -49,7 +49,7 @@ export function normalizeCatalog(raw: unknown): Catalog {
   if (!raw || typeof raw !== "object") return normalizeCatalog(BASE_CATALOG);
   const parsed = raw as Partial<Catalog>;
   return {
-    schemaVersion: "CJ-CATALOG-1.0",
+    schemaVersion: CATALOG_LATEST_VERSION,
     factions: Array.isArray(parsed.factions) ? parsed.factions.slice() : [],
     templates: Array.isArray(parsed.templates) ? parsed.templates.slice() : [],
     units: Array.isArray(parsed.units) ? parsed.units.slice() : []
@@ -112,3 +112,4 @@ export function upsertTemplate(cat: Catalog, t: TemplateDef): Catalog {
 export function deleteTemplate(cat: Catalog, templateId: string): Catalog {
   return { ...cat, templates: cat.templates.filter((t) => t.id !== templateId) };
 }
+import { CATALOG_LATEST_VERSION } from "./versions";

@@ -1,32 +1,31 @@
 import type { CardEntity } from "./types";
+import { CARD_LIBRARY_IMPORT_VERSIONS, CARD_LIBRARY_LATEST_VERSION } from "./versions";
 
 const CARD_LIBRARY_KEY = "CJ_CARD_LIBRARY_V1";
 const LEGACY_CARD_LIBRARY_KEY = "CJ_LIBRARY_V1";
 
-export const CARD_LIBRARY_VERSION = "CJ-CARD-LIB-1.0" as const;
-
 export type CardLibrary = {
-  schemaVersion: typeof CARD_LIBRARY_VERSION;
+  schemaVersion: typeof CARD_LIBRARY_LATEST_VERSION;
   cards: CardEntity[];
 };
 
 function normalizeCardLibrary(parsed: any): CardLibrary {
-  if (Array.isArray(parsed?.cards)) return { schemaVersion: CARD_LIBRARY_VERSION, cards: parsed.cards };
-  if (Array.isArray(parsed)) return { schemaVersion: CARD_LIBRARY_VERSION, cards: parsed };
-  if (parsed?.schemaVersion === "CJ-LIB-1.0" && Array.isArray(parsed.cards))
-    return { schemaVersion: CARD_LIBRARY_VERSION, cards: parsed.cards };
-  if (parsed?.schemaVersion === CARD_LIBRARY_VERSION && Array.isArray(parsed.cards))
-    return { schemaVersion: CARD_LIBRARY_VERSION, cards: parsed.cards };
+  if (Array.isArray(parsed?.cards)) return { schemaVersion: CARD_LIBRARY_LATEST_VERSION, cards: parsed.cards };
+  if (Array.isArray(parsed)) return { schemaVersion: CARD_LIBRARY_LATEST_VERSION, cards: parsed };
+  if (CARD_LIBRARY_IMPORT_VERSIONS.includes(parsed?.schemaVersion) && Array.isArray(parsed.cards))
+    return { schemaVersion: CARD_LIBRARY_LATEST_VERSION, cards: parsed.cards };
+  if (parsed?.schemaVersion === CARD_LIBRARY_LATEST_VERSION && Array.isArray(parsed.cards))
+    return { schemaVersion: CARD_LIBRARY_LATEST_VERSION, cards: parsed.cards };
   throw new Error("Unrecognized library JSON. Expected {cards:[...]} or an array.");
 }
 
 export function loadLibrary(): CardLibrary {
   const raw = localStorage.getItem(CARD_LIBRARY_KEY) ?? localStorage.getItem(LEGACY_CARD_LIBRARY_KEY);
-  if (!raw) return { schemaVersion: CARD_LIBRARY_VERSION, cards: [] };
+  if (!raw) return { schemaVersion: CARD_LIBRARY_LATEST_VERSION, cards: [] };
   try {
     return normalizeCardLibrary(JSON.parse(raw));
   } catch {
-    return { schemaVersion: CARD_LIBRARY_VERSION, cards: [] };
+    return { schemaVersion: CARD_LIBRARY_LATEST_VERSION, cards: [] };
   }
 }
 

@@ -188,7 +188,7 @@ function buildAvailableOutputs(
   return available;
 }
 
-function pinMax(pin?: PinDefinition, direction: "IN" | "OUT"): number {
+function pinMax(direction: "IN" | "OUT", pin?: PinDefinition): number {
   if (!pin) return 0;
   if (pin.multi) return Infinity;
   if (typeof pin.maxConnections === "number" && pin.maxConnections >= 0) return pin.maxConnections;
@@ -278,7 +278,7 @@ export function validateGraph(
     const [nodeId, pinId, direction] = key.split("::");
     const node = nodeIndex.get(nodeId);
     const pin = findPin(node, pinId);
-    const max = pinMax(pin, direction === "IN" ? "IN" : "OUT");
+    const max = pinMax(direction === "IN" ? "IN" : "OUT", pin);
     if (max !== Infinity && count > max) {
       const code = direction === "IN" ? "TARGET_AT_MAX" : "SOURCE_AT_MAX";
       push(
