@@ -85,7 +85,7 @@ function compileNode(ctx: CompileCtx, node: GraphNode): CompiledNode {
 
   if (node.nodeType === "IF") {
     const condition = compileConditionFromPin(ctx, node, "ifCondIn");
-    if (!condition) return [];
+    if (!condition) return { steps: [], sourceMap: [] };
 
     const thenEdge = findEdgesFrom(ctx, node.id, "thenExecOut", PinKind.CONTROL)[0];
     const elseEdge = findEdgesFrom(ctx, node.id, "elseExecOut", PinKind.CONTROL)[0];
@@ -212,14 +212,14 @@ export function compileAbilityGraph({
   graph: Graph;
   ability: AbilityComponent;
   card: CardEntity;
-}): { steps: Step[]; issues: ReturnType<typeof validateGraph> } {
+}): { steps: Step[]; issues: ReturnType<typeof validateGraph>; sourceMap: GraphSourceMapEntry[] } {
   const issues = validateGraph(graph, ability);
   const hasErrors = issues.some((i) => i.severity === "ERROR");
   const nodeIndex = new Map<string, GraphNode>();
   graph.nodes.forEach((n) => nodeIndex.set(n.id, n));
 
   const start = graph.nodes.find((n) => n.nodeType === "EXEC_START");
-  if (!start || hasErrors) return { steps: (ability as any).execution?.steps ?? [], issues };
+  if (!start || hasErrors) return { steps: (ability as any).execution?.steps ?? [], issues, sourceMap: [] };
 
   const ctx: CompileCtx = { graph, ability, card, visited: new Set(), nodeIndex, issues };
 

@@ -58,7 +58,7 @@ export type ScenarioTrigger = {
 };
 
 export type ScenarioDefinition = {
-  schemaVersion: "CJ-SCENARIO-1.0";
+  schemaVersion: typeof SCENARIO_LATEST_VERSION;
   id: string;
   name: string;
   description?: string;
@@ -75,7 +75,7 @@ export type ScenarioDefinition = {
 
 export function makeDefaultScenario(): ScenarioDefinition {
   return {
-    schemaVersion: "CJ-SCENARIO-1.0",
+    schemaVersion: SCENARIO_LATEST_VERSION,
     id: `scenario.${cryptoRandomId()}`,
     name: "New Scenario",
     description: "",
@@ -105,3 +105,4 @@ function cryptoRandomId() {
     return Math.random().toString(16).slice(2);
   }
 }
+import { SCENARIO_LATEST_VERSION } from "./versions";

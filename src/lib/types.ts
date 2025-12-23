@@ -2,7 +2,11 @@
  * Captain Jawa Digital — Types
  * CJ-2.0 (permissive typing to avoid blocking iteration)
  */
-import type { CardSchemaVersion as SupportedCardSchemaVersion } from "./versions";
+import {
+  CARD_LIBRARY_LATEST_VERSION,
+  CardSchemaVersion as SupportedCardSchemaVersion,
+  TOOLS_LATEST_VERSION
+} from "./versions";
 
 export type CardSchemaVersion = SupportedCardSchemaVersion;
 
@@ -419,6 +423,8 @@ export type ToolDefinition = {
 };
 
 export type ToolCatalog = {
-  schemaVersion: "CJ-TOOLS-1.0";
+  schemaVersion: typeof TOOLS_LATEST_VERSION;
   tools: ToolDefinition[];
 };
+
+export type CardLibrarySchemaVersion = typeof CARD_LIBRARY_LATEST_VERSION;

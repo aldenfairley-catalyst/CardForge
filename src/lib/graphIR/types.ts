@@ -6,7 +6,7 @@ import { GRAPH_SUPPORTED_VERSIONS } from "../versions";
 // This is distinct from the canonical runtime steps stored on the card.
 
 export type GraphVersion = GraphSchemaVersion;
-export const supportedGraphVersions: GraphVersion[] = GRAPH_SUPPORTED_VERSIONS;
+export const supportedGraphVersions: GraphVersion[] = Array.from(GRAPH_SUPPORTED_VERSIONS);
 
 export enum PinKind {
   CONTROL = "CONTROL",

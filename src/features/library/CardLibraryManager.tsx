@@ -1,7 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import type { CardEntity } from "../../lib/types";
 import type { DataProvider } from "../../lib/dataProvider";
-import { CARD_LIBRARY_VERSION, importLibraryJson, type CardLibrary } from "../../lib/libraryStore";
+import { importLibraryJson, type CardLibrary } from "../../lib/libraryStore";
+import { CARD_LIBRARY_LATEST_VERSION } from "../../lib/versions";
 
 function download(filename: string, text: string) {
   const blob = new Blob([text], { type: "application/json" });
@@ -14,7 +15,7 @@ function download(filename: string, text: string) {
 }
 
 export function CardLibraryManager(props: { currentCard?: CardEntity; provider: DataProvider }) {
-  const [lib, setLib] = useState<CardLibrary>({ schemaVersion: CARD_LIBRARY_VERSION, cards: [] });
+  const [lib, setLib] = useState<CardLibrary>({ schemaVersion: CARD_LIBRARY_LATEST_VERSION, cards: [] });
   const [importText, setImportText] = useState("");
   const [err, setErr] = useState<string | null>(null);
   const [importErr, setImportErr] = useState<string | null>(null);
@@ -37,7 +38,7 @@ export function CardLibraryManager(props: { currentCard?: CardEntity; provider: 
     setErr(null);
     try {
       const list = await props.provider.cards.list();
-      setLib({ schemaVersion: CARD_LIBRARY_VERSION, cards: list as CardEntity[] });
+      setLib({ schemaVersion: CARD_LIBRARY_LATEST_VERSION, cards: list as CardEntity[] });
     } catch (e: any) {
       setErr(e?.message ?? String(e));
     } finally {
@@ -56,7 +57,7 @@ export function CardLibraryManager(props: { currentCard?: CardEntity; provider: 
   }
 
   function exportAll() {
-    download("cj_card_library.json", JSON.stringify({ schemaVersion: CARD_LIBRARY_VERSION, cards: lib.cards }, null, 2));
+    download("cj_card_library.json", JSON.stringify({ schemaVersion: CARD_LIBRARY_LATEST_VERSION, cards: lib.cards }, null, 2));
   }
 
   async function doImport() {
@@ -85,7 +86,7 @@ export function CardLibraryManager(props: { currentCard?: CardEntity; provider: 
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <span className="badge">{lib.cards.length} cards</span>
-          <span className="badge">CJ-CARD-LIB-1.0</span>
+          <span className="badge">{CARD_LIBRARY_LATEST_VERSION}</span>
           {loading ? <span className="small">Loading…</span> : null}
         </div>
       </div>

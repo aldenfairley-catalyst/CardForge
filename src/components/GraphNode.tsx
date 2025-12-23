@@ -20,6 +20,12 @@ const pinColor: Record<string, string> = {
   json: "#111827"
 };
 
+function resolvePinColor(pin: PinDefinition) {
+  if (pin.kind === PinKind.CONTROL) return pinColor.CONTROL;
+  const key = Array.isArray(pin.dataType) ? pin.dataType[0] ?? "json" : pin.dataType ?? "json";
+  return pinColor[key] ?? pinColor.json;
+}
+
 function handlePosition(pin: PinDefinition) {
   switch (pin.position) {
     case "TOP":
@@ -102,7 +108,7 @@ export function GraphNode({ data, selected }: GraphNodeProps) {
               {group}
             </div>
             {groupPins.map((pin) => {
-              const color = pin.kind === PinKind.CONTROL ? pinColor.CONTROL : pinColor[pin.dataType ?? "json"] ?? "#6b7280";
+              const color = resolvePinColor(pin);
               const size = pin.kind === PinKind.CONTROL ? 12 : 10;
               return (
                 <div key={pin.id} style={{ display: "flex", alignItems: "center", gap: 6, position: "relative" }}>

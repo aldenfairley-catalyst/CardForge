@@ -1,5 +1,13 @@
 import type { CardEntity } from "./types";
-import { CARD_LATEST_VERSION, CARD_SUPPORTED_VERSIONS, SCHEMA_VERSION_UNSUPPORTED } from "./versions";
+import {
+  CARD_IMPORT_VERSIONS,
+  CARD_LATEST_VERSION,
+  CARD_SUPPORTED_VERSIONS,
+  CARD_VERSION_1_0,
+  CARD_VERSION_1_1,
+  CARD_VERSION_1_2,
+  SCHEMA_VERSION_UNSUPPORTED
+} from "./versions";
 
 export const LATEST_SCHEMA_VERSION = CARD_LATEST_VERSION;
 export const SUPPORTED_SCHEMA_VERSIONS = CARD_SUPPORTED_VERSIONS;
@@ -15,7 +23,7 @@ function ensurePresentation(card: any) {
 }
 
 function migrate_1_0_to_1_1(card: any): CardEntity {
-  card.schemaVersion = "CJ-1.1";
+  card.schemaVersion = CARD_VERSION_1_1;
   ensurePresentation(card);
 
   for (const comp of card.components ?? []) {
@@ -34,7 +42,7 @@ function migrate_1_0_to_1_1(card: any): CardEntity {
 }
 
 function migrate_1_1_to_1_2(card: any): CardEntity {
-  card.schemaVersion = "CJ-1.2";
+  card.schemaVersion = CARD_VERSION_1_2;
   return ensurePresentation(card) as CardEntity;
 }
 
@@ -49,9 +57,9 @@ export function migrateCard(raw: any): CardEntity {
 
   const v = String(incoming.schemaVersion ?? "");
   if (v === CARD_LATEST_VERSION) return finalizeLatest({ ...incoming });
-  if (v === "CJ-1.2") return finalizeLatest(migrate_1_1_to_1_2({ ...incoming }));
-  if (v === "CJ-1.1") return finalizeLatest(migrate_1_1_to_1_2({ ...incoming }));
-  if (v === "CJ-1.0") return finalizeLatest(migrate_1_1_to_1_2(migrate_1_0_to_1_1({ ...incoming })));
+  if (v === CARD_VERSION_1_2) return finalizeLatest(migrate_1_1_to_1_2({ ...incoming }));
+  if (v === CARD_VERSION_1_1) return finalizeLatest(migrate_1_1_to_1_2({ ...incoming }));
+  if (v === CARD_VERSION_1_0) return finalizeLatest(migrate_1_1_to_1_2(migrate_1_0_to_1_1({ ...incoming })));
 
   const err = new Error(`${SCHEMA_VERSION_UNSUPPORTED}: ${v}`);
   (err as any).code = SCHEMA_VERSION_UNSUPPORTED;

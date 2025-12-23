@@ -77,6 +77,11 @@ import { browserProvider } from "./lib/providers/browserProvider";
 import { localApiProvider } from "./lib/providers/localApiProvider";
 import { loadToolCatalog, saveToolCatalog } from "./lib/toolStore";
 import { ToolManager } from "./features/tools/ToolManager";
+import {
+  ACTION_LIBRARY_LATEST_VERSION,
+  NODE_REGISTRY_VERSION,
+  TOOL_STORE_VERSION
+} from "./lib/versions";
 
 type AppMode = "FORGE" | "LIBRARY" | "DECKS" | "SCENARIOS";
 
@@ -239,7 +244,7 @@ export default function App() {
     const migrated = loadMigratedCardOrDefault(makeDefaultCard);
     return coerceUnknownSteps(migrated) as CardEntity;
   });
-  // Graph editor state lives in CJ-GRAPH-2.0 IR (with import support for 1.x) and is adapted to React Flow nodes/edges.
+  // Graph editor state lives in latest graph IR (with import support for 1.x) and is adapted to React Flow nodes/edges.
   const [graphMeta, setGraphMeta] = useState<Pick<Graph, "graphVersion" | "id" | "label">>(() => {
     const initialGraph = project.graphs[project.ui?.activeGraphId ?? "root"] ?? makeDefaultGraph();
     return { graphVersion: initialGraph.graphVersion, id: initialGraph.id, label: initialGraph.label };
@@ -1159,7 +1164,7 @@ export default function App() {
         <div className="panel">
           <div className="ph">
             <div>
-              <div className="h2">Graph Nodes (CJ-NODEDEF-1.0)</div>
+              <div className="h2">Graph Nodes ({NODE_REGISTRY_VERSION})</div>
               <div className="small">Palette is driven by src/assets/nodeRegistry.json</div>
             </div>
             <span className="badge">{nodeCount}</span>
@@ -2054,14 +2059,14 @@ export default function App() {
       </Modal>
 
       {/* Tool catalog modal */}
-      <Modal open={toolsOpen} title="Tool Catalog (CJ-TOOLS-1.0)" onClose={() => setToolsOpen(false)}>
+      <Modal open={toolsOpen} title={`Tool Catalog (${TOOL_STORE_VERSION})`} onClose={() => setToolsOpen(false)}>
         <ToolManager catalog={toolCatalog} onChange={setToolCatalog} />
       </Modal>
 
       {/* Action Library modal */}
       <Modal
         open={libraryOpen}
-        title="Action Library (CJ-ACTION-LIB-1.0)"
+        title={`Action Library (${ACTION_LIBRARY_LATEST_VERSION})`}
         onClose={() => {
           setLibraryOpen(false);
           setLibraryError(null);

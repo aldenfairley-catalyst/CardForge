@@ -1,9 +1,8 @@
 import type { AbilityComponent, Step, TargetingProfile } from "./types";
-
-export const ACTION_LIBRARY_VERSION = "CJ-ACTION-LIB-1.0" as const;
+import { ACTION_LIBRARY_IMPORT_VERSIONS, ACTION_LIBRARY_LATEST_VERSION } from "./versions";
 
 export type ActionLibrary = {
-  libraryVersion: typeof ACTION_LIBRARY_VERSION;
+  libraryVersion: typeof ACTION_LIBRARY_LATEST_VERSION;
   name: string;
   updatedAt: string;
 
@@ -21,9 +20,9 @@ const LS_SOURCE_KEY = "CJ_ACTION_LIBRARY_SOURCE"; // {mode:'local'|'url', url?:s
 function normalizeLibrary(parsed: any): ActionLibrary {
   if (!parsed || typeof parsed !== "object") throw new Error("Expected action library JSON object");
   const baseVersion = parsed.libraryVersion;
-  if (baseVersion === "CJ-LIB-1.0" || baseVersion === ACTION_LIBRARY_VERSION) {
+  if (ACTION_LIBRARY_IMPORT_VERSIONS.includes(baseVersion) || baseVersion === ACTION_LIBRARY_LATEST_VERSION) {
     return {
-      libraryVersion: ACTION_LIBRARY_VERSION,
+      libraryVersion: ACTION_LIBRARY_LATEST_VERSION,
       name: parsed.name ?? "My Action Library",
       updatedAt: parsed.updatedAt ?? new Date().toISOString(),
       abilities: Array.isArray(parsed.abilities) ? parsed.abilities : [],
@@ -32,12 +31,12 @@ function normalizeLibrary(parsed: any): ActionLibrary {
       meta: parsed.meta
     };
   }
-  throw new Error(`Expected ${ACTION_LIBRARY_VERSION}`);
+  throw new Error(`Expected ${ACTION_LIBRARY_LATEST_VERSION}`);
 }
 
 export function defaultLibrary(): ActionLibrary {
   return {
-    libraryVersion: ACTION_LIBRARY_VERSION,
+    libraryVersion: ACTION_LIBRARY_LATEST_VERSION,
     name: "My Action Library",
     updatedAt: new Date().toISOString(),
     abilities: [],
