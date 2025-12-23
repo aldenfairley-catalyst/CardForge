@@ -1,5 +1,6 @@
 .github/workflows/pages.yml
 .gitignore
+.npmrc
 A2_EXECUTION.md
 AGENT_API_IMPLEMENTATION_GUIDE.md
 AGENT_GRAPH_REBUILD_GUIDE.md
@@ -24,9 +25,13 @@ PHASE_A3_TYPED_CONNECTIONS.md
 README.md
 RELEASE_NOTES.md
 REPO_AUDIT_AGENT_PLAYBOOK.md
+REPO_AUDIT_REPORT.md
+audit_files.txt
 index.html
 package-lock.json
 package.json
+server/.npmrc
+server/package-lock.json
 server/package.json
 server/src/db.ts
 server/src/index.ts
