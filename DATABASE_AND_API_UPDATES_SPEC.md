@@ -225,7 +225,7 @@ Replaces localStorage “library” and enables syncing/export.
 | id | TEXT PK | UUID or stable string |
 | entryType | TEXT | `ABILITY`, `STEP`, `TARGET_PROFILE`, `MACRO`, `SUBSYSTEM` |
 | name | TEXT | |
-| schemaVersion | TEXT | e.g., CJ-LIB-1.0 |
+| schemaVersion | TEXT | e.g., CJ-ACTION-LIB-1.0 |
 | json | TEXT | |
 | createdAt | TEXT | |
 | updatedAt | TEXT | |

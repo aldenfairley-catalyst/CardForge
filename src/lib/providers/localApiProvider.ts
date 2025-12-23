@@ -15,7 +15,7 @@ import type { CardEntity } from "../types";
 import type { DeckDefinition } from "../deckTypes";
 import type { ScenarioDefinition } from "../scenarioTypes";
 import type { Catalog } from "../catalog";
-import type { ActionLibrary } from "../repository";
+import { defaultLibrary, type ActionLibrary } from "../repository";
 
 const API_BASE = (import.meta as any).env?.VITE_API_BASE || "/api";
 
@@ -88,7 +88,11 @@ const scenarioProvider: ScenarioProvider = {
   async list(params) {
     const url = withQuery(`${API_BASE}/scenarios`, { search: params?.search });
     const data = await api<{ scenarios: ScenarioSummary[] }>(url);
-    return data.scenarios;
+    return data.scenarios.map((s) => ({
+      ...s,
+      mode: s.mode ?? "ASSISTED_PHYSICAL",
+      players: s.players ?? 2
+    }));
   },
   async get(id: string) {
     const data = await api<{ json: ScenarioDefinition }>(`${API_BASE}/scenarios/${id}`);
@@ -147,7 +151,7 @@ const libraryProvider: LibraryProvider = {
     const data = await api<{ entries: { json: ActionLibrary }[] }>(`${API_BASE}/library`);
     // Legacy shape: combine into single library if available
     const first = data.entries[0]?.json;
-    return (first as ActionLibrary) ?? ({} as ActionLibrary);
+    return (first as ActionLibrary) ?? defaultLibrary();
   },
   async save(library: ActionLibrary) {
     await api(`${API_BASE}/library/${library.name ?? "library"}`, {

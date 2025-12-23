@@ -44,7 +44,7 @@ function saveAssetStore(store: AssetStore) {
 const cardProvider: CardProvider = {
   async list() {
     const lib = loadCardLibrary();
-    return lib.cards.map<CardSummary>((c) => ({ id: c.id, name: c.name, type: c.type, faction: c.faction }));
+    return lib.cards.map<CardSummary>((c) => ({ ...c }));
   },
   async get(id: string) {
     const lib = loadCardLibrary();
@@ -80,7 +80,7 @@ const deckProvider: DeckProvider = {
 const scenarioProvider: ScenarioProvider = {
   async list() {
     const store = loadScenarioStore();
-    return store.scenarios.map<ScenarioSummary>((s) => ({ id: s.id, name: s.name }));
+    return store.scenarios.map<ScenarioSummary>((s) => ({ id: s.id, name: s.name, mode: s.mode, players: s.players }));
   },
   async get(id: string) {
     const store = loadScenarioStore();

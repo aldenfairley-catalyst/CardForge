@@ -97,9 +97,10 @@ For each file in `git ls-files`, fill:
 Use tools below to speed up “imported by” and “exports”.
 
 ### 3.2 Automated “import graph” extraction
-Run:
-- `npx madge --ts-config ./tsconfig.json --circular ./src`
-- `npx madge --ts-config ./tsconfig.json ./src --image madge_graph.svg` (optional)
+Registry policy currently blocks fetching `madge` via `npx`. If the dependency is already installed locally, run:
+- `madge --ts-config ./tsconfig.json --circular ./src`
+- `madge --ts-config ./tsconfig.json ./src --image madge_graph.svg` (optional)
+Otherwise, skip this step and note the blocker.
 Capture:
 - circular deps
 - isolated subtrees
@@ -108,16 +109,14 @@ Capture:
 **Checkpoint:** Identify files with zero inbound dependencies.
 
 ### 3.3 Unused export detection
-Run:
-- `npx ts-prune -p tsconfig.json`
+Registry policy currently blocks fetching `ts-prune` via `npx`. If available locally, run `ts-prune -p tsconfig.json`. Otherwise, skip and record the blocker.
 Capture output lines:
 - `path:line - exported symbol is never used`
 
 **Checkpoint:** Build a table of unused exports.
 
 ### 3.4 Dependency drift
-Run:
-- `npx depcheck`
+`depcheck` is blocked by the same registry 403. Run `depcheck` only if the package is already installed; otherwise document the blocker.
 Capture:
 - unused dependencies
 - missing dependencies

@@ -2,10 +2,10 @@
 Version: CJ Docs 1.2 (AI-first, comprehensive) • Updated: 2025-12-20
 
 This is the **comprehensive** guide for AI agents to generate **valid, importable** JSON across:
-- Cards (CJ-1.2)
+- Cards (CJ-1.2; imports migrate CJ-1.0/1.1 → CJ-1.2 automatically)
 - Decks (CJ-DECK-1.0)
 - Scenarios (CJ-SCENARIO-1.0)
-- Action Library repository (CJ-LIB-1.0)
+- Action Library repository (CJ-ACTION-LIB-1.0)
 
 ---
 
