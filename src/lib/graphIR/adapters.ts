@@ -2,7 +2,7 @@ import type { Edge as ReactFlowEdge, Node as ReactFlowNode } from "reactflow";
 import { PinKind, type GraphEdge, type GraphNode } from "./types";
 
 /**
- * Helpers for adapting editor Graph IR (CJ-GRAPH-1.x) to React Flow nodes/edges and back.
+ * Helpers for adapting editor Graph IR (CJ-GRAPH-2.0 with import support for 1.x) to React Flow nodes/edges and back.
  * This keeps the React Flow canvas decoupled from the serialized graph format used in exports.
  */
 export function graphNodeToReactFlowNode(node: GraphNode, selectedId?: string): ReactFlowNode {

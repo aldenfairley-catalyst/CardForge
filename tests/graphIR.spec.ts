@@ -6,6 +6,7 @@ import { compileAbilityGraph } from "../src/lib/graphIR/compiler";
 import { PinKind, type Graph } from "../src/lib/graphIR/types";
 import { getRegistry, materializePins } from "../src/lib/nodes/registry";
 import { validateGraph } from "../src/lib/graphIR/validateGraph";
+import { GRAPH_LATEST_VERSION } from "../src/lib/versions";
 
 describe("nodeRegistry integrity", () => {
   const registry = getRegistry();
@@ -32,7 +33,7 @@ describe("nodeRegistry integrity", () => {
 
 describe("graph compile pipeline", () => {
   function baseGraph(): Graph {
-    return { graphVersion: "CJ-GRAPH-1.1", id: "g", label: "test", nodes: [], edges: [] };
+    return { graphVersion: GRAPH_LATEST_VERSION, id: "g", label: "test", nodes: [], edges: [] };
   }
 
   it("compiles Start → Show Text", () => {
@@ -99,7 +100,7 @@ describe("graph validation rules", () => {
   it("allows control fan-out when maxConnections allows it", () => {
     const { ability, card } = buildAbility();
     const graph: Graph = {
-      graphVersion: "CJ-GRAPH-1.1",
+      graphVersion: GRAPH_LATEST_VERSION,
       id: "g",
       label: "multi",
       nodes: [
@@ -127,7 +128,7 @@ describe("graph validation rules", () => {
   it("rejects missing required IF condition connections during compilation", () => {
     const { ability, card } = buildAbility();
     const graph: Graph = {
-      graphVersion: "CJ-GRAPH-1.1",
+      graphVersion: GRAPH_LATEST_VERSION,
       id: "g",
       label: "missing-cond",
       nodes: [
@@ -150,7 +151,7 @@ describe("graph validation rules", () => {
   it("flags missing required config fields per node schema", () => {
     const { ability } = buildAbility();
     const graph: Graph = {
-      graphVersion: "CJ-GRAPH-1.1",
+      graphVersion: GRAPH_LATEST_VERSION,
       id: "g",
       label: "missing-config",
       nodes: [

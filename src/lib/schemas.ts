@@ -1,7 +1,12 @@
 // src/lib/schemas.ts
 import type { CardEntity, AbilityComponent, Step } from "./types";
 import { blockRegistry, isStepTypeAllowed } from "./registry";
-import { LATEST_SCHEMA_VERSION, SUPPORTED_SCHEMA_VERSIONS } from "./migrations";
+import {
+  CARD_LATEST_VERSION,
+  CARD_LATEST_VERSION_SET,
+  CARD_SUPPORTED_VERSION_SET,
+  SCHEMA_VERSION_UNSUPPORTED
+} from "./versions";
 
 export type ValidationSeverity = "ERROR" | "WARN";
 
@@ -13,8 +18,6 @@ export type ValidationIssue = {
 };
 
 const ALLOWED_CARD_TYPES = new Set(["UNIT", "ITEM", "ENVIRONMENT", "SPELL", "TOKEN"]);
-const SUPPORTED_SCHEMA_VERSION_SET = new Set<string>(SUPPORTED_SCHEMA_VERSIONS);
-const isSchemaVersionAllowed = (v: string) => SUPPORTED_SCHEMA_VERSION_SET.has(v);
 
 function push(
   issues: ValidationIssue[],
@@ -174,7 +177,7 @@ function walkSteps(steps: any[], issues: ValidationIssue[], ctx: WalkCtx) {
   }
 }
 
-export function validateCard(card: any): ValidationIssue[] {
+function validateCardInternal(card: any, opts: { latestOnly?: boolean }): ValidationIssue[] {
   const issues: ValidationIssue[] = [];
 
   if (!isObj(card)) {
@@ -182,14 +185,18 @@ export function validateCard(card: any): ValidationIssue[] {
     return issues;
   }
 
-  if (typeof card.schemaVersion !== "string" || !isSchemaVersionAllowed(card.schemaVersion)) {
-      push(
-        issues,
-        "ERROR",
-        "SCHEMA_VERSION",
-        `schemaVersion must be one of: ${Array.from(SUPPORTED_SCHEMA_VERSION_SET).join(", ")}.`,
-        "schemaVersion"
-      );
+  const allowedVersions = opts.latestOnly ? CARD_LATEST_VERSION_SET : CARD_SUPPORTED_VERSION_SET;
+  if (typeof card.schemaVersion !== "string" || !allowedVersions.has(card.schemaVersion)) {
+    const allowed = Array.from(allowedVersions).join(", ");
+    push(issues, "ERROR", "SCHEMA_VERSION_UNSUPPORTED", `${SCHEMA_VERSION_UNSUPPORTED}: ${allowed}`, "schemaVersion");
+  } else if (opts.latestOnly && card.schemaVersion !== CARD_LATEST_VERSION) {
+    push(
+      issues,
+      "ERROR",
+      "SCHEMA_VERSION_UNSUPPORTED",
+      `${SCHEMA_VERSION_UNSUPPORTED}: ${CARD_LATEST_VERSION}`,
+      "schemaVersion"
+    );
   }
 
   if (typeof card.id !== "string" || !card.id.trim()) {
@@ -257,4 +264,16 @@ export function validateCard(card: any): ValidationIssue[] {
     issues.push({ severity: "WARN", code: "OK", message: "No issues." });
   }
   return issues;
+}
+
+export function validateImportCard(card: any): ValidationIssue[] {
+  return validateCardInternal(card, { latestOnly: false });
+}
+
+export function validateLatestCard(card: any): ValidationIssue[] {
+  return validateCardInternal(card, { latestOnly: true });
+}
+
+export function validateCard(card: any): ValidationIssue[] {
+  return validateLatestCard(card);
 }

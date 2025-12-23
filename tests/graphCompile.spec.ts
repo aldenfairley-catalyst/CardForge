@@ -7,6 +7,7 @@ import { compileAbilityGraph } from "../src/lib/graphIR/compiler";
 import { validateGraph } from "../src/lib/graphIR/validateGraph";
 import { PinKind, type Graph } from "../src/lib/graphIR/types";
 import { materializePins } from "../src/lib/nodes/registry";
+import { GRAPH_LATEST_VERSION } from "../src/lib/versions";
 
 type AbilityGraphFixture = { card: any; ability: any };
 
@@ -16,9 +17,9 @@ function makeAbilityFixture(): AbilityGraphFixture {
   return { card, ability };
 }
 
-  function baseGraph(): Graph {
-    return { graphVersion: "CJ-GRAPH-1.1", id: "g", label: "test", nodes: [], edges: [] };
-  }
+function baseGraph(): Graph {
+  return { graphVersion: GRAPH_LATEST_VERSION, id: "g", label: "test", nodes: [], edges: [] };
+}
 
 describe("nodeRegistry.json integrity", () => {
   const registry = nodeRegistry as any;

@@ -1,9 +1,10 @@
 /**
  * Captain Jawa Digital — Types
- * CJ-1.2 (permissive typing to avoid blocking iteration)
+ * CJ-2.0 (permissive typing to avoid blocking iteration)
  */
+import type { CardSchemaVersion as SupportedCardSchemaVersion } from "./versions";
 
-export type CardSchemaVersion = `CJ-1.${number}`;
+export type CardSchemaVersion = SupportedCardSchemaVersion;
 
 export type CardType = "UNIT" | "ITEM" | "ENVIRONMENT" | "SPELL" | "TOKEN";
 

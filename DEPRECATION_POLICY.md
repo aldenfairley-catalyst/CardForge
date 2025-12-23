@@ -2,7 +2,7 @@
 Captain Jawa Forge — Schema/Graph Deprecation & Compatibility Rules  
 Version: 1.0  
 Owner: Repo Maintainers  
-Last updated: (fill in)
+Last updated: 2025-02-02
 
 ## 1) Purpose
 This document defines:

@@ -239,7 +239,7 @@ export default function App() {
     const migrated = loadMigratedCardOrDefault(makeDefaultCard);
     return coerceUnknownSteps(migrated) as CardEntity;
   });
-  // Graph editor state lives in CJ-GRAPH-1.x IR and is adapted to React Flow nodes/edges.
+  // Graph editor state lives in CJ-GRAPH-2.0 IR (with import support for 1.x) and is adapted to React Flow nodes/edges.
   const [graphMeta, setGraphMeta] = useState<Pick<Graph, "graphVersion" | "id" | "label">>(() => {
     const initialGraph = project.graphs[project.ui?.activeGraphId ?? "root"] ?? makeDefaultGraph();
     return { graphVersion: initialGraph.graphVersion, id: initialGraph.id, label: initialGraph.label };
