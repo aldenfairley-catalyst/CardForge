@@ -822,7 +822,7 @@ export default function App() {
       size: { width: aiSizeW, height: aiSizeH },
       prompt: aiPrompt,
       negativePrompt: aiNegative || undefined,
-      references: aiRefs.map((r) => ({ name: r.name, mimeType: r.mimeType, base64: r.base64 })),
+      references: aiRefs.map((r) => normalizeReferenceImage(r)),
       output: "dataUrl",
       meta: {
         cardId: card.id,
@@ -834,6 +834,11 @@ export default function App() {
   function dataUrlToBase64(dataUrl: string) {
     const idx = dataUrl.indexOf(",");
     return idx === -1 ? dataUrl : dataUrl.slice(idx + 1);
+  }
+
+  function normalizeReferenceImage(ref: AiRefImage) {
+    const base64 = dataUrlToBase64(ref.base64 ?? "");
+    return { ...ref, base64 };
   }
 
   function buildOpenAiImageRequest(state: ReturnType<typeof buildAiImageRequest>) {
@@ -862,13 +867,13 @@ export default function App() {
       userParts.push({
         inlineData: {
           mimeType: ref.mimeType || (ref as any).mime || "image/png",
-          data: ref.base64 ?? dataUrlToBase64((ref as any).dataUrl ?? "")
+          data: dataUrlToBase64(ref.base64 ?? (ref as any).dataUrl ?? "")
         }
       })
     );
 
     return {
-      url: `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(state.model || "imagen-3.0")}:generateContent?key=${encodeURIComponent(String(state.apiKey))}`,
+      url: `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(state.model || "gemini-1.5-flash")}:generateContent?key=${encodeURIComponent(String(state.apiKey))}`,
       body: {
         systemInstruction: { parts: [{ text: "Generate a single image. No extra text." }] },
         contents: [{ role: "user", parts: userParts }],

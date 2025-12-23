@@ -115,6 +115,11 @@ export type Graph = {
   edges: GraphEdge[];
 };
 
+export type GraphSourceMapEntry = {
+  stepPath: string;
+  nodeId: string;
+};
+
 export type ForgeProject = {
   schemaVersion: "CJ-FORGE-PROJECT-1.0";
   projectVersion?: string;
@@ -129,4 +134,5 @@ export type CompiledGraphResult = {
   issues: Array<{ severity: "ERROR" | "WARN"; code: string; message: string; path?: string }>;
   conditions?: Record<string, Condition>;
   expressions?: Record<string, Expression>;
+  sourceMap?: GraphSourceMapEntry[];
 };
